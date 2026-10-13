@@ -1,0 +1,33 @@
+# Worklog
+
+---
+Task ID: 1
+Agent: Main agent (Super Z)
+Task: Build the Kallmania multi-team task management, KPI tracking & intelligent report consolidation system for SBTS Group (Next.js 16 full-stack web app), based on the two attached report templates and the attached brand image.
+
+Work Log:
+- Inspected attached files: "Daily Report Call Centre.docx" (BPO agent template), "Daily_Report_Supervisor.docx" (BPO supervisor template), brand reference image (dark premium theme, 3D cubes, violet button, lime/orange accents).
+- Initialized fullstack environment (Next.js 16, App Router, Tailwind 4, shadcn/ui, Prisma/SQLite).
+- Installed packages: docx, mammoth, xlsx, bcryptjs, jose, unpdf, @types/bcryptjs.
+- Designed Prisma schema: User (roles/status workflow), Report (all template fields as columns + JSON payloads), Task, UploadedFile (hash, extraction status), Notification (dedupe), KpiConfig, AuditLog, SystemFlag. Pushed to SQLite.
+- Built core libs:
+  - src/lib/auth.ts — JWT (jose) httpOnly cookie sessions, bcrypt hashing, role guards.
+  - src/lib/template-config.ts — authoritative field mapping from the attached templates (13 core KPI rows preserved incl. exact targets 30/10/25/8/100%/2%/20mins, 8-row call log, supervisor attendance/KPI/coaching/escalation/action-plan tables) + email-metric extensions.
+  - src/lib/kpi.ts — safe division, derived KPIs (contact rate, conversion rate, leads total), variance, achievement %, team aggregation (best/lowest performer).
+  - src/lib/notify.ts — deduped notifications (per-recipient keys), supervisor broadcast, audit log, lazy overdue-report detection honoring approved-leave SystemFlags.
+  - src/lib/extraction.ts — text extraction for DOCX (mammoth), XLSX/CSV (SheetJS), PDF (unpdf), TXT, images (z-ai-web-dev-sdk VLM OCR); label-alias mapping to template fields with confidence levels and source-line provenance; section detection (challenges/escalations/additional activities).
+  - src/lib/word-export.ts — docx generation replicating both templates (title blocks, ▸ section headings, KPI table, call log, coaching, escalated issues, highlights/lowlights, action plan, manager review) + consolidated multi-department export + tech/social exports.
+- Built API routes (src/app/api/): auth (register/login/logout/change-password/me), bootstrap (idempotent admin + KPI-config seeding), users (admin approve/reject/suspend/role-change/reset-password/delete/leave), tasks (CRUD + blocked alerts), reports (draft/submit/review with derived-KPI recalc, KPI-shortfall & escalation & incomplete-task alerts), uploads (multipart upload with SHA-256 + user + date duplicate detection), uploads/extract, uploads/confirm (creates provenance-linked report), uploads/file (authorized download), notifications, dashboard (role-aware stats), consolidated (cross-dept aggregation incl. include-unconfirmed toggle), export (docx/xlsx/csv + consolidated docx), kpi-config, audit.
+- Seeded admin: echristian@kallmania.com / Egbo Christian Ugochukwu / @21279413 (role ADMIN, department MANAGEMENT) via idempotent /api/bootstrap.
+- Built single-route SPA frontend (src/app/page.tsx + src/components/kallmania/): brand-matched auth view (split screen, 3D-cube CSS art panel per reference image, registration with role picker + admin-confirmation messaging), app shell (dark sidebar, notification bell, change password), employee dashboards (KPI achievement bars, upcoming tasks), BPO agent report form (template-faithful: agent info grid, KPI table with auto-calculated derived metrics, 8-row call log, challenges/escalations/additional activities, email campaign context), tech report form (work entries + 7 summary metrics), social report form (platform activities + 14 metrics), supervisor report form (full supervisor template with auto-populated team KPIs), upload view (drag-drop, extraction stats cards, per-field review with confidence + source, editable KPI grid, confirm & submit), tasks views (employee + supervisor assignment with 8 statuses), my reports + review queue (inspect, source-doc comparison, approve/return with feedback), consolidated view (per-dept sections, provenance tracing, missing employees, export), admin views (user management with pending-approval role confirmation, KPI config editor, audit trail, uploads admin), notifications center.
+- Brand styling applied via globals.css theme overrides (dark navy #15202e/#101b29, violet #6c5ce7 primary, lime #dce775, orange #e8833a accents, glassy cards).
+- Fixed bugs found in testing: safeParse dropping already-parsed arrays (KPI metrics), globally-unique dedupeKey blocking multi-recipient notifications, supervisor MANAGEMENT-department filter hiding staff, missing icon import (CalendarDate), missing component imports, BPO_LABELS scoping runtime error, conversion-rate formula (leadsTotal → (hotLeads+warmLeads)/callsConnected*100).
+- Ran 36-check end-to-end API test suite (scripts/e2e-test.sh): 36/36 PASS covering registration → admin approval → role change, pending-login block, BPO report with calls+emails, derived KPIs (75% contact rate, 33.33% conversion, 7 leads), supervisor notifications (submission/escalation), task assignment + blocked alerts, tech report, upload → extraction (field mapping + section detection) → duplicate rejection, consolidation with provenance, report approval, Word/Excel/CSV exports (valid docx verified), consolidated docx export, RBAC denial checks, dashboard aggregates.
+- Browser-verified via agent-browser: login page matches brand, admin dashboard (stat cards, dept table, team KPI averages, alerts), consolidated report, agent dashboard (KPI bars), BPO form, upload → extraction review → confirm & submit, my reports with exports, supervisor review queue, supervisor report form. Zero runtime errors after fixes.
+
+Stage Summary:
+- Deliverable: fully functional Kallmania web app (single-route SPA + 15 API route groups + SQLite persistence).
+- Templates preserved exactly as attached (headings, field order, targets, tables) for both agent and supervisor reports; exports are Word-first per user request (plus Excel/CSV).
+- Admin account active: echristian@kallmania.com / @21279413. Self-registration → admin confirmation → role management flow verified.
+- All 17 acceptance criteria from the brief exercised (agent call+email report, extraction review, duplicate protection, alerts, consolidation with traceability, exports, RBAC, approved-report locking, persistent data).
+- Key files: prisma/schema.prisma, src/lib/{auth,template-config,kpi,notify,extraction,word-export,api-utils,client,kpi-seed}.ts, src/app/api/**, src/components/kallmania/*.tsx, src/app/page.tsx, scripts/e2e-test.sh.

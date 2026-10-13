@@ -1,0 +1,167 @@
+import { NextRequest } from "next/server";
+import { db } from "@/lib/db";
+import { requireUser, isSupervisorLike } from "@/lib/auth";
+import { handle, ok, fail, toDateOrNull } from "@/lib/api-utils";
+import { audit, notify } from "@/lib/notify";
+
+/** GET /api/tasks?mine=1&date=YYYY-MM-DD&department=BPO&status=BLOCKED */
+export async function GET(req: NextRequest) {
+  return handle(async () => {
+    const me = await requireUser();
+    const { searchParams } = new URL(req.url);
+    const mine = searchParams.get("mine") === "1";
+    const department = searchParams.get("department");
+    const status = searchParams.get("status");
+    const assigneeId = searchParams.get("assigneeId");
+
+    const where: Record<string, unknown> = {};
+    if (mine || !isSupervisorLike(me)) where.assigneeId = me.id;
+    else if (assigneeId) where.assigneeId = assigneeId;
+    if (department && isSupervisorLike(me)) where.department = department;
+    if (status) where.status = status;
+
+    const tasks = await db.task.findMany({
+      where,
+      include: { assignee: { select: { id: true, fullName: true, role: true } }, creator: { select: { id: true, fullName: true } } },
+      orderBy: [{ deadline: "asc" }, { dateAssigned: "desc" }],
+      take: 300,
+    });
+    return ok({ tasks });
+  });
+}
+
+/** POST — supervisors/admins create tasks; employees can create personal notes-to-self scoped to themselves */
+export async function POST(req: NextRequest) {
+  return handle(async () => {
+    const me = await requireUser();
+    const body = await req.json();
+    const { title, description, assigneeId, department, category, projectRef, priority, requiredOutcome, target, kpiKey, deadline, estimatedHours, reportingRequirements } = body;
+    if (!title) return fail("Task title is required");
+    if (!isSupervisorLike(me)) {
+      if (assigneeId && assigneeId !== me.id) return fail("Employees can only create tasks for themselves", 403);
+    }
+    let assignee = null;
+    if (assigneeId) {
+      assignee = await db.user.findUnique({ where: { id: assigneeId } });
+      if (!assignee) return fail("Assignee not found", 404);
+    }
+    const task = await db.task.create({
+      data: {
+        title: String(title).trim(),
+        description: description || null,
+        department: department || assignee?.department || me.department,
+        assigneeId: assigneeId || null,
+        createdById: me.id,
+        category: category || null,
+        projectRef: projectRef || null,
+        priority: priority || "MEDIUM",
+        requiredOutcome: requiredOutcome || null,
+        target: target !== undefined && target !== null && target !== "" ? String(target) : null,
+        kpiKey: kpiKey || null,
+        deadline: toDateOrNull(deadline),
+        estimatedHours: estimatedHours ? parseFloat(String(estimatedHours)) : null,
+      },
+      include: { assignee: { select: { id: true, fullName: true } } },
+    });
+    if (task.assigneeId && task.assigneeId !== me.id) {
+      await notify({
+        userId: task.assigneeId,
+        type: "TASK_ASSIGNED",
+        severity: "INFO",
+        title: "New task assigned",
+        message: `${me.fullName} assigned you: "${task.title}"${task.deadline ? ` — due ${new Date(task.deadline).toISOString().slice(0, 10)}` : ""}.`,
+        linkData: { view: "tasks", id: task.id },
+      });
+    }
+    await audit({ userId: me.id, actorName: me.fullName, action: "CREATE_TASK", entity: "Task", entityId: task.id, details: task.title });
+    return ok({ task }, 201);
+  });
+}
+
+/** PATCH — status updates, progress fields; supervisors can reassign/edit */
+export async function PATCH(req: NextRequest) {
+  return handle(async () => {
+    const me = await requireUser();
+    const body = await req.json();
+    const { id, ...updates } = body;
+    if (!id) return fail("Task id is required");
+    const task = await db.task.findUnique({ where: { id } });
+    if (!task) return fail("Task not found", 404);
+    const isOwner = task.assigneeId === me.id;
+    const isManager = isSupervisorLike(me);
+    if (!isOwner && !isManager) return fail("Not authorized to update this task", 403);
+
+    const data: Record<string, unknown> = {};
+    const allowed = ["status", "actualHours", "blocker", "nextSteps", "title", "description", "priority", "category", "projectRef", "requiredOutcome", "target", "assigneeId", "deadline", "estimatedHours", "kpiKey"];
+    for (const k of allowed) {
+      if (k in updates) {
+        if (k === "deadline") data[k] = toDateOrNull(updates[k]);
+        else if (k === "actualHours" || k === "estimatedHours") data[k] = updates[k] === "" || updates[k] === null ? null : parseFloat(String(updates[k]));
+        else if (k === "assigneeId" && !isManager) continue;
+        else data[k] = updates[k] === "" ? null : updates[k];
+      }
+    }
+    const updated = await db.task.update({ where: { id }, data, include: { assignee: { select: { id: true, fullName: true } } } });
+
+    // Notifications
+    if (updates.status === "BLOCKED" && task.assigneeId) {
+      await notify({
+        userId: task.assigneeId,
+        type: "TASK_BLOCKED",
+        severity: "WARNING",
+        title: "Task blocked",
+        message: `Task "${updated.title}" was marked BLOCKED by ${me.fullName}${updates.blocker ? `: ${updates.blocker}` : "."}`,
+        linkData: { view: "tasks", id },
+      });
+      const { notifySupervisors } = await import("@/lib/notify");
+      await notifySupervisors({
+        type: "TASK_BLOCKED",
+        severity: "WARNING",
+        title: "Technical task blocked",
+        message: `${me.fullName} flagged task "${updated.title}" as blocked${updates.blocker ? `: ${updates.blocker}` : "."}`,
+        linkData: { view: "tasks", id },
+        dedupeKey: `task-blocked:${id}:${new Date().toISOString().slice(0, 13)}`, // hourly dedupe
+      }, { includeAdmins: true });
+    }
+    if (isManager && updates.status && task.assigneeId && task.assigneeId !== me.id) {
+      await notify({
+        userId: task.assigneeId,
+        type: "TASK_UPDATED",
+        severity: "INFO",
+        title: "Task updated",
+        message: `Your task "${updated.title}" status is now: ${String(updates.status).replace(/_/g, " ")}.`,
+        linkData: { view: "tasks", id },
+      });
+    }
+    if (updates.status === "COMPLETED") {
+      const supervisors = await db.user.findMany({ where: { role: { in: ["SUPERVISOR", "ADMIN"] }, status: "APPROVED" } });
+      for (const s of supervisors) {
+        await notify({
+          userId: s.id,
+          type: "TASK_COMPLETED",
+          title: "Task completed",
+          severity: "INFO",
+          message: `${me.fullName} completed task "${updated.title}".`,
+          linkData: { view: "tasks", id },
+          dedupeKey: `task-done:${id}`,
+        });
+      }
+    }
+    await audit({ userId: me.id, actorName: me.fullName, action: "UPDATE_TASK", entity: "Task", entityId: id, details: JSON.stringify(updates).slice(0, 300) });
+    return ok({ task: updated });
+  });
+}
+
+/** DELETE — supervisors only */
+export async function DELETE(req: NextRequest) {
+  return handle(async () => {
+    const me = await requireUser();
+    if (!isSupervisorLike(me)) return fail("Supervisor access required", 403);
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    if (!id) return fail("id is required");
+    await db.task.delete({ where: { id } });
+    await audit({ userId: me.id, actorName: me.fullName, action: "DELETE_TASK", entity: "Task", entityId: id });
+    return ok({ success: true });
+  });
+}

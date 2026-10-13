@@ -1,0 +1,191 @@
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { api, ROLE_LABELS, type SessionUser } from "@/lib/client";
+import { Loader2, LogIn, UserPlus, ShieldCheck, AlertCircle, CheckCircle2 } from "lucide-react";
+
+const REGISTER_ROLES = [
+  { value: "AGENT_BPO", desc: "Outbound calls & email outreach" },
+  { value: "DEVELOPER", desc: "Web development & technical team" },
+  { value: "SOCIAL_MEDIA", desc: "Social media team" },
+  { value: "SUPERVISOR", desc: "Supervisor / team lead" },
+];
+
+const ROLE_DEPT: Record<string, string> = {
+  AGENT_BPO: "BPO",
+  DEVELOPER: "WEB_DEV",
+  SOCIAL_MEDIA: "SOCIAL_MEDIA",
+  SUPERVISOR: "MANAGEMENT",
+};
+
+/** Decorative 3D-cube art panel built from the brand reference (CSS shapes, no external asset needed) */
+function BrandArt() {
+  return (
+    <div className="relative h-full w-full overflow-hidden" style={{ background: "linear-gradient(160deg,#233248 0%,#101b29 60%,#0c1622 100%)" }}>
+      {/* warm glow */}
+      <div className="absolute -top-10 right-0 h-72 w-72 rounded-full blur-3xl opacity-30" style={{ background: "radial-gradient(circle,#e8833a,transparent 70%)" }} />
+      <div className="absolute bottom-0 left-1/4 h-64 w-64 rounded-full blur-3xl opacity-20" style={{ background: "radial-gradient(circle,#6c5ce7,transparent 70%)" }} />
+      {/* lime orbs */}
+      <div className="k-orb h-14 w-14 bg-[#dce775] shadow-[0_0_40px_rgba(220,231,117,0.5)]" style={{ top: "18%", right: "18%" }} />
+      <div className="k-orb h-9 w-9 bg-[#dce775] shadow-[0_0_30px_rgba(220,231,117,0.5)]" style={{ top: "52%", left: "12%" }} />
+      {/* floating cubes */}
+      <div className="absolute left-[38%] top-[16%] h-24 w-24 rotate-12 rounded-xl opacity-90" style={{ background: "linear-gradient(135deg,#33465f,#1a2637)", boxShadow: "0 30px 60px rgba(0,0,0,0.45)" }} />
+      <div className="absolute left-[48%] top-[30%] h-36 w-36 -rotate-6 rounded-2xl" style={{ background: "linear-gradient(145deg,#3d5270 0%,#232f43 55%,#182334 100%)", boxShadow: "0 40px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08)" }}>
+        <div className="absolute -right-3 top-8 h-24 w-16 rotate-[24deg] rounded-lg" style={{ background: "linear-gradient(135deg,#f0913f,#b4531f)", filter: "blur(0.5px)", opacity: 0.92 }} />
+      </div>
+      <div className="absolute bottom-[10%] right-[8%] h-28 w-28 rotate-[18deg] rounded-xl" style={{ background: "linear-gradient(135deg,#2c3c53,#141f2f)", boxShadow: "0 30px 70px rgba(0,0,0,0.55)" }} />
+      <div className="absolute bottom-[24%] left-[16%] h-16 w-16 rotate-45 rounded-lg opacity-80" style={{ background: "linear-gradient(135deg,#5b3a1e,#2b1c10)" }} />
+      {/* brand caption */}
+      <div className="absolute bottom-8 left-8 right-8">
+        <p className="text-2xl font-bold text-white">Kallmania</p>
+        <p className="mt-1 text-sm text-slate-400">SBTS Group Global — ICBM BPO Division</p>
+        <p className="mt-3 text-xs leading-relaxed text-slate-500">
+          Multi-team task management, KPI tracking & intelligent report consolidation.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) => void }) {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [form, setForm] = useState({ email: "", password: "", fullName: "", role: "AGENT_BPO", employeeId: "", phone: "" });
+
+  const submit = async () => {
+    setError(null);
+    setSuccess(null);
+    setLoading(true);
+    try {
+      if (mode === "login") {
+        await api("/api/auth", { method: "POST", body: JSON.stringify({ action: "login", email: form.email, password: form.password }) });
+        const { user } = await api<{ user: SessionUser }>("/api/auth");
+        onAuthed(user);
+      } else {
+        const res = await api<{ message: string }>("/api/auth", {
+          method: "POST",
+          body: JSON.stringify({
+            action: "register",
+            email: form.email,
+            password: form.password,
+            fullName: form.fullName,
+            role: form.role,
+            department: ROLE_DEPT[form.role],
+            employeeId: form.employeeId,
+            phone: form.phone,
+          }),
+        });
+        setSuccess(res.message || "Registration submitted — an administrator will confirm your account.");
+        setMode("login");
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#223046] p-4 sm:p-8">
+      <div className="grid w-full max-w-5xl overflow-hidden rounded-2xl shadow-2xl md:grid-cols-2">
+        {/* Left — form panel */}
+        <div className="flex flex-col justify-center bg-[#0f1b28] px-8 py-10 sm:px-12">
+          <div className="mb-8 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#6c5ce7] font-black text-white shadow-lg">K</div>
+            <div>
+              <p className="text-lg font-bold leading-none text-white">Kallmania</p>
+              <p className="mt-0.5 text-xs text-slate-400">SBTS Group Global</p>
+            </div>
+          </div>
+
+          <h1 className="text-3xl font-bold text-white">{mode === "login" ? "Login" : "Create your account"}</h1>
+          <p className="mt-1.5 text-sm text-slate-400">
+            {mode === "login" ? "See your growth and get consulting support!" : "Register and pick your role — an administrator will confirm your login and role."}
+          </p>
+
+          <div className="mt-7 space-y-4">
+            {mode === "register" && (
+              <>
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Full Name *</Label>
+                  <Input className="border-slate-600/50 bg-transparent text-slate-100 placeholder:text-slate-500" placeholder="e.g. Jane Okoro" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Role *</Label>
+                  <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
+                    <SelectTrigger className="border-slate-600/50 bg-transparent text-slate-100"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {REGISTER_ROLES.map((r) => (
+                        <SelectItem key={r.value} value={r.value}>{ROLE_LABELS[r.value]} — {r.desc}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="flex items-center gap-1.5 text-xs text-slate-500"><ShieldCheck className="h-3.5 w-3.5 text-[#dce775]" /> Roles are confirmed (and can be changed) by the administrator.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-300">Employee ID</Label>
+                    <Input className="border-slate-600/50 bg-transparent text-slate-100 placeholder:text-slate-500" placeholder="SBTS-000" value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-300">Phone</Label>
+                    <Input className="border-slate-600/50 bg-transparent text-slate-100 placeholder:text-slate-500" placeholder="optional" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                  </div>
+                </div>
+              </>
+            )}
+            <div className="space-y-1.5">
+              <Label className="text-slate-300">Email *</Label>
+              <Input type="email" className="border-slate-600/50 bg-transparent text-slate-100 placeholder:text-slate-500" placeholder="mail@website.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-slate-300">Password *</Label>
+              <Input type="password" className="border-slate-600/50 bg-transparent text-slate-100 placeholder:text-slate-500" placeholder={mode === "register" ? "Min. 6 characters" : "Min. 8 character"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} onKeyDown={(e) => e.key === "Enter" && submit()} />
+            </div>
+
+            {error && (
+              <div className="flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2.5 text-xs text-rose-300">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
+              </div>
+            )}
+            {success && (
+              <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-300">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {success}
+              </div>
+            )}
+
+            <Button onClick={submit} disabled={loading} className="h-11 w-full rounded-full bg-[#6c5ce7] text-sm font-semibold text-white hover:bg-[#5b4bd4]">
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === "login" ? <LogIn className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
+              {mode === "login" ? "Login" : "Register"}
+            </Button>
+
+            <p className="text-center text-xs text-slate-400">
+              {mode === "login" ? (
+                <>Don&apos;t have an account?{" "}
+                  <button className="font-semibold text-[#8b7ff5] hover:underline" onClick={() => { setMode("register"); setError(null); setSuccess(null); }}>Register</button>
+                </>
+              ) : (
+                <>Already have an account?{" "}
+                  <button className="font-semibold text-[#8b7ff5] hover:underline" onClick={() => { setMode("login"); setError(null); setSuccess(null); }}>Login</button>
+                </>
+              )}
+            </p>
+          </div>
+
+          <p className="mt-10 text-[11px] text-slate-500">©2026 Kallmania · SBTS Group. All rights reserved</p>
+        </div>
+
+        {/* Right — brand art (reference image) */}
+        <div className="hidden md:block">
+          <BrandArt />
+        </div>
+      </div>
+    </div>
+  );
+}
