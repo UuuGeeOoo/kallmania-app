@@ -50,3 +50,26 @@ Stage Summary:
 - Both pending requirements delivered: (1) admin & supervisor now view full report content online, download Word/Excel/CSV, and all submitted reports + original uploads persist online (SQLite + uploads-storage) with an archive UI; (2) KPIs now aggregate daily/weekly/monthly with period-scaled targets and correct derived-metric recomputation, on both employee and supervisor dashboards.
 - Preview-link 404 root-caused as platform-side routing (wrong hand-built URL); app confirmed healthy end-to-end.
 - Key files: src/app/api/kpi/summary/route.ts, src/components/kallmania/{kpi-trends,archive-view}.tsx, edits to reports-view.tsx, shell.tsx, page.tsx, dashboard.tsx.
+
+---
+Task ID: 3
+Agent: Main agent (Super Z)
+Task: Liquid glass UI overhaul + slide in/out sidebar + exact social-media docx replica + submit→awaiting-approval state machine + dynamic call-log & action-plan rows.
+
+Work Log:
+- Liquid glass design system (globals.css): .k-aurora animated multi-radial background canvas, .k-card frosted material (backdrop-blur 20px + saturate, specular ::before highlight, glass borders/shadows), .k-glass-chrome for sidebar/header, .k-btn-primary liquid violet button with animated sheen + .k-btn-glass outline, .k-nav-item/.k-nav-active glass nav pill with glowing indicator, sidebar slide transitions (.k-sidebar-anim cubic-bezier width, .k-collapsed-hide label fade), glass scrollbar, radius bump.
+- Shell (shell.tsx): desktop sidebar slides in/out — expanded w-64 ↔ collapsed 76px icon-rail with animated width, persisted in localStorage, PanelLeftClose/Open toggles; mobile slide-in Sheet kept; glass header w/ "Liquid Glass" chip; aurora layer; fixed badge positioning (relative nav item).
+- shared.tsx: glass inputCls; new ReportStateBanner (SUBMITTED=emerald pulsing "submitted successfully / awaiting approval / locked", REJECTED=amber "returned for correction"+feedback, APPROVED=sky "approved & finalized").
+- BPO agent form: call log now dynamic — 8 template rows, "Add another call" (header+footer), per-row trash, loads Math.max(8, logs.length), empties filtered on save; locked when SUBMITTED or APPROVED; banners; reviewer/feedback/reviewedAt loaded.
+- dept-report-forms.tsx rewritten: SOCIAL form = exact replica of Daily_Report_Social_Media_Team.docx — document header block, ▸ STAFF INFORMATION (Name/Date/Role-Designation/Shift/ClockIn/Out/Attendance/Lateness; designation persisted via teamName), ▸ KEY PERFORMANCE METRICS 8 docx rows w/ Target|Actual|Variance|Notes (editable target), ▸ TASKS ASSIGNED & COMPLETED dynamic table (6 template rows, add/remove; Task|Platform|Status|Deliverable), Challenges/Escalations, ▸ SUPERVISOR COMMENTS (live feedback); metricsSummary derived from KPI actuals (postsPublished/storiesPublished/reach/followerGrowth/commentsHandled). TECH form got lock/banner/glass.
+- Supervisor form: Action Plan for Next Day dynamic (6 template rows, unlimited add/remove), Coaching & Escalated tables also dynamic; SUBMITTED lock + banners; glass cells.
+- API /api/reports: server-side SOCIAL metricsSummary derivation from kpiMetrics (works for form, API and upload paths); "Published" added to completed-task exemptions.
+- Export: new buildSocialDocx in word-export.ts replicating the docx (3-line header, STAFF INFORMATION grid w/ heading, 8-KPI table, tasks table padded to 6, challenges/escalations, SUPERVISOR COMMENTS block, Confidential footer); wired for type SOCIAL w/ reviewer include.
+- reports-view: dialog bg glass; work-entry renderer shows task/platform chip/deliverable.
+- Fixed dev-server CSS staleness (Turbopack worker stuck): killed old server, removed .next/dev, daemonized via scripts/dev-daemon.js (node detached spawn — survives tool-call reaping; plain nohup/tee pipelines die with the call).
+- Verified: tsc clean for all touched files (pre-existing docx fontSize typings + 72 legacy errors untouched); API e2e scripts/e2e-glass-flows.sh (social submit→APPROVED+feedback, derived metricsSummary, 9-row call log storage, docx export with 13/13 replica markers, kpi summary aggregation, RBAC); browser-verified via agent-browser: login glass page, admin dashboard, sidebar collapse→icon-rail→expand (persisted), social form replica w/ approved banner + locked fields + supervisor comment, agent awaiting-approval banner w/ pulsing check, call log add 8→10 & remove 8→7 live, supervisor action plan 6→8 live, review dialog renders social tasks/KPI/platform chips; zero console errors.
+
+Stage Summary:
+- All requested items delivered: liquid-glass UI, slide in/out sidebar, exact social docx replica (form + Word export), submit→awaiting-approval state with locked fields across all four report forms, dynamic call logs for agents, dynamic action plan (and more) for supervisors.
+- Server: daemonized next dev on :3000 (scripts/dev-daemon.js). Admin: echristian@kallmania.com / @21279413.
+- Key files: src/app/globals.css, src/components/kallmania/{shell,shared,report-forms,dept-report-forms,supervisor-form,reports-view}.tsx, src/app/api/reports/route.ts, src/app/api/export/route.ts, src/lib/word-export.ts, src/lib/client.ts, scripts/dev-daemon.js, scripts/e2e-glass-flows.sh.

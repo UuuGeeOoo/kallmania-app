@@ -8,8 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { api, todayISO, type KpiMetric, type CallLogEntry, type ReportDTO, type SessionUser } from "@/lib/client";
-import { SectionCard, Field, inputCls, StatusBadge } from "@/components/kallmania/shared";
-import { ChevronDown, Save, Send, Calculator, Loader2, FileDown } from "lucide-react";
+import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner } from "@/components/kallmania/shared";
+import { cn } from "@/lib/utils";
+import { ChevronDown, Save, Send, Calculator, Loader2, FileDown, Plus, Trash2 } from "lucide-react";
 
 export const DISPOSITIONS = ["Interested", "Callback Requested", "Not Interested", "No Answer", "Busy / Unreachable", "Wrong Number", "Voicemail", "Meeting Booked", "Hot Lead", "Warm Lead"];
 const CALL_LOG_ROWS = 8;
@@ -77,7 +78,7 @@ export function KpiTable({ metrics, onChange, showCategory }: { metrics: KpiMetr
       <TableCell className="py-2">
         <Input
           type="number" step="any" inputMode="decimal"
-          className="h-8 w-24 border-slate-600/50 bg-[#15202e]/60 text-xs tabular-nums text-slate-100"
+          className={cn(inputCls, "h-8 w-24 text-xs tabular-nums")}
           value={m.actual === null ? "" : m.actual}
           onChange={(e) => setActual(m.key, e.target.value)}
           placeholder="—"
@@ -87,7 +88,7 @@ export function KpiTable({ metrics, onChange, showCategory }: { metrics: KpiMetr
         {m.variance === null ? <span className="text-slate-600">—</span> : m.variance >= 0 ? <span className="text-emerald-400">+{m.variance}</span> : <span className="text-rose-400">{m.variance}</span>}
       </TableCell>
       <TableCell className="py-2">
-        <Input className="h-8 border-slate-600/50 bg-[#15202e]/60 text-xs text-slate-100" value={m.notes} onChange={(e) => setNotes(m.key, e.target.value)} placeholder="optional" />
+        <Input className={cn(inputCls, "h-8 text-xs")} value={m.notes} onChange={(e) => setNotes(m.key, e.target.value)} placeholder="optional" />
       </TableCell>
     </TableRow>
   );
@@ -126,7 +127,7 @@ export function KpiTable({ metrics, onChange, showCategory }: { metrics: KpiMetr
 export function AttendanceBlock({
   values, onChange, user, isSupervisor,
 }: {
-  values: { shiftTime: string; clockIn: string; clockOut: string; attendanceStatus: string; latenessMins: string };
+  values: { shiftTime: string; clockIn: string; clockOut: string; attendanceStatus: string; latenessMins: string; teamName?: string };
   onChange: (v: Partial<typeof values>) => void;
   user: SessionUser;
   isSupervisor?: boolean;
@@ -162,6 +163,9 @@ export default function AgentBpoReportForm({
   const [challenges, setChallenges] = useState("");
   const [escalations, setEscalations] = useState("");
   const [additional, setAdditional] = useState("");
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [reviewer, setReviewer] = useState<string | null>(null);
+  const [reviewedAt, setReviewedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const DEFAULT_KPIS: KpiMetric[] = useMemo(() => ([
@@ -221,17 +225,22 @@ export default function AgentBpoReportForm({
           });
           setKpiMetrics(merged);
           const logs = existing.callLogs ? JSON.parse(existing.callLogs) as CallLogEntry[] : [];
-          setCallLogs(Array.from({ length: CALL_LOG_ROWS }, (_, i) => logs[i] || {}));
+          // start from the 8 template rows, extend if the agent logged more calls
+          setCallLogs(Array.from({ length: Math.max(CALL_LOG_ROWS, logs.length) }, (_, i) => logs[i] || {}));
           const ctx = existing.emailContext ? JSON.parse(existing.emailContext) as { campaignName?: string } : {};
           setCampaignName(ctx.campaignName || "");
           setChallenges(existing.challenges || "");
           setEscalations(existing.escalations || "");
           setAdditional(existing.additionalActivities || "");
+          setFeedback(existing.supervisorFeedback || null);
+          setReviewer(existing.reviewer?.fullName || null);
+          setReviewedAt(existing.reviewedAt || null);
         } else {
           setReportId(null); setRef(null); setStatus("DRAFT");
           setKpiMetrics(DEFAULT_KPIS.map((d) => ({ ...d })));
           setCallLogs(Array.from({ length: CALL_LOG_ROWS }, () => ({})));
           setCampaignName(""); setChallenges(""); setEscalations(""); setAdditional("");
+          setFeedback(null); setReviewer(null); setReviewedAt(null);
           setInfo({ shiftTime: "", clockIn: "", clockOut: "", attendanceStatus: "Present", latenessMins: "" });
         }
       } catch (e) {
@@ -247,11 +256,13 @@ export default function AgentBpoReportForm({
     setSaving(true);
     setError(null);
     try {
+      // drop fully-empty call log rows so the stored log stays clean
+      const cleanLogs = callLogs.filter((l) => l.leadName || l.disposition || l.followUp || l.notes);
       const body: Record<string, unknown> = {
         type: "AGENT_BPO", reportDate: date, department: user.department, submit,
         ...info,
         latenessMins: info.latenessMins === "" ? null : info.latenessMins,
-        kpiMetrics, callLogs,
+        kpiMetrics, callLogs: cleanLogs,
         emailContext: { campaignName },
         challenges, escalations, additionalActivities: additional,
       };
@@ -270,13 +281,18 @@ export default function AgentBpoReportForm({
     return <div className="flex items-center justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
   }
 
+  // Submitted → awaiting approval (locked); Approved → locked; Returned → editable again
+  const locked = status === "APPROVED" || status === "SUBMITTED";
+
   return (
     <div className="space-y-5">
-      {ref && (
+      {ref && status !== "DRAFT" && (
+        <ReportStateBanner status={status} ref={ref} feedback={feedback} reviewer={reviewer} reviewedAt={reviewedAt} />
+      )}
+      {ref && status === "DRAFT" && (
         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
           <span className="font-mono font-semibold text-[#b3a5ff]">{ref}</span>
           <StatusBadge status={status} />
-          {status === "APPROVED" && <span className="text-slate-500">Locked — ask your supervisor to return it for changes.</span>}
         </div>
       )}
       {error && <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</div>}
@@ -287,22 +303,22 @@ export default function AgentBpoReportForm({
           <Field label="Date"><Input readOnly disabled className={inputCls} value={date} /></Field>
           <Field label="Agent ID"><Input readOnly disabled className={inputCls} value={user.employeeId || "—"} /></Field>
           <Field label="Shift Time" hint="e.g. 09:00 - 17:00">
-            <Input disabled={status === "APPROVED"} className={inputCls} value={info.shiftTime} onChange={(e) => setInfo({ ...info, shiftTime: e.target.value })} />
+            <Input disabled={locked} className={inputCls} value={info.shiftTime} onChange={(e) => setInfo({ ...info, shiftTime: e.target.value })} />
           </Field>
           <Field label="Clock-In Time">
-            <Input type="time" disabled={status === "APPROVED"} className={inputCls} value={info.clockIn} onChange={(e) => setInfo({ ...info, clockIn: e.target.value })} />
+            <Input type="time" disabled={locked} className={inputCls} value={info.clockIn} onChange={(e) => setInfo({ ...info, clockIn: e.target.value })} />
           </Field>
           <Field label="Clock-Out Time">
-            <Input type="time" disabled={status === "APPROVED"} className={inputCls} value={info.clockOut} onChange={(e) => setInfo({ ...info, clockOut: e.target.value })} />
+            <Input type="time" disabled={locked} className={inputCls} value={info.clockOut} onChange={(e) => setInfo({ ...info, clockOut: e.target.value })} />
           </Field>
           <Field label="Attendance Status">
-            <Select disabled={status === "APPROVED"} value={info.attendanceStatus} onValueChange={(v) => setInfo({ ...info, attendanceStatus: v })}>
+            <Select disabled={locked} value={info.attendanceStatus} onValueChange={(v) => setInfo({ ...info, attendanceStatus: v })}>
               <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
               <SelectContent>{["Present", "Late", "Absent"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
             </Select>
           </Field>
           <Field label="Lateness (mins)">
-            <Input type="number" disabled={status === "APPROVED"} className={inputCls} value={info.latenessMins} onChange={(e) => setInfo({ ...info, latenessMins: e.target.value })} placeholder="0" />
+            <Input type="number" disabled={locked} className={inputCls} value={info.latenessMins} onChange={(e) => setInfo({ ...info, latenessMins: e.target.value })} placeholder="0" />
           </Field>
         </div>
       </SectionCard>
@@ -311,7 +327,7 @@ export default function AgentBpoReportForm({
         <KpiTable metrics={kpiMetrics} onChange={setKpiMetrics} />
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
           <Field label="Campaign / Outreach Name" hint="Which email campaign or outreach list did you work on today?">
-            <Input disabled={status === "APPROVED"} className={inputCls} value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder="e.g. Q3 SaaS Outreach — Batch 2" />
+            <Input disabled={locked} className={inputCls} value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder="e.g. Q3 SaaS Outreach — Batch 2" />
           </Field>
           <div className="flex items-end text-[11px] text-slate-500">
             <p>Metrics marked <span className="mx-1 rounded bg-[#6c5ce7]/20 px-1 py-0.5 text-[#b3a5ff]">auto</span> are calculated from your entries (Contact Rate = Connected ÷ Calls; Conversion = Leads ÷ Connected). Missing data is never counted as zero.</p>
@@ -319,7 +335,17 @@ export default function AgentBpoReportForm({
         </div>
       </SectionCard>
 
-      <SectionCard title="Call Log Summary" subtitle="Log up to 8 key calls from today">
+      <SectionCard
+        title="Call Log Summary"
+        subtitle="Log the key calls you made today — add as many rows as you need"
+        actions={
+          !locked && (
+            <Button size="sm" className="k-btn-glass h-8 text-xs text-slate-200" onClick={() => setCallLogs([...callLogs, {}])}>
+              <Plus className="mr-1 h-3.5 w-3.5" /> Add another call
+            </Button>
+          )
+        }
+      >
         <div className="overflow-x-auto rounded-lg border border-white/10">
           <Table>
             <TableHeader>
@@ -329,6 +355,7 @@ export default function AgentBpoReportForm({
                 <TableHead className="text-[11px] text-slate-400">Disposition</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Follow-Up Required?</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Notes</TableHead>
+                {!locked && <TableHead className="w-10 text-[11px] text-slate-400"><span className="sr-only">Remove</span></TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -336,49 +363,69 @@ export default function AgentBpoReportForm({
                 <TableRow key={i} className="border-white/5">
                   <TableCell className="py-1.5 text-xs text-slate-500">{i + 1}</TableCell>
                   <TableCell className="py-1.5">
-                    <Input disabled={status === "APPROVED"} className="h-8 border-slate-600/50 bg-[#15202e]/60 text-xs text-slate-100" value={log.leadName || ""} onChange={(e) => setCallLogs(callLogs.map((l, j) => (j === i ? { ...l, leadName: e.target.value } : l)))} />
+                    <Input disabled={locked} className={inputCls} value={log.leadName || ""} onChange={(e) => setCallLogs(callLogs.map((l, j) => (j === i ? { ...l, leadName: e.target.value } : l)))} />
                   </TableCell>
                   <TableCell className="py-1.5">
-                    <Select disabled={status === "APPROVED"} value={log.disposition || ""} onValueChange={(v) => setCallLogs(callLogs.map((l, j) => (j === i ? { ...l, disposition: v } : l)))}>
-                      <SelectTrigger className="h-8 border-slate-600/50 bg-[#15202e]/60 text-xs"><SelectValue placeholder="Select" /></SelectTrigger>
+                    <Select disabled={locked} value={log.disposition || ""} onValueChange={(v) => setCallLogs(callLogs.map((l, j) => (j === i ? { ...l, disposition: v } : l)))}>
+                      <SelectTrigger className={inputCls}><SelectValue placeholder="Select" /></SelectTrigger>
                       <SelectContent>{DISPOSITIONS.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
                     </Select>
                   </TableCell>
                   <TableCell className="py-1.5">
-                    <Select disabled={status === "APPROVED"} value={log.followUp || ""} onValueChange={(v) => setCallLogs(callLogs.map((l, j) => (j === i ? { ...l, followUp: v } : l)))}>
-                      <SelectTrigger className="h-8 w-24 border-slate-600/50 bg-[#15202e]/60 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                    <Select disabled={locked} value={log.followUp || ""} onValueChange={(v) => setCallLogs(callLogs.map((l, j) => (j === i ? { ...l, followUp: v } : l)))}>
+                      <SelectTrigger className={cn(inputCls, "w-24")}><SelectValue placeholder="—" /></SelectTrigger>
                       <SelectContent>{["Yes", "No"].map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
                     </Select>
                   </TableCell>
                   <TableCell className="py-1.5">
-                    <Input disabled={status === "APPROVED"} className="h-8 border-slate-600/50 bg-[#15202e]/60 text-xs text-slate-100" value={log.notes || ""} onChange={(e) => setCallLogs(callLogs.map((l, j) => (j === i ? { ...l, notes: e.target.value } : l)))} />
+                    <Input disabled={locked} className={inputCls} value={log.notes || ""} onChange={(e) => setCallLogs(callLogs.map((l, j) => (j === i ? { ...l, notes: e.target.value } : l)))} />
                   </TableCell>
+                  {!locked && (
+                    <TableCell className="py-1.5">
+                      <Button
+                        size="icon" variant="ghost"
+                        className="h-7 w-7 text-slate-500 hover:bg-rose-500/10 hover:text-rose-300"
+                        title="Remove this call"
+                        onClick={() => setCallLogs(callLogs.length > 1 ? callLogs.filter((_, j) => j !== i) : [{}])}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </div>
+        {!locked && (
+          <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500">
+            <span>{callLogs.filter((l) => l.leadName || l.disposition).length} call(s) logged</span>
+            <Button size="sm" variant="ghost" className="h-7 text-[11px] text-[#8b7ff5] hover:bg-white/10" onClick={() => setCallLogs([...callLogs, {}])}>
+              <Plus className="mr-1 h-3 w-3" /> Add call log row
+            </Button>
+          </div>
+        )}
       </SectionCard>
 
       <div className="grid gap-5 lg:grid-cols-2">
         <SectionCard title="Challenges / Blockers">
-          <Textarea disabled={status === "APPROVED"} rows={4} className={inputCls} value={challenges} onChange={(e) => setChallenges(e.target.value)} placeholder="What made your work harder today?" />
+          <Textarea disabled={locked} rows={4} className={inputCls} value={challenges} onChange={(e) => setChallenges(e.target.value)} placeholder="What made your work harder today?" />
         </SectionCard>
         <SectionCard title="Escalations">
-          <Textarea disabled={status === "APPROVED"} rows={4} className={inputCls} value={escalations} onChange={(e) => setEscalations(e.target.value)} placeholder="Issues that need supervisor or management attention" />
+          <Textarea disabled={locked} rows={4} className={inputCls} value={escalations} onChange={(e) => setEscalations(e.target.value)} placeholder="Issues that need supervisor or management attention" />
         </SectionCard>
       </div>
 
       <SectionCard title="Additional Activities" subtitle="Any other work performed today beyond your assigned tasks">
-        <Textarea disabled={status === "APPROVED"} rows={3} className={inputCls} value={additional} onChange={(e) => setAdditional(e.target.value)} placeholder="e.g. helped onboard a new agent, data cleanup…" />
+        <Textarea disabled={locked} rows={3} className={inputCls} value={additional} onChange={(e) => setAdditional(e.target.value)} placeholder="e.g. helped onboard a new agent, data cleanup…" />
       </SectionCard>
 
       {status !== "APPROVED" && (
         <div className="flex flex-wrap items-center justify-end gap-3">
-          <Button variant="outline" disabled={saving} onClick={() => save(false)} className="border-slate-600 text-slate-200 hover:bg-white/10">
+          <Button variant="outline" disabled={saving || status === "SUBMITTED"} onClick={() => save(false)} className="k-btn-glass text-slate-200">
             <Save className="mr-2 h-4 w-4" /> Save Draft
           </Button>
-          <Button disabled={saving} onClick={() => save(true)} className="bg-[#6c5ce7] hover:bg-[#5b4bd4]">
+          <Button disabled={saving} onClick={() => save(true)} className="k-btn-primary">
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Submit Daily Report
           </Button>
         </div>

@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, isSupervisorLike } from "@/lib/auth";
 import { handle, fail, safeParse } from "@/lib/api-utils";
-import { buildAgentDocx, buildSupervisorDocx, buildGenericDocx } from "@/lib/word-export";
+import { buildAgentDocx, buildSupervisorDocx, buildGenericDocx, buildSocialDocx } from "@/lib/word-export";
 import { TECH_SUMMARY_METRICS, SOCIAL_SUMMARY_METRICS } from "@/lib/template-config";
 import { audit } from "@/lib/notify";
 
@@ -24,9 +24,10 @@ export async function GET(req: NextRequest) {
     const dayStart = new Date(date + "T00:00:00.000Z");
     const dayEnd = new Date(date + "T23:59:59.999Z");
 
-    let report = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let report: any = null;
     if (id) {
-      report = await db.report.findUnique({ where: { id }, include: { user: true } });
+      report = await db.report.findUnique({ where: { id }, include: { user: true, reviewer: { select: { fullName: true } } } });
       if (!report) return fail("Report not found", 404);
       if (report.userId !== me.id && !isSupervisorLike(me)) return fail("Not authorized", 403);
     } else if (scope === "department" || scope === "consolidated") {
@@ -104,6 +105,26 @@ export async function GET(req: NextRequest) {
       } else if (report.type === "SUPERVISOR") {
         buf = await buildSupervisorDocx(report as never);
         filename = `Supervisor_Daily_Report_${new Date(report.reportDate).toISOString().slice(0, 10)}.docx`;
+      } else if (report.type === "SOCIAL") {
+        buf = await buildSocialDocx({
+          reportDate: report.reportDate,
+          userName: report.user.fullName,
+          department: report.department,
+          teamName: report.teamName,
+          shiftTime: report.shiftTime,
+          clockIn: report.clockIn,
+          clockOut: report.clockOut,
+          attendanceStatus: report.attendanceStatus,
+          latenessMins: report.latenessMins,
+          kpiMetrics: report.kpiMetrics,
+          workEntries: report.workEntries,
+          challenges: report.challenges,
+          escalations: report.escalations,
+          supervisorFeedback: report.supervisorFeedback,
+          reviewerName: report.reviewer?.fullName || null,
+          status: report.status,
+        });
+        filename = `Daily_Report_Social_Media_${report.user.fullName.replace(/\s+/g, "_")}_${new Date(report.reportDate).toISOString().slice(0, 10)}.docx`;
       } else {
         const title = report.type === "TECH" ? "DAILY REPORT — WEB DEVELOPMENT & TECHNICAL TEAM" : "DAILY REPORT — SOCIAL MEDIA TEAM";
         buf = await buildGenericDocx({

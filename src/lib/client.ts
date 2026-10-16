@@ -65,6 +65,7 @@ export interface ReportDTO {
   managerReview?: string | null;
   status: string;
   supervisorFeedback?: string | null;
+  reviewedAt?: string | null;
   sourceType: string;
   sourceFileId?: string | null;
   verificationStatus: string;

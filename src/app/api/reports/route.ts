@@ -85,10 +85,26 @@ export async function POST(req: NextRequest) {
       const metrics = safeParse<KpiMetric[]>(fields.kpiMetrics, []);
       const recalculated = recalcKpis(metrics);
       data.kpiMetrics = JSON.stringify(recalculated);
+      // SOCIAL template: derive metricsSummary from the docx KPI rows so multi-period
+      // KPI aggregation keeps working regardless of the client that submitted the report
+      if (reportType === "SOCIAL") {
+        const val = (k: string) => recalculated.find((m) => m.key === k)?.actual ?? null;
+        const ms: Record<string, number> = {};
+        const put = (target: string, v: number | null) => { if (v !== null && v !== undefined) ms[target] = v; };
+        put("postsPublished", val("postsCreated"));
+        put("storiesPublished", val("storiesReels"));
+        put("reach", val("reachImpressions"));
+        put("followerGrowth", val("followerGrowth"));
+        put("commentsHandled", val("commentsDMs"));
+        data.metricsSummary = JSON.stringify(ms);
+      }
     }
-    for (const k of ["callLogs", "emailContext", "workEntries", "metricsSummary", "attendanceSummary", "teamKpiAverages", "coachingEntries", "escalatedIssues", "actionPlan"]) {
+    for (const k of ["callLogs", "emailContext", "workEntries", "attendanceSummary", "teamKpiAverages", "coachingEntries", "escalatedIssues", "actionPlan"]) {
       if (k in fields) data[k] = typeof fields[k] === "string" ? fields[k] : fields[k] ? JSON.stringify(fields[k]) : null;
     }
+    // metricsSummary: explicit values win; otherwise the SOCIAL derivation above already set it
+    if ("metricsSummary" in fields) data.metricsSummary = typeof fields.metricsSummary === "string" ? fields.metricsSummary : fields.metricsSummary ? JSON.stringify(fields.metricsSummary) : null;
+    else if (!("kpiMetrics" in fields) && reportType === "SOCIAL") data.metricsSummary = data.metricsSummary ?? null;
     for (const k of ["challenges", "escalations", "additionalActivities", "teamName", "campusLocation", "qaObservations", "highlights", "lowlights", "managerReview"]) {
       if (k in fields) data[k] = fields[k] || null;
     }
@@ -155,7 +171,7 @@ export async function POST(req: NextRequest) {
         const entries = safeParse<Record<string, unknown>[]>(report.workEntries, []);
         const incomplete = entries.filter((e) => {
           const st = String(e.status || "");
-          return st && !["Completed", "Under Review", "Pending Deployment", "Awaiting Approval"].includes(st);
+          return st && !["Completed", "Under Review", "Pending Deployment", "Awaiting Approval", "Published"].includes(st);
         });
         if (incomplete.length) {
           await notifySupervisors({

@@ -74,9 +74,10 @@ export default function Page() {
 
   if (!booted) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#15202e]">
+      <div className="relative flex min-h-screen items-center justify-center">
+        <div className="k-aurora" aria-hidden />
         <div className="flex items-center gap-3 text-slate-400">
-          <Loader2 className="h-5 w-5 animate-spin text-[#6c5ce7]" />
+          <Loader2 className="h-5 w-5 animate-spin text-[#8b7ff5]" />
           <span className="text-sm">Loading Kallmania…</span>
         </div>
       </div>
@@ -141,12 +142,12 @@ export default function Page() {
             type="date"
             value={activeView === "supervisor-report" ? supervisorDate : reportDate}
             onChange={(e) => (activeView === "supervisor-report" ? setSupervisorDate(e.target.value) : setReportDate(e.target.value))}
-            className="h-8 rounded-md border border-slate-600/50 bg-[#1b2a3b] px-2 text-xs text-slate-200"
+            className="h-8 rounded-lg border border-white/12 bg-white/[0.055] px-2 text-xs text-slate-200 backdrop-blur"
           />
           {activeView !== "upload" && (
             <button
               onClick={() => (activeView === "supervisor-report" ? setSupervisorDate(todayISO()) : setReportDate(todayISO()))}
-              className="rounded-full bg-white/5 px-3 py-1 text-[11px] text-slate-300 hover:bg-white/10"
+              className="k-btn-glass rounded-full px-3 py-1 text-[11px] text-slate-300"
             >
               Today
             </button>

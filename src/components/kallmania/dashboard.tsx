@@ -78,7 +78,7 @@ export default function Dashboard({ user, onNavigate }: { user: { role: string; 
         subtitle={isSupervisor ? "Cross-department oversight — reports, KPIs, tasks and escalations" : DEPT_LABELS[user.department] || "Your workspace"}
         actions={
           <Select value={date} onValueChange={setDate}>
-            <SelectTrigger className="w-44 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><Calendar className="mr-2 h-3.5 w-3.5" />{fmtDate(date)}</SelectTrigger>
+            <SelectTrigger className="w-44 border-white/12 bg-white/[0.055] text-xs text-slate-200 backdrop-blur"><Calendar className="mr-2 h-3.5 w-3.5" />{fmtDate(date)}</SelectTrigger>
             <SelectContent>{getLast7Days().map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
           </Select>
         }
@@ -120,12 +120,12 @@ function EmployeeDashboard({ emp, user, onNavigate }: { emp: EmployeeDash; user:
 
       {!emp.reportSubmittedToday && (
         <button onClick={() => onNavigate("daily-report")} className="k-card k-glow-violet flex w-full items-center gap-4 p-5 text-left transition-transform hover:scale-[1.005]">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#6c5ce7]"><FileCheck2 className="h-5 w-5 text-white" /></div>
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#8b7ff5] to-[#6c5ce7] shadow-[0_8px_22px_-6px_rgba(108,92,231,0.7)]"><FileCheck2 className="h-5 w-5 text-white" /></div>
           <div className="flex-1">
             <p className="text-sm font-bold text-white">Your {roleReportLabel.toLowerCase()} for today is pending</p>
             <p className="mt-0.5 text-xs text-slate-400">Fill the template-based form, or upload your existing report and let Kallmania extract the fields.</p>
           </div>
-          <span className="rounded-full bg-[#6c5ce7] px-4 py-2 text-xs font-semibold text-white">Complete now</span>
+          <span className="k-btn-primary rounded-full px-4 py-2 text-xs font-semibold text-white">Complete now</span>
         </button>
       )}
 

@@ -433,3 +433,143 @@ export async function buildGenericDocx(opts: {
 
   return Buffer.from(await Packer.toBuffer(docShell(sections)));
 }
+
+// ───────────────────── SOCIAL MEDIA TEAM — exact replica of Daily_Report_Social_Media_Team.docx ─────────────────────────
+
+const SOCIAL_TEMPLATE_KPI_DEFS = [
+  { key: "postsCreated", label: "Posts Created / Published" },
+  { key: "storiesReels", label: "Stories / Reels Created" },
+  { key: "engagementRate", label: "Content Engagement Rate (%)" },
+  { key: "reachImpressions", label: "Reach / Impressions" },
+  { key: "followerGrowth", label: "Follower Growth (Net)" },
+  { key: "commentsDMs", label: "Comments / DMs Responded To" },
+  { key: "calendarAdherence", label: "Content Calendar Adherence (%)" },
+  { key: "graphicsDesigned", label: "Graphics / Visuals Designed" },
+];
+
+export async function buildSocialDocx(report: {
+  reportDate: Date | string;
+  userName: string;
+  department: string;
+  teamName?: string | null; // Role / Designation
+  shiftTime?: string | null;
+  clockIn?: string | null;
+  clockOut?: string | null;
+  attendanceStatus?: string | null;
+  latenessMins?: number | null;
+  kpiMetrics?: string | null;
+  workEntries?: string | null;
+  challenges?: string | null;
+  escalations?: string | null;
+  supervisorFeedback?: string | null;
+  reviewerName?: string | null;
+  status?: string | null;
+}): Promise<Buffer> {
+  let kpis: { key: string; target: number | null; actual: number | null; variance: number | null; notes?: string }[] = [];
+  try { kpis = report.kpiMetrics ? JSON.parse(report.kpiMetrics) : []; } catch {}
+  let tasks: { task?: string; platform?: string; status?: string; deliverable?: string }[] = [];
+  try { tasks = report.workEntries ? JSON.parse(report.workEntries) : []; } catch {}
+  tasks = tasks.filter((t) => t.task || t.platform || t.status || t.deliverable);
+  while (tasks.length < 6) tasks.push({}); // template shows six numbered rows
+
+  const sections: (Table | Paragraph)[] = [
+    // Document header — three lines, exactly like the uploaded document
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 80 },
+      children: [new TextRun({ text: "SBTS Group Global — Social Media Team Daily Report", bold: true, fontSize: 30, color: DARK })],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 60 },
+      children: [new TextRun({ text: "DAILY REPORT — SOCIAL MEDIA MANAGEMENT & CONTENT CREATION TEAM", bold: true, fontSize: 21, color: VIOLET })],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 240 },
+      children: [new TextRun({ text: "SBTS Group Global — ICBM BPO Division", fontSize: 20, color: "6B7280" })],
+    }),
+
+    // ▸ STAFF INFORMATION
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        sectionHeading("STAFF INFORMATION"),
+        ...[
+          ["Staff Name", report.userName, "Date", fmtDate(report.reportDate)],
+          ["Role / Designation", report.teamName || "", "Shift Time", report.shiftTime || ""],
+          ["Clock-In Time", report.clockIn || "", "Clock-Out Time", report.clockOut || ""],
+          ["Attendance Status", report.attendanceStatus || "", "Lateness (mins)", report.latenessMins !== null && report.latenessMins !== undefined ? String(report.latenessMins) : ""],
+        ].map(([l1, v1, l2, v2]) =>
+          new TableRow({
+            children: [
+              new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 22, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: l1, bold: true, fontSize: 20 })] })] }),
+              new TableCell({ borders: cellBorders, width: { size: 28, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: v1, fontSize: 20 })] })] }),
+              new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 22, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: l2, bold: true, fontSize: 20 })] })] }),
+              new TableCell({ borders: cellBorders, width: { size: 28, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: v2, fontSize: 20 })] })] }),
+            ],
+          })
+        ),
+      ],
+    }),
+    spacer(),
+
+    // ▸ KEY PERFORMANCE METRICS (KPIs)
+    kvTable5(
+      "KEY PERFORMANCE METRICS (KPIs)",
+      ["KPI", "Target", "Actual", "Variance", "Notes"],
+      SOCIAL_TEMPLATE_KPI_DEFS.map((d) => {
+        const m = kpis.find((x) => x.key === d.key);
+        return [
+          d.label,
+          m?.target !== null && m?.target !== undefined ? String(m.target) : "",
+          m?.actual !== null && m?.actual !== undefined ? String(m.actual) : "",
+          m?.variance !== null && m?.variance !== undefined ? String(m.variance) : "",
+          m?.notes || "",
+        ];
+      })
+    ),
+    spacer(),
+
+    // ▸ TASKS ASSIGNED & COMPLETED
+    kvTable5(
+      "TASKS ASSIGNED & COMPLETED",
+      ["#", "Task Description", "Platform", "Status", "Deliverable / Output"],
+      tasks.map((t, i) => [String(i + 1), t.task || "", t.platform || "", t.status || "", t.deliverable || ""])
+    ),
+    spacer(),
+
+    // ▸ CHALLENGES / BLOCKERS
+    textSection("CHALLENGES / BLOCKERS", report.challenges),
+    spacer(),
+
+    // ▸ ESCALATIONS
+    textSection("ESCALATIONS", report.escalations),
+    spacer(),
+
+    // ▸ SUPERVISOR COMMENTS
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        sectionHeading("SUPERVISOR COMMENTS"),
+        ...(report.supervisorFeedback ? [dataRow([report.supervisorFeedback])] : []),
+        new TableRow({
+          children: [
+            new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 25, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: "Supervisor Name", bold: true, fontSize: 20 })] })] }),
+            new TableCell({ borders: cellBorders, width: { size: 25, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: report.reviewerName || "", fontSize: 20 })] })] }),
+            new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 25, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: "Signature / Date", bold: true, fontSize: 20 })] })] }),
+            new TableCell({ borders: cellBorders, width: { size: 25, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: "", fontSize: 20 })] })] }),
+          ],
+        }),
+      ],
+    }),
+    spacer(),
+
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [new TextRun({ text: "Confidential — For Internal Use Only", italics: true, fontSize: 16, color: "6B7280" })],
+    }),
+  ];
+
+  return Buffer.from(await Packer.toBuffer(docShell(sections)));
+}

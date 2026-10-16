@@ -92,10 +92,12 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#223046] p-4 sm:p-8">
-      <div className="grid w-full max-w-5xl overflow-hidden rounded-2xl shadow-2xl md:grid-cols-2">
+    <div className="relative flex min-h-screen items-center justify-center p-4 sm:p-8">
+      <div className="k-aurora" aria-hidden />
+      {/* Liquid glass frame around the auth panel */}
+      <div className="k-card grid w-full max-w-5xl overflow-hidden md:grid-cols-2" style={{ padding: 0 }}>
         {/* Left — form panel */}
-        <div className="flex flex-col justify-center bg-[#0f1b28] px-8 py-10 sm:px-12">
+        <div className="flex flex-col justify-center px-8 py-10 sm:px-12">
           <div className="mb-8 flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#6c5ce7] font-black text-white shadow-lg">K</div>
             <div>
@@ -160,7 +162,7 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
               </div>
             )}
 
-            <Button onClick={submit} disabled={loading} className="h-11 w-full rounded-full bg-[#6c5ce7] text-sm font-semibold text-white hover:bg-[#5b4bd4]">
+            <Button onClick={submit} disabled={loading} className="k-btn-primary h-11 w-full rounded-full text-sm font-semibold">
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === "login" ? <LogIn className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
               {mode === "login" ? "Login" : "Register"}
             </Button>

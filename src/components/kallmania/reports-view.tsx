@@ -24,7 +24,7 @@ export function ReportDetailDialog({ report, open, onClose }: { report: ReportDT
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto border-white/10 bg-[#1b2a3b] text-slate-100 sm:max-w-3xl">
+      <DialogContent className="max-h-[85vh] overflow-y-auto border-white/10 bg-[#131f30]/95 text-slate-100 backdrop-blur-2xl sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-3 text-white">
             <span className="font-mono text-[#b3a5ff]">{report.ref}</span>
@@ -223,7 +223,7 @@ export function ReviewView({ user, focusReportId }: { user: SessionUser; focusRe
         subtitle="Inspect submitted reports, compare with uploads, approve or return for correction"
         actions={
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-44 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-44 border-white/12 bg-white/[0.055] text-xs text-slate-200"><SelectValue /></SelectTrigger>
             <SelectContent>{["SUBMITTED", "APPROVED", "REJECTED", "DRAFT", "ALL"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
           </Select>
         }
@@ -272,7 +272,7 @@ export function ReviewView({ user, focusReportId }: { user: SessionUser; focusRe
       )}
 
       <Dialog open={!!selected} onOpenChange={(v) => !v && setSelected(null)}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto border-white/10 bg-[#1b2a3b] text-slate-100 sm:max-w-3xl">
+        <DialogContent className="max-h-[85vh] overflow-y-auto border-white/10 bg-[#131f30]/95 text-slate-100 backdrop-blur-2xl sm:max-w-3xl">
           <DialogHeader><DialogTitle className="flex items-center gap-3 text-white">{selected?.ref} <StatusBadge status={selected?.status || ""} /></DialogTitle></DialogHeader>
           {selected && (
             <div className="space-y-4">
@@ -376,9 +376,11 @@ export function ReportSummary({ report }: { report: ReportDTO }) {
           <div className="space-y-1">
             {entries.map((e, i) => (
               <div key={i} className="rounded border border-white/10 px-2 py-1.5 text-[11px] text-slate-300">
-                <span className="font-medium text-slate-200">{String(e.title || e.platform || "Entry")}</span>
+                <span className="font-medium text-slate-200">{String(e.task || e.title || e.platform || "Entry")}</span>
                 {e.status ? <span className="ml-2 rounded bg-white/5 px-1.5 py-0.5 text-[10px]">{String(e.status)}</span> : null}
+                {e.platform ? <span className="ml-2 rounded bg-[#6c5ce7]/20 px-1.5 py-0.5 text-[10px] text-[#b3a5ff]">{String(e.platform)}</span> : null}
                 {e.project ? <span className="ml-2 text-slate-500">{String(e.project)}</span> : null}
+                {e.deliverable ? <span className="ml-2 text-slate-500">→ {String(e.deliverable)}</span> : null}
                 {e.hours ? <span className="ml-2 text-slate-500">{String(e.hours)}h</span> : null}
               </div>
             ))}
