@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api, fmtDate, fmtDateTime, todayISO, DEPT_LABELS, type TaskDTO } from "@/lib/client";
 import { StatCard, PageHeader, SectionCard, EmptyState, StatusBadge } from "@/components/kallmania/shared";
+import PeriodKpiPanel from "@/components/kallmania/kpi-trends";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -86,7 +87,7 @@ export default function Dashboard({ user, onNavigate }: { user: { role: string; 
       {loading ? (
         <div className="flex justify-center py-20 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
       ) : isSupervisor && sup ? (
-        <SupervisorDashboard sup={sup} onNavigate={onNavigate} />
+        <SupervisorDashboard sup={sup} user={user} onNavigate={onNavigate} />
       ) : emp ? (
         <EmployeeDashboard emp={emp} user={user} onNavigate={onNavigate} />
       ) : null}
@@ -169,6 +170,9 @@ function EmployeeDashboard({ emp, user, onNavigate }: { emp: EmployeeDash; user:
         </SectionCard>
       </div>
 
+      {/* Multi-period cumulative KPI performance (day / week / month) */}
+      <PeriodKpiPanel role={user.role} />
+
       <SectionCard title="Recent reports">
         {emp.myRecentReports.length === 0 ? (
           <EmptyState title="No reports yet" hint="Your submission history will appear here." />
@@ -188,7 +192,7 @@ function EmployeeDashboard({ emp, user, onNavigate }: { emp: EmployeeDash; user:
   );
 }
 
-function SupervisorDashboard({ sup, onNavigate }: { sup: SupervisorDash; onNavigate: (v: string) => void }) {
+function SupervisorDashboard({ sup, user, onNavigate }: { sup: SupervisorDash; user: { role: string; department: string }; onNavigate: (v: string) => void }) {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -295,6 +299,9 @@ function SupervisorDashboard({ sup, onNavigate }: { sup: SupervisorDash; onNavig
           )}
         </SectionCard>
       </div>
+
+      {/* Multi-period cumulative performance (day / week / month) */}
+      <PeriodKpiPanel role={user.role} />
 
       {/* Submitted reports quick list */}
       <SectionCard title="Today's submissions" actions={<Button size="sm" variant="outline" className="border-slate-600 text-slate-200 hover:bg-white/10" onClick={() => onNavigate("review")}>Open review queue</Button>}>

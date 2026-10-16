@@ -10,6 +10,7 @@ import SupervisorReportForm from "@/components/kallmania/supervisor-form";
 import UploadView from "@/components/kallmania/upload-view";
 import TasksView from "@/components/kallmania/tasks-view";
 import { MyReportsView, ReviewView } from "@/components/kallmania/reports-view";
+import ReportsArchiveView from "@/components/kallmania/archive-view";
 import ConsolidatedView from "@/components/kallmania/consolidated-view";
 import { AdminUsersView, KpiConfigView, AuditView, NotificationsView, UploadsAdminView } from "@/components/kallmania/admin-views";
 import { api, todayISO, type SessionUser } from "@/lib/client";
@@ -109,6 +110,8 @@ export default function Page() {
         return <MyReportsView user={user} />;
       case "review":
         return <ReviewView user={user} focusReportId={focusReportId} />;
+      case "archive":
+        return <ReportsArchiveView user={user} />;
       case "consolidated":
         return <ConsolidatedView user={user} onOpenSupervisorForm={(d) => { setSupervisorDate(d); setView("supervisor-report"); }} />;
       case "uploads-admin":

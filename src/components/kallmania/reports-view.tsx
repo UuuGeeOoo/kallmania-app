@@ -14,7 +14,7 @@ function parseKpis(r: ReportDTO): KpiMetric[] {
   try { return r.kpiMetrics ? JSON.parse(r.kpiMetrics) : []; } catch { return []; }
 }
 
-function ReportDetailDialog({ report, open, onClose }: { report: ReportDTO | null; open: boolean; onClose: () => void }) {
+export function ReportDetailDialog({ report, open, onClose }: { report: ReportDTO | null; open: boolean; onClose: () => void }) {
   if (!report) return null;
   const kpis = parseKpis(report);
   const core = kpis.filter((k) => k.category !== "EMAIL_EXTENSION");
@@ -212,6 +212,8 @@ export function ReviewView({ user, focusReportId }: { user: SessionUser; focusRe
     }
   };
 
+  const download = (id: string, format: string) => window.open(`/api/export?format=${format}&id=${id}`, "_blank");
+
   const filtered = reports.filter((r) => (statusFilter === "ALL" ? true : r.status === statusFilter));
 
   return (
@@ -254,6 +256,15 @@ export function ReviewView({ user, focusReportId }: { user: SessionUser; focusRe
                 <Button size="sm" variant="outline" className="border-slate-600 text-xs text-slate-300 hover:bg-white/10" onClick={() => setSelected(r)}>
                   <Eye className="mr-1 h-3.5 w-3.5" /> Inspect
                 </Button>
+                <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-[#8b7ff5]" onClick={() => download(r.id, "docx")} title="Download Word">
+                  <FileText className="h-3.5 w-3.5" />
+                </Button>
+                <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-emerald-300" onClick={() => download(r.id, "xlsx")} title="Download Excel">
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                </Button>
+                <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-amber-300" onClick={() => download(r.id, "csv")} title="Download CSV">
+                  <FileDown className="h-3.5 w-3.5" />
+                </Button>
               </div>
             </div>
           ))}
@@ -266,6 +277,18 @@ export function ReviewView({ user, focusReportId }: { user: SessionUser; focusRe
           {selected && (
             <div className="space-y-4">
               <ReportSummary report={selected} />
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 p-3">
+                <p className="mr-auto text-xs font-semibold text-slate-300">Download this report (stored online)</p>
+                <Button size="sm" variant="outline" className="border-slate-600 text-xs text-slate-300" onClick={() => download(selected.id, "docx")}>
+                  <FileText className="mr-1 h-3.5 w-3.5" /> Word
+                </Button>
+                <Button size="sm" variant="outline" className="border-slate-600 text-xs text-slate-300" onClick={() => download(selected.id, "xlsx")}>
+                  <FileSpreadsheet className="mr-1 h-3.5 w-3.5" /> Excel
+                </Button>
+                <Button size="sm" variant="outline" className="border-slate-600 text-xs text-slate-300" onClick={() => download(selected.id, "csv")}>
+                  <FileDown className="mr-1 h-3.5 w-3.5" /> CSV
+                </Button>
+              </div>
               {selected.sourceFileId && (
                 <div className="rounded-lg border border-white/10 p-3">
                   <p className="mb-2 text-xs font-semibold text-slate-300">Original uploaded document</p>
