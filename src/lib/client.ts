@@ -188,6 +188,7 @@ export const TEAM_LABELS: Record<string, string> = {
 
 export const DEPT_LABELS: Record<string, string> = {
   BPO: "BPO Division",
+  INBOUND: "Inbound Call Centre",
   WEB_DEV: "Web Development & Technical",
   SOCIAL_MEDIA: "Social Media & Campaign",
   MANAGEMENT: "Management & Supervision",

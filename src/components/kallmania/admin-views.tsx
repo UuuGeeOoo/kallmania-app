@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { api, fmtDate, fmtDateTime, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, type UserDTO, type NotificationDTO } from "@/lib/client";
 import { PageHeader, EmptyState, StatusBadge, SectionCard, Field, inputCls } from "@/components/kallmania/shared";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2, Loader2, Bell, Settings2, ScrollText } from "lucide-react";
+import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2, Loader2, Bell, Settings2, ScrollText, Info } from "lucide-react";
 
 // ───────────────────────── USER MANAGEMENT ─────────────────────────
 
@@ -221,7 +221,7 @@ export function KpiConfigView() {
     try {
       await api("/api/kpi-config", {
         method: "POST",
-        body: JSON.stringify({ department: deptFilter, key: form.key.trim().replace(/\s+/g, "_").toLowerCase(), label: form.label, defaultTarget: form.defaultTarget, unit: form.unit, mandatory: form.mandatory, category: "EMAIL_EXTENSION" }),
+        body: JSON.stringify({ department: deptFilter, key: form.key.trim().replace(/\s+/g, "_").toLowerCase(), label: form.label, defaultTarget: form.defaultTarget, unit: form.unit, mandatory: isInbound ? false : form.mandatory, category: "CUSTOM" }),
       });
       setForm({ key: "", label: "", defaultTarget: "", mandatory: false, unit: "count" });
       load();
@@ -244,6 +244,9 @@ export function KpiConfigView() {
   };
 
   const visible = configs.filter((c) => c.department === deptFilter);
+  const isInbound = deptFilter === "INBOUND";
+  // Only the outbound BPO template locks its three core template rows — Inbound rows are all editable/deletable.
+  const isProtected = (c: KpiConfigDTO) => deptFilter === "BPO" && ["totalCallsMade", "totalMailsSent", "callsConnected"].includes(c.key);
 
   return (
     <div>
@@ -253,10 +256,16 @@ export function KpiConfigView() {
           <SelectTrigger className="w-56 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="BPO">BPO & Outbound Call Centre</SelectItem>
+            <SelectItem value="INBOUND">Inbound Call Centre</SelectItem>
             <SelectItem value="WEB_DEV">Web Development & Technical</SelectItem>
             <SelectItem value="SOCIAL_MEDIA">Social Media</SelectItem>
           </SelectContent>
         </Select>
+        {isInbound && (
+          <p className="mt-2 flex items-center gap-1.5 text-[11px] text-[#b3a5ff]">
+            <Info className="h-3.5 w-3.5" /> Inbound Call Centre uses the same metrics as the outbound template — but nothing is required: every metric is optional, and each one can be edited or deleted.
+          </p>
+        )}
       </div>
 
       {loading ? (
@@ -290,9 +299,9 @@ export function KpiConfigView() {
                         onBlur={(e) => { if (e.target.value !== (c.defaultTarget !== null ? String(c.defaultTarget) : "")) toggleTarget(c, e.target.value); }}
                       />
                     </TableCell>
-                    <TableCell className="py-2 text-xs">{c.mandatory ? <span className="text-rose-300">required</span> : <span className="text-slate-500">optional</span>}</TableCell>
+                    <TableCell className="py-2 text-xs">{isInbound || !c.mandatory ? <span className="text-slate-500">optional</span> : <span className="text-rose-300">required</span>}</TableCell>
                     <TableCell className="py-2">
-                      {!["totalCallsMade", "totalMailsSent", "callsConnected"].includes(c.key) && (
+                      {!isProtected(c) && (
                         <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-500 hover:text-rose-300" onClick={() => remove(c.id)} title="Remove"><Trash2 className="h-3.5 w-3.5" /></Button>
                       )}
                     </TableCell>
@@ -312,7 +321,11 @@ export function KpiConfigView() {
               </Select>
             </Field>
             <Field label="Mandatory">
-              <Select value={form.mandatory ? "yes" : "no"} onValueChange={(v) => setForm({ ...form, mandatory: v === "yes" })}>
+              <Select
+                value={isInbound ? "no" : form.mandatory ? "yes" : "no"}
+                onValueChange={(v) => setForm({ ...form, mandatory: v === "yes" })}
+                disabled={isInbound}
+              >
                 <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="no">Optional</SelectItem><SelectItem value="yes">Required</SelectItem></SelectContent>
               </Select>

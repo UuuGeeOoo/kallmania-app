@@ -1,0 +1,496 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useState } from "react";
+     4→import { Button } from "@/components/ui/button";
+     5→import { Input } from "@/components/ui/input";
+     6→import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+     7→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+     8→import { api, fmtDate, fmtDateTime, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, type UserDTO, type NotificationDTO } from "@/lib/client";
+     9→import { PageHeader, EmptyState, StatusBadge, SectionCard, Field, inputCls } from "@/components/kallmania/shared";
+    10→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+    11→import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2, Loader2, Bell, Settings2, ScrollText } from "lucide-react";
+    12→
+    13→// ───────────────────────── USER MANAGEMENT ─────────────────────────
+    14→
+    15→const ALL_ROLES = ["AGENT_BPO", "TEAM_LEAD", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR", "ADMIN"];
+    16→const ALL_TEAMS = ["OUTBOUND", "INBOUND", "EMAIL", "SOCIAL", "TECH"];
+    17→
+    18→export function AdminUsersView() {
+    19→  const [users, setUsers] = useState<UserDTO[]>([]);
+    20→  const [loading, setLoading] = useState(true);
+    21→  const [filter, setFilter] = useState("ALL");
+    22→  const [resetUser, setResetUser] = useState<UserDTO | null>(null);
+    23→  const [newPassword, setNewPassword] = useState("");
+    24→  const [busy, setBusy] = useState<string | null>(null);
+    25→
+    26→  const load = async () => {
+    27→    setLoading(true);
+    28→    try {
+    29→      const { users } = await api<{ users: UserDTO[] }>("/api/users");
+    30→      setUsers(users);
+    31→    } finally {
+    32→      setLoading(false);
+    33→    }
+    34→  };
+    35→  useEffect(() => { load(); }, []);
+    36→
+    37→  const act = async (userId: string, action: string, extra?: Record<string, unknown>) => {
+    38→    setBusy(userId + action);
+    39→    try {
+    40→      await api("/api/users", { method: "PATCH", body: JSON.stringify({ userId, action, ...extra }) });
+    41→      await load();
+    42→    } finally {
+    43→      setBusy(null);
+    44→    }
+    45→  };
+    46→
+    47→  const changeRole = async (userId: string, role: string, team?: string) => {
+    48→    setBusy(userId + "role");
+    49→    try {
+    50→      await api("/api/users", { method: "PATCH", body: JSON.stringify({ userId, action: "changeRole", role, ...(team !== undefined ? { team } : {}) }) });
+    51→      await load();
+    52→    } finally {
+    53→      setBusy(null);
+    54→    }
+    55→  };
+    56→
+    57→  const changeTeam = async (u: UserDTO, team: string) => {
+    58→    setBusy(u.id + "team");
+    59→    try {
+    60→      // Keep the current role; move the user to another team under the BPO division
+    61→      const agentRoleByTeam: Record<string, string> = { OUTBOUND: "AGENT_BPO", INBOUND: "AGENT_BPO", EMAIL: "AGENT_BPO", SOCIAL: "SOCIAL_MEDIA", TECH: "DEVELOPER" };
+    62→      const role = u.role === "TEAM_LEAD" ? "TEAM_LEAD" : agentRoleByTeam[team] || u.role;
+    63→      await api("/api/users", { method: "PATCH", body: JSON.stringify({ userId: u.id, action: "changeRole", role, team }) });
+    64→      await load();
+    65→    } finally {
+    66→      setBusy(null);
+    67→    }
+    68→  };
+    69→
+    70→  const visible = users.filter((u) => filter === "ALL" || u.status === filter);
+    71→  const pending = users.filter((u) => u.status === "PENDING");
+    72→
+    73→  return (
+    74→    <div>
+    75→      <PageHeader
+    76→        title="User Management"
+    77→        subtitle="Confirm registrations, manage roles and access"
+    78→        actions={
+    79→          <Select value={filter} onValueChange={setFilter}>
+    80→            <SelectTrigger className="w-40 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><SelectValue /></SelectTrigger>
+    81→            <SelectContent>{["ALL", "PENDING", "APPROVED", "SUSPENDED", "REJECTED"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+    82→          </Select>
+    83→        }
+    84→      />
+    85→
+    86→      {pending.length > 0 && (
+    87→        <SectionCard title="Awaiting confirmation" subtitle="These users registered themselves and cannot log in until you confirm their login and role" className="mb-5 border-amber-500/30">
+    88→          <div className="space-y-3">
+    89→            {pending.map((u) => (
+    90→              <div key={u.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+    91→                <div className="min-w-0 flex-1">
+    92→                  <p className="text-sm font-semibold text-slate-100">{u.fullName} <span className="ml-2 text-xs font-normal text-slate-400">{u.email}</span></p>
+    93→                  <p className="mt-0.5 text-[11px] text-slate-500">
+    94→                    Requested: <span className="font-semibold text-[#b3a5ff]">{ROLE_LABELS[u.role]}</span>
+    95→                    {u.team ? ` · ${TEAM_LABELS[u.team] || u.team}` : ""} · {DEPT_LABELS[u.department] || u.department} · registered {fmtDate(u.createdAt)}
+    96→                  </p>
+    97→                </div>
+    98→                <div className="flex flex-wrap items-center gap-2">
+    99→                  <Select defaultValue={u.team || undefined} onValueChange={(v) => changeTeam(u, v)}>
+   100→                    <SelectTrigger className="h-8 w-40 border-slate-600/50 bg-[#15202e]/60 text-xs"><SelectValue placeholder="Team under BPO" /></SelectTrigger>
+   101→                    <SelectContent>{ALL_TEAMS.map((t) => <SelectItem key={t} value={t}>{TEAM_LABELS[t]}</SelectItem>)}</SelectContent>
+   102→                  </Select>
+   103→                  <Select defaultValue={u.role} onValueChange={(v) => changeRole(u.id, v, u.team || undefined)}>
+   104→                    <SelectTrigger className="h-8 w-44 border-slate-600/50 bg-[#15202e]/60 text-xs"><SelectValue /></SelectTrigger>
+   105→                    <SelectContent>{ALL_ROLES.map((r) => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
+   106→                  </Select>
+   107→                </div>
+   108→                <Button size="sm" disabled={busy === u.id + "approve"} onClick={() => act(u.id, "approve")} className="bg-emerald-600 hover:bg-emerald-500">
+   109→                  {busy === u.id + "approve" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1 h-3.5 w-3.5" />} Confirm
+   110→                </Button>
+   111→                <Button size="sm" variant="outline" disabled={busy === u.id + "reject"} onClick={() => act(u.id, "reject")} className="border-rose-500/50 text-rose-300 hover:bg-rose-500/10">
+   112→                  <XCircle className="mr-1 h-3.5 w-3.5" /> Reject
+   113→                </Button>
+   114→              </div>
+   115→            ))}
+   116→          </div>
+   117→        </SectionCard>
+   118→      )}
+   119→
+   120→      {loading ? (
+   121→        <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
+   122→      ) : visible.length === 0 ? (
+   123→        <EmptyState icon={<Users className="h-8 w-8" />} title="No users" />
+   124→      ) : (
+   125→        <div className="overflow-x-auto rounded-xl border border-white/10">
+   126→          <Table>
+   127→            <TableHeader>
+   128→              <TableRow className="border-white/10 bg-white/[0.03]">
+   129→                <TableHead className="text-[11px] text-slate-400">Name</TableHead>
+   130→                <TableHead className="text-[11px] text-slate-400">Email</TableHead>
+   131→                <TableHead className="text-[11px] text-slate-400">Role</TableHead>
+   132→                <TableHead className="text-[11px] text-slate-400">Team under BPO</TableHead>
+   133→                <TableHead className="text-[11px] text-slate-400">Status</TableHead>
+   134→                <TableHead className="text-[11px] text-slate-400">Registered</TableHead>
+   135→                <TableHead className="text-[11px] text-slate-400">Actions</TableHead>
+   136→              </TableRow>
+   137→            </TableHeader>
+   138→            <TableBody>
+   139→              {visible.map((u) => (
+   140→                <TableRow key={u.id} className="border-white/5">
+   141→                  <TableCell className="py-2.5 text-xs font-semibold text-slate-200">{u.fullName}</TableCell>
+   142→                  <TableCell className="py-2.5 text-xs text-slate-400">{u.email}</TableCell>
+   143→                  <TableCell className="py-2.5">
+   144→                    <Select defaultValue={u.role} onValueChange={(v) => changeRole(u.id, v, u.team || undefined)}>
+   145→                      <SelectTrigger className="h-7 w-40 border-slate-600/50 bg-[#15202e]/60 text-[11px]"><SelectValue /></SelectTrigger>
+   146→                      <SelectContent>{ALL_ROLES.map((r) => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
+   147→                    </Select>
+   148→                  </TableCell>
+   149→                  <TableCell className="py-2.5">
+   150→                    {["SUPERVISOR", "ADMIN"].includes(u.role) ? (
+   151→                      <span className="text-[11px] text-slate-500">— division-wide —</span>
+   152→                    ) : (
+   153→                      <Select defaultValue={u.team || undefined} onValueChange={(v) => changeTeam(u, v)}>
+   154→                        <SelectTrigger className="h-7 w-40 border-slate-600/50 bg-[#15202e]/60 text-[11px]"><SelectValue placeholder="Set team" /></SelectTrigger>
+   155→                        <SelectContent>{ALL_TEAMS.map((t) => <SelectItem key={t} value={t}>{TEAM_LABELS[t]}</SelectItem>)}</SelectContent>
+   156→                      </Select>
+   157→                    )}
+   158→                  </TableCell>
+   159→                  <TableCell className="py-2.5"><StatusBadge status={u.status} /></TableCell>
+   160→                  <TableCell className="py-2.5 text-[11px] text-slate-500">{fmtDate(u.createdAt)}</TableCell>
+   161→                  <TableCell className="py-2.5">
+   162→                    <div className="flex items-center gap-1">
+   163→                      {u.status === "PENDING" && <Button size="icon" variant="ghost" className="h-7 w-7 text-emerald-400" title="Approve" onClick={() => act(u.id, "approve")}><CheckCircle2 className="h-3.5 w-3.5" /></Button>}
+   164→                      {u.status === "APPROVED" && <Button size="icon" variant="ghost" className="h-7 w-7 text-amber-400" title="Suspend" onClick={() => act(u.id, "suspend")}><PauseCircle className="h-3.5 w-3.5" /></Button>}
+   165→                      {u.status === "SUSPENDED" && <Button size="icon" variant="ghost" className="h-7 w-7 text-emerald-400" title="Reactivate" onClick={() => act(u.id, "reactivate")}><PlayCircle className="h-3.5 w-3.5" /></Button>}
+   166→                      <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-[#8b7ff5]" title="Reset password" onClick={() => { setResetUser(u); setNewPassword(""); }}><KeyRound className="h-3.5 w-3.5" /></Button>
+   167→                      {u.role !== "ADMIN" && <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-rose-300" title="Delete" onClick={() => act(u.id, "delete")}><Trash2 className="h-3.5 w-3.5" /></Button>}
+   168→                    </div>
+   169→                  </TableCell>
+   170→                </TableRow>
+   171→              ))}
+   172→            </TableBody>
+   173→          </Table>
+   174→        </div>
+   175→      )}
+   176→
+   177→      <Dialog open={!!resetUser} onOpenChange={(v) => !v && setResetUser(null)}>
+   178→        <DialogContent className="border-white/10 bg-[#1b2a3b] text-slate-100 sm:max-w-sm">
+   179→          <DialogHeader><DialogTitle className="text-white">Reset password — {resetUser?.fullName}</DialogTitle></DialogHeader>
+   180→          <Field label="New password" required hint="Minimum 6 characters. Share it securely with the user.">
+   181→            <Input type="text" className={inputCls} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="e.g. @SecurePass2026" />
+   182→          </Field>
+   183→          <div className="flex justify-end gap-2">
+   184→            <Button variant="outline" className="border-slate-600 text-slate-200" onClick={() => setResetUser(null)}>Cancel</Button>
+   185→            <Button disabled={newPassword.length < 6} className="bg-[#6c5ce7] hover:bg-[#5b4bd4]" onClick={async () => { if (resetUser) { await act(resetUser.id, "resetPassword", { newPassword }); setResetUser(null); } }}>Reset</Button>
+   186→          </div>
+   187→        </DialogContent>
+   188→      </Dialog>
+   189→    </div>
+   190→  );
+   191→}
+   192→
+   193→// ───────────────────────── KPI CONFIGURATION ─────────────────────────
+   194→
+   195→interface KpiConfigDTO {
+   196→  id: string; department: string; key: string; label: string; category: string;
+   197→  unit: string; direction: string; defaultTarget: number | null; mandatory: boolean; active: boolean;
+   198→}
+   199→
+   200→export function KpiConfigView() {
+   201→  const [configs, setConfigs] = useState<KpiConfigDTO[]>([]);
+   202→  const [loading, setLoading] = useState(true);
+   203→  const [deptFilter, setDeptFilter] = useState("BPO");
+   204→  const [form, setForm] = useState({ key: "", label: "", defaultTarget: "", mandatory: false, unit: "count" });
+   205→  const [saving, setSaving] = useState(false);
+   206→
+   207→  const load = async () => {
+   208→    setLoading(true);
+   209→    try {
+   210→      const { configs } = await api<{ configs: KpiConfigDTO[] }>("/api/kpi-config");
+   211→      setConfigs(configs);
+   212→    } finally {
+   213→      setLoading(false);
+   214→    }
+   215→  };
+   216→  useEffect(() => { load(); }, []);
+   217→
+   218→  const add = async () => {
+   219→    if (!form.key || !form.label) return;
+   220→    setSaving(true);
+   221→    try {
+   222→      await api("/api/kpi-config", {
+   223→        method: "POST",
+   224→        body: JSON.stringify({ department: deptFilter, key: form.key.trim().replace(/\s+/g, "_").toLowerCase(), label: form.label, defaultTarget: form.defaultTarget, unit: form.unit, mandatory: form.mandatory, category: "EMAIL_EXTENSION" }),
+   225→      });
+   226→      setForm({ key: "", label: "", defaultTarget: "", mandatory: false, unit: "count" });
+   227→      load();
+   228→    } finally {
+   229→      setSaving(false);
+   230→    }
+   231→  };
+   232→
+   233→  const remove = async (id: string) => {
+   234→    await api(`/api/kpi-config?id=${id}`, { method: "DELETE" });
+   235→    load();
+   236→  };
+   237→
+   238→  const toggleTarget = async (c: KpiConfigDTO, target: string) => {
+   239→    await api("/api/kpi-config", {
+   240→      method: "POST",
+   241→      body: JSON.stringify({ department: c.department, key: c.key, label: c.label, category: c.category, unit: c.unit, defaultTarget: target, mandatory: c.mandatory, active: c.active }),
+   242→    });
+   243→    load();
+   244→  };
+   245→
+   246→  const visible = configs.filter((c) => c.department === deptFilter);
+   247→
+   248→  return (
+   249→    <div>
+   250→      <PageHeader title="KPI Configuration" subtitle="Configure targets, mandatory fields and metric catalogues per department" />
+   251→      <div className="mb-4">
+   252→        <Select value={deptFilter} onValueChange={setDeptFilter}>
+   253→          <SelectTrigger className="w-56 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><SelectValue /></SelectTrigger>
+   254→          <SelectContent>
+   255→            <SelectItem value="BPO">BPO & Outbound Call Centre</SelectItem>
+   256→            <SelectItem value="WEB_DEV">Web Development & Technical</SelectItem>
+   257→            <SelectItem value="SOCIAL_MEDIA">Social Media</SelectItem>
+   258→          </SelectContent>
+   259→        </Select>
+   260→      </div>
+   261→
+   262→      {loading ? (
+   263→        <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
+   264→      ) : (
+   265→        <SectionCard title={`Metrics — ${DEPT_LABELS[deptFilter]}`} subtitle="Edit the default target for any metric. Blank target = no fixed target.">
+   266→          <div className="overflow-x-auto rounded-lg border border-white/10">
+   267→            <Table>
+   268→              <TableHeader>
+   269→                <TableRow className="border-white/10 bg-white/[0.03]">
+   270→                  <TableHead className="text-[11px] text-slate-400">Metric</TableHead>
+   271→                  <TableHead className="text-[11px] text-slate-400">Key</TableHead>
+   272→                  <TableHead className="text-[11px] text-slate-400">Category</TableHead>
+   273→                  <TableHead className="text-[11px] text-slate-400">Unit</TableHead>
+   274→                  <TableHead className="text-[11px] text-slate-400">Default target</TableHead>
+   275→                  <TableHead className="text-[11px] text-slate-400">Mandatory</TableHead>
+   276→                  <TableHead className="text-[11px] text-slate-400"></TableHead>
+   277→                </TableRow>
+   278→              </TableHeader>
+   279→              <TableBody>
+   280→                {visible.map((c) => (
+   281→                  <TableRow key={c.id} className="border-white/5">
+   282→                    <TableCell className="py-2 text-xs font-medium text-slate-200">{c.label}</TableCell>
+   283→                    <TableCell className="py-2 font-mono text-[10px] text-slate-500">{c.key}</TableCell>
+   284→                    <TableCell className="py-2 text-[10px] uppercase text-slate-500">{c.category.replace(/_/g, " ")}</TableCell>
+   285→                    <TableCell className="py-2 text-xs text-slate-400">{c.unit}</TableCell>
+   286→                    <TableCell className="py-2">
+   287→                      <Input
+   288→                        defaultValue={c.defaultTarget !== null ? String(c.defaultTarget) : ""}
+   289→                        className="h-7 w-20 border-slate-600/50 bg-[#15202e]/60 text-xs tabular-nums text-slate-100"
+   290→                        onBlur={(e) => { if (e.target.value !== (c.defaultTarget !== null ? String(c.defaultTarget) : "")) toggleTarget(c, e.target.value); }}
+   291→                      />
+   292→                    </TableCell>
+   293→                    <TableCell className="py-2 text-xs">{c.mandatory ? <span className="text-rose-300">required</span> : <span className="text-slate-500">optional</span>}</TableCell>
+   294→                    <TableCell className="py-2">
+   295→                      {!["totalCallsMade", "totalMailsSent", "callsConnected"].includes(c.key) && (
+   296→                        <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-500 hover:text-rose-300" onClick={() => remove(c.id)} title="Remove"><Trash2 className="h-3.5 w-3.5" /></Button>
+   297→                      )}
+   298→                    </TableCell>
+   299→                  </TableRow>
+   300→                ))}
+   301→              </TableBody>
+   302→            </Table>
+   303→          </div>
+   304→
+   305→          <div className="mt-4 grid grid-cols-2 items-end gap-3 border-t border-white/10 pt-4 sm:grid-cols-5">
+   306→            <Field label="New metric label"><Input className={inputCls} value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value, key: e.target.value })} placeholder="e.g. LinkedIn Connections" /></Field>
+   307→            <Field label="Default target"><Input type="number" className={`${inputCls} tabular-nums`} value={form.defaultTarget} onChange={(e) => setForm({ ...form, defaultTarget: e.target.value })} /></Field>
+   308→            <Field label="Unit">
+   309→              <Select value={form.unit} onValueChange={(v) => setForm({ ...form, unit: v })}>
+   310→                <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
+   311→                <SelectContent>{["count", "percent", "minutes"].map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+   312→              </Select>
+   313→            </Field>
+   314→            <Field label="Mandatory">
+   315→              <Select value={form.mandatory ? "yes" : "no"} onValueChange={(v) => setForm({ ...form, mandatory: v === "yes" })}>
+   316→                <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
+   317→                <SelectContent><SelectItem value="no">Optional</SelectItem><SelectItem value="yes">Required</SelectItem></SelectContent>
+   318→              </Select>
+   319→            </Field>
+   320→            <Button disabled={saving || !form.label} onClick={add} className="bg-[#6c5ce7] hover:bg-[#5b4bd4]">
+   321→              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Settings2 className="mr-2 h-4 w-4" />} Add metric
+   322→            </Button>
+   323→          </div>
+   324→        </SectionCard>
+   325→      )}
+   326→    </div>
+   327→  );
+   328→}
+   329→
+   330→// ───────────────────────── AUDIT TRAIL ─────────────────────────
+   331→
+   332→export function AuditView() {
+   333→  const [logs, setLogs] = useState<{ id: string; actorName: string | null; action: string; entity: string; entityId: string | null; details: string | null; createdAt: string }[]>([]);
+   334→  const [loading, setLoading] = useState(true);
+   335→
+   336→  useEffect(() => {
+   337→    api<{ logs: typeof logs }>("/api/audit").then(({ logs }) => setLogs(logs)).finally(() => setLoading(false));
+   338→  }, []);
+   339→
+   340→  return (
+   341→    <div>
+   342→      <PageHeader title="Audit Trail" subtitle="System-wide activity log — who did what and when" />
+   343→      {loading ? (
+   344→        <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
+   345→      ) : logs.length === 0 ? (
+   346→        <EmptyState icon={<ScrollText className="h-8 w-8" />} title="No audit entries yet" />
+   347→      ) : (
+   348→        <div className="overflow-x-auto rounded-xl border border-white/10">
+   349→          <Table>
+   350→            <TableHeader>
+   351→              <TableRow className="border-white/10 bg-white/[0.03]">
+   352→                <TableHead className="text-[11px] text-slate-400">Time</TableHead>
+   353→                <TableHead className="text-[11px] text-slate-400">Actor</TableHead>
+   354→                <TableHead className="text-[11px] text-slate-400">Action</TableHead>
+   355→                <TableHead className="text-[11px] text-slate-400">Entity</TableHead>
+   356→                <TableHead className="text-[11px] text-slate-400">Details</TableHead>
+   357→              </TableRow>
+   358→            </TableHeader>
+   359→            <TableBody>
+   360→              {logs.map((l) => (
+   361→                <TableRow key={l.id} className="border-white/5">
+   362→                  <TableCell className="whitespace-nowrap py-2 text-[11px] text-slate-500">{fmtDateTime(l.createdAt)}</TableCell>
+   363→                  <TableCell className="py-2 text-xs font-medium text-slate-200">{l.actorName || "—"}</TableCell>
+   364→                  <TableCell className="py-2"><span className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-[#b3a5ff]">{l.action}</span></TableCell>
+   365→                  <TableCell className="py-2 text-[11px] text-slate-400">{l.entity}</TableCell>
+   366→                  <TableCell className="max-w-md truncate py-2 text-[11px] text-slate-500">{l.details || "—"}</TableCell>
+   367→                </TableRow>
+   368→              ))}
+   369→            </TableBody>
+   370→          </Table>
+   371→        </div>
+   372→      )}
+   373→    </div>
+   374→  );
+   375→}
+   376→
+   377→// ───────────────────────── NOTIFICATIONS ─────────────────────────
+   378→
+   379→export function NotificationsView({ user, onNavigate }: { user: { id: string }; onNavigate: (view: string, data?: string) => void }) {
+   380→  const [items, setItems] = useState<NotificationDTO[]>([]);
+   381→  const [loading, setLoading] = useState(true);
+   382→
+   383→  const load = async () => {
+   384→    setLoading(true);
+   385→    try {
+   386→      const { notifications } = await api<{ notifications: NotificationDTO[] }>("/api/notifications");
+   387→      setItems(notifications);
+   388→    } finally {
+   389→      setLoading(false);
+   390→    }
+   391→  };
+   392→  useEffect(() => { load(); }, []);
+   393→
+   394→  const markAll = async () => {
+   395→    await api("/api/notifications", { method: "PATCH", body: JSON.stringify({ action: "readAll" }) });
+   396→    load();
+   397→  };
+   398→
+   399→  const openNotification = async (n: NotificationDTO) => {
+   400→    await api("/api/notifications", { method: "PATCH", body: JSON.stringify({ action: "read", id: n.id }) });
+   401→    let link: { view?: string; id?: string } = {};
+   402→    try { link = n.linkData ? JSON.parse(n.linkData) : {}; } catch {}
+   403→    load();
+   404→    if (link.view) onNavigate(link.view, link.id);
+   405→  };
+   406→
+   407→  const sevColor = (s: string) => (s === "CRITICAL" ? "border-l-rose-500" : s === "WARNING" ? "border-l-amber-500" : "border-l-sky-500");
+   408→
+   409→  return (
+   410→    <div>
+   411→      <PageHeader
+   412→        title="Notifications"
+   413→        subtitle="Alerts for submissions, KPI shortfalls, escalations, overdue reports and failed uploads"
+   414→        actions={
+   415→          <Button variant="outline" size="sm" className="border-slate-600 text-slate-300 hover:bg-white/10" onClick={markAll}>Mark all read</Button>
+   416→        }
+   417→      />
+   418→      {loading ? (
+   419→        <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
+   420→      ) : items.length === 0 ? (
+   421→        <EmptyState icon={<Bell className="h-8 w-8" />} title="No notifications" hint="You will be alerted here when action is needed." />
+   422→      ) : (
+   423→        <div className="space-y-2">
+   424→          {items.map((n) => (
+   425→            <button key={n.id} onClick={() => openNotification(n)} className={`k-card flex w-full items-start gap-3 border-l-4 p-4 text-left ${sevColor(n.severity)} ${n.read ? "opacity-60" : ""}`}>
+   426→              <Bell className={`mt-0.5 h-4 w-4 shrink-0 ${n.severity === "CRITICAL" ? "text-rose-400" : n.severity === "WARNING" ? "text-amber-400" : "text-sky-400"}`} />
+   427→              <div className="min-w-0 flex-1">
+   428→                <div className="flex items-center gap-2">
+   429→                  <p className="text-sm font-semibold text-slate-100">{n.title}</p>
+   430→                  {!n.read && <span className="h-2 w-2 rounded-full bg-[#e8833a]" />}
+   431→                </div>
+   432→                <p className="mt-0.5 text-xs text-slate-400">{n.message}</p>
+   433→                <p className="mt-1 text-[10px] text-slate-600">{fmtDateTime(n.createdAt)}</p>
+   434→              </div>
+   435→            </button>
+   436→          ))}
+   437→        </div>
+   438→      )}
+   439→    </div>
+   440→  );
+   441→}
+   442→
+   443→// ───────────────────────── UPLOADS (supervisor view) ─────────────────────────
+   444→
+   445→export function UploadsAdminView() {
+   446→  const [uploads, setUploads] = useState<{ id: string; originalName: string; sizeBytes: number; extractStatus: string; reportDate: string | null; department: string | null; reportId: string | null; user?: { fullName: string }; createdAt: string }[]>([]);
+   447→  const [loading, setLoading] = useState(true);
+   448→
+   449→  useEffect(() => {
+   450→    api<{ uploads: typeof uploads }>("/api/uploads").then(({ uploads }) => setUploads(uploads)).finally(() => setLoading(false));
+   451→  }, []);
+   452→
+   453→  return (
+   454→    <div>
+   455→      <PageHeader title="Uploaded Files" subtitle="All uploaded report documents, their extraction status and linked reports" />
+   456→      {loading ? (
+   457→        <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
+   458→      ) : uploads.length === 0 ? (
+   459→        <EmptyState icon={<ScrollText className="h-8 w-8" />} title="No uploads yet" />
+   460→      ) : (
+   461→        <div className="overflow-x-auto rounded-xl border border-white/10">
+   462→          <Table>
+   463→            <TableHeader>
+   464→              <TableRow className="border-white/10 bg-white/[0.03]">
+   465→                <TableHead className="text-[11px] text-slate-400">File</TableHead>
+   466→                <TableHead className="text-[11px] text-slate-400">Employee</TableHead>
+   467→                <TableHead className="text-[11px] text-slate-400">Dept</TableHead>
+   468→                <TableHead className="text-[11px] text-slate-400">Report date</TableHead>
+   469→                <TableHead className="text-[11px] text-slate-400">Extraction status</TableHead>
+   470→                <TableHead className="text-[11px] text-slate-400">Actions</TableHead>
+   471→              </TableRow>
+   472→            </TableHeader>
+   473→            <TableBody>
+   474→              {uploads.map((u) => (
+   475→                <TableRow key={u.id} className="border-white/5">
+   476→                  <TableCell className="max-w-48 truncate py-2.5 text-xs text-slate-200">{u.originalName} <span className="text-slate-600">({(u.sizeBytes / 1024).toFixed(0)} KB)</span></TableCell>
+   477→                  <TableCell className="py-2.5 text-xs text-slate-300">{u.user?.fullName}</TableCell>
+   478→                  <TableCell className="py-2.5 text-[11px] text-slate-500">{DEPT_LABELS[u.department || ""] || u.department || "—"}</TableCell>
+   479→                  <TableCell className="py-2.5 text-xs text-slate-400">{u.reportDate ? fmtDate(u.reportDate) : "—"}</TableCell>
+   480→                  <TableCell className="py-2.5"><StatusBadge status={u.extractStatus} /></TableCell>
+   481→                  <TableCell className="py-2.5">
+   482→                    <div className="flex gap-1">
+   483→                      <Button size="sm" variant="ghost" className="h-7 text-[11px] text-slate-300" onClick={() => window.open(`/api/uploads/file?id=${u.id}`, "_blank")}>Open</Button>
+   484→                      {u.reportId && <Button size="sm" variant="ghost" className="h-7 text-[11px] text-[#8b7ff5]" onClick={() => window.open(`/api/export?format=docx&id=${u.reportId}`, "_blank")}>Report</Button>}
+   485→                    </div>
+   486→                  </TableCell>
+   487→                </TableRow>
+   488→              ))}
+   489→            </TableBody>
+   490→          </Table>
+   491→        </div>
+   492→      )}
+   493→    </div>
+   494→  );
+   495→}
+   496→

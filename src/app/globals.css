@@ -201,6 +201,26 @@
 .k-fade-collapse { transition: opacity 0.18s ease, transform 0.24s ease; }
 .k-collapsed-hide { opacity: 0; transform: translateX(-8px); pointer-events: none; }
 
+/* Rail labels — keep participating in flex layout ONLY while the sidebar is
+   expanded, so icons stay glued to their labels; when the rail slides in,
+   flex-grow + margin animate to zero and the icon lands exactly on the
+   rail's centerline (fixes icon/label misalignment in the collapsed rail). */
+.k-rail-label {
+  flex: 1 1 0%;
+  margin-left: 0.75rem;
+  min-width: 0;
+  overflow: hidden;
+  transition:
+    flex-grow 0.32s cubic-bezier(0.32, 0.72, 0, 1),
+    margin-left 0.32s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.18s ease,
+    transform 0.24s ease;
+}
+.k-rail-collapsed .k-rail-label {
+  flex: 0 0 0%;
+  margin-left: 0;
+}
+
 /* Nav pill */
 .k-nav-item {
   position: relative;

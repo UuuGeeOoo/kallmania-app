@@ -9,6 +9,29 @@ import { AGENT_KPI_DEFS } from "@/lib/template-config";
  */
 export async function GET() {
   return handle(async () => {
+    // Seed the Inbound Call Centre KPI catalogue (same metrics as outbound, all optional) — runs once.
+    const inboundFlag = await db.systemFlag.findUnique({ where: { key: "seeded_inbound_kpis_v1" } });
+    if (!inboundFlag) {
+      const existingInbound = await db.kpiConfig.count({ where: { department: "INBOUND" } });
+      if (existingInbound === 0) {
+        await db.kpiConfig.createMany({
+          data: AGENT_KPI_DEFS.map((d) => ({
+            department: "INBOUND",
+            key: d.key,
+            label: d.label,
+            category: d.category,
+            unit: d.unit,
+            direction: d.derivedFrom ? "DERIVED" : "HIGHER_BETTER",
+            defaultTarget: d.target,
+            derivedFrom: d.derivedFrom || null,
+            mandatory: false, // inbound: nothing is required — every metric is optional
+            sortOrder: Math.round(d.sortOrder),
+          })),
+        });
+      }
+      await db.systemFlag.create({ data: { key: "seeded_inbound_kpis_v1", value: new Date().toISOString() } });
+    }
+
     const flag = await db.systemFlag.findUnique({ where: { key: "seeded_admin_v1" } });
     if (!flag) {
       const email = "echristian@kallmania.com";

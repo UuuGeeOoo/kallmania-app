@@ -15,6 +15,59 @@ import { ChevronDown, Save, Send, Calculator, Loader2, FileDown, Plus, Trash2 } 
 export const DISPOSITIONS = ["Interested", "Callback Requested", "Not Interested", "No Answer", "Busy / Unreachable", "Wrong Number", "Voicemail", "Meeting Booked", "Hot Lead", "Warm Lead"];
 const CALL_LOG_ROWS = 8;
 
+/** A row of the administrator-managed KPI catalogue (see KPI Configuration). */
+interface KpiConfigRow {
+  department: string; key: string; label: string; category: string; unit: string;
+  defaultTarget: number | null; mandatory: boolean; active: boolean;
+}
+
+/**
+ * Build the form's KPI rows from the administrator-managed KPI Configuration
+ * catalogue (targets / labels / mandatory flags / added & deleted metrics),
+ * falling back to the master template defaults when the catalogue is unavailable.
+ * Saved values from an existing report are overlaid so history always renders.
+ */
+function buildKpiRows(
+  config: KpiConfigRow[] | null,
+  defaults: KpiMetric[],
+  saved: KpiMetric[],
+  inbound: boolean,
+): KpiMetric[] {
+  const targetLabelFor = (t: number | null, unit: string): string =>
+    t === null || t === undefined ? "-" : unit === "percent" ? `${t}%` : unit === "minutes" ? `${t}mins` : `${t}`;
+  let rows: KpiMetric[];
+  if (config) {
+    rows = config.map((c) => {
+      const d = defaults.find((x) => x.key === c.key);
+      return {
+        key: c.key,
+        label: c.label,
+        target: c.defaultTarget,
+        targetLabel: targetLabelFor(c.defaultTarget, c.unit),
+        actual: null,
+        variance: null,
+        unit: (c.unit === "percent" || c.unit === "minutes" ? c.unit : "count") as KpiMetric["unit"],
+        category: d?.category ?? (c.category || "CUSTOM"),
+        auto: false,
+        notes: "",
+        mandatory: inbound ? false : !!c.mandatory,
+      };
+    });
+  } else {
+    rows = defaults.map((d) => ({ ...d, mandatory: inbound ? false : !!d.mandatory }));
+  }
+  // Overlay what the agent already saved (values, auto flags, notes) — config keeps governing identity/target/mandatory.
+  rows = rows.map((r) => {
+    const s = saved.find((x) => x.key === r.key);
+    return s ? { ...r, actual: s.actual ?? null, auto: !!s.auto, notes: s.notes || "" } : r;
+  });
+  // Keep metrics the agent filled before an admin removed them from the catalogue.
+  for (const s of saved) {
+    if (s.actual !== null && !rows.some((r) => r.key === s.key)) rows.push({ ...s, mandatory: false });
+  }
+  return rows;
+}
+
 function useRecalc() {
   return useCallback((metrics: KpiMetric[]): KpiMetric[] => {
     const out = metrics.map((m) => ({ ...m }));
@@ -54,7 +107,7 @@ function useRecalc() {
 export function KpiTable({ metrics, onChange, showCategory }: { metrics: KpiMetric[]; onChange: (m: KpiMetric[]) => void; showCategory?: boolean }) {
   const recalc = useRecalc();
   const [emailOpen, setEmailOpen] = useState(false);
-  const core = metrics.filter((m) => m.category === "CORE_TEMPLATE" || m.category === "LEADS_EXTENSION");
+  const core = metrics.filter((m) => m.category === "CORE_TEMPLATE" || m.category === "LEADS_EXTENSION" || m.category === "CUSTOM");
   const email = metrics.filter((m) => m.category === "EMAIL_EXTENSION");
 
   const setActual = (key: string, raw: string) => {
@@ -209,9 +262,18 @@ export default function AgentBpoReportForm({
       setLoading(true);
       setError(null);
       try {
-        const { reports } = await api<{ reports: ReportDTO[] }>(`/api/reports?mine=1&type=AGENT_BPO&date=${date}`);
-        const existing = reports[0];
+        const dept = inbound ? "INBOUND" : "BPO";
+        const [reportsRes, kpiConfigs] = await Promise.all([
+          api<{ reports: ReportDTO[] }>(`/api/reports?mine=1&type=AGENT_BPO&date=${date}`),
+          // administrator-managed catalogue for this call centre (targets, labels, optional/required, added & removed metrics)
+          api<{ configs: KpiConfigRow[] }>("/api/kpi-config")
+            .then((r) => r.configs.filter((c) => c.department === dept && c.active !== false))
+            .catch(() => null),
+        ]);
+        const existing = reportsRes.reports[0];
         if (cancelled) return;
+        const savedMetrics = existing?.kpiMetrics ? JSON.parse(existing.kpiMetrics) as KpiMetric[] : [];
+        setKpiMetrics(buildKpiRows(kpiConfigs, DEFAULT_KPIS, savedMetrics, inbound));
         if (existing) {
           setReportId(existing.id);
           setRef(existing.ref);
@@ -220,13 +282,6 @@ export default function AgentBpoReportForm({
             shiftTime: existing.shiftTime || "", clockIn: existing.clockIn || "", clockOut: existing.clockOut || "",
             attendanceStatus: existing.attendanceStatus || "Present", latenessMins: existing.latenessMins !== null && existing.latenessMins !== undefined ? String(existing.latenessMins) : "",
           });
-          const metrics = existing.kpiMetrics ? JSON.parse(existing.kpiMetrics) as KpiMetric[] : [];
-          // merge defaults so new template rows appear for older reports
-          const merged = DEFAULT_KPIS.map((d) => {
-            const found = metrics.find((m) => m.key === d.key);
-            return found ? { ...d, ...found, label: d.label } : d;
-          });
-          setKpiMetrics(merged);
           const logs = existing.callLogs ? JSON.parse(existing.callLogs) as CallLogEntry[] : [];
           // start from the 8 template rows, extend if the agent logged more calls
           setCallLogs(Array.from({ length: Math.max(CALL_LOG_ROWS, logs.length) }, (_, i) => logs[i] || {}));
@@ -240,7 +295,6 @@ export default function AgentBpoReportForm({
           setReviewedAt(existing.reviewedAt || null);
         } else {
           setReportId(null); setRef(null); setStatus("DRAFT");
-          setKpiMetrics(DEFAULT_KPIS.map((d) => ({ ...d })));
           setCallLogs(Array.from({ length: CALL_LOG_ROWS }, () => ({})));
           setCampaignName(""); setChallenges(""); setEscalations(""); setAdditional("");
           setFeedback(null); setReviewer(null); setReviewedAt(null);
@@ -253,7 +307,7 @@ export default function AgentBpoReportForm({
       }
     })();
     return () => { cancelled = true; };
-  }, [date, user.id, DEFAULT_KPIS]);
+  }, [date, user.id, inbound, DEFAULT_KPIS]);
 
   const save = async (submit: boolean) => {
     setSaving(true);

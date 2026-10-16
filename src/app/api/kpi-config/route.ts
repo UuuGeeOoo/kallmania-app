@@ -23,22 +23,24 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { department, key, label, category, unit, defaultTarget, mandatory, active, direction } = body;
     if (!department || !key || !label) return fail("department, key and label are required");
+    // Inbound Call Centre policy: nothing is ever required — every metric stays optional.
+    const isInbound = department === "INBOUND";
     const config = await db.kpiConfig.upsert({
       where: { department_key: { department, key } },
       create: {
         department, key, label,
-        category: category || "EMAIL_EXTENSION",
+        category: category || "CUSTOM",
         unit: unit || "count",
         direction: direction || "HIGHER_BETTER",
         defaultTarget: defaultTarget === null || defaultTarget === undefined || defaultTarget === "" ? null : parseFloat(String(defaultTarget)),
-        mandatory: !!mandatory,
+        mandatory: isInbound ? false : !!mandatory,
         active: active !== false,
         sortOrder: 100,
       },
       update: {
-        label, category: category || "EMAIL_EXTENSION", unit: unit || "count",
+        label, category: category || "CUSTOM", unit: unit || "count",
         defaultTarget: defaultTarget === null || defaultTarget === undefined || defaultTarget === "" ? null : parseFloat(String(defaultTarget)),
-        mandatory: !!mandatory,
+        mandatory: isInbound ? false : !!mandatory,
         active: active !== false,
         direction: direction || "HIGHER_BETTER",
       },

@@ -65,14 +65,14 @@ function SidebarBody({
   onLogout: () => void;
 }) {
   return (
-    <div className="k-glass-chrome flex h-full flex-col border-r border-white/[0.07]">
+    <div className={cn("k-glass-chrome flex h-full flex-col border-r border-white/[0.07]", !expanded && "k-rail-collapsed")}>
       {/* Brand row */}
-      <div className={cn("flex items-center gap-3 px-4 py-5", !expanded && "justify-center px-2")}>
+      <div className={cn("flex items-center px-4 py-5", !expanded && "justify-center px-2")}>
         <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#8b7ff5] via-[#6c5ce7] to-[#5b4bd4] font-black text-white shadow-[0_8px_24px_-6px_rgba(108,92,231,0.65),inset_0_1px_0_rgba(255,255,255,0.35)]">
           K
           <span className="absolute inset-0 rounded-xl ring-1 ring-white/25" />
         </div>
-        <div className={cn("k-fade-collapse min-w-0", !expanded && "k-collapsed-hide")}>
+        <div className={cn("k-rail-label min-w-0", !expanded && "k-collapsed-hide")}>
           <p className="truncate text-sm font-bold leading-none text-white">Kallmania</p>
           <p className="mt-1 truncate text-[10px] uppercase tracking-wider text-slate-500">SBTS Group</p>
         </div>
@@ -100,13 +100,13 @@ function SidebarBody({
               className={cn(
                 "k-nav-item group relative flex w-full items-center rounded-xl py-2.5 text-sm font-medium",
                 active ? "k-nav-active" : "text-slate-400 hover:bg-white/[0.055] hover:text-slate-200",
-                expanded ? "gap-3 px-3" : "justify-center px-0",
+                expanded ? "px-3" : "justify-center px-0",
               )}
             >
               <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                 <Icon className={cn("h-[18px] w-[18px]", active ? "text-[#c4bbff]" : "text-slate-500 group-hover:text-slate-300")} />
               </span>
-              <span className={cn("k-fade-collapse flex-1 truncate text-left", !expanded && "k-collapsed-hide")}>{item.label}</span>
+              <span className={cn("k-rail-label truncate text-left", !expanded && "k-collapsed-hide")}>{item.label}</span>
               {item.key === "notifications" && unread > 0 && (
                 <span className={cn(
                   "rounded-full bg-[#e8833a] px-1.5 py-0.5 text-[10px] font-bold text-white shadow-[0_0_10px_rgba(232,131,58,0.6)]",
@@ -122,11 +122,11 @@ function SidebarBody({
 
       {/* User block */}
       <div className="border-t border-white/[0.07] p-3">
-        <div className={cn("flex items-center gap-3", !expanded && "justify-center")}>
+        <div className={cn("flex items-center", !expanded && "justify-center")}>
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#31456b] to-[#22334e] text-xs font-bold text-[#b3a5ff] ring-1 ring-white/15">
             {user.fullName.split(" ").map((w) => w[0]).slice(0, 2).join("")}
           </div>
-          <div className={cn("k-fade-collapse min-w-0 flex-1", !expanded && "k-collapsed-hide")}>
+          <div className={cn("k-rail-label min-w-0", !expanded && "k-collapsed-hide")}>
             <p className="truncate text-xs font-semibold text-slate-200">{user.fullName}</p>
             <p className="truncate text-[10px] text-slate-500">{ROLE_LABELS[user.role]}</p>
           </div>
