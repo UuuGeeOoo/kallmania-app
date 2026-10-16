@@ -8,8 +8,8 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { api, ROLE_LABELS, DEPT_LABELS, type NotificationDTO, type SessionUser } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard, FileText, Upload, ListTodo, ClipboardCheck, Layers, Users, Settings2,
-  Bell, LogOut, Menu, ScrollText, Inbox, KeyRound, Home, Archive, PanelLeftClose, PanelLeftOpen, Sparkles,
+  LayoutDashboard, FileText, Upload, ListTodo, ClipboardCheck, Layers, Users, Target,
+  Bell, LogOut, Menu, ScrollText, Inbox, KeyRound, Home, FolderOpen, PanelLeftClose, PanelLeftOpen, FileCog, FileCheck2,
 } from "lucide-react";
 
 export interface NavItem {
@@ -25,23 +25,24 @@ export function navForRole(role: string): NavItem[] {
     { key: "daily-report", label: "Daily Report", icon: FileText },
     { key: "upload", label: "Upload Report", icon: Upload },
     { key: "tasks", label: "My Tasks", icon: ListTodo },
-    { key: "my-reports", label: "My Reports", icon: ClipboardCheck },
+    { key: "my-reports", label: "My Reports", icon: FileCheck2 },
     { key: "notifications", label: "Notifications", icon: Bell },
   ];
   const supervisorNav: NavItem[] = [
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { key: "review", label: "Review Reports", icon: ClipboardCheck },
-    { key: "archive", label: "Reports Archive", icon: Archive },
+    { key: "archive", label: "Reports Archive", icon: FolderOpen },
     { key: "consolidated", label: "Consolidated Report", icon: Layers },
     { key: "supervisor-report", label: "My Daily Report", icon: FileText },
     { key: "team-tasks", label: "Tasks & Assignments", icon: ListTodo },
     { key: "uploads-admin", label: "Uploaded Files", icon: Upload },
+    { key: "tl-template", label: "TL Report Template", icon: FileCog },
     { key: "notifications", label: "Notifications", icon: Bell },
   ];
   const adminNav: NavItem[] = [
     ...supervisorNav.filter((n) => n.key !== "notifications"),
     { key: "admin-users", label: "User Management", icon: Users },
-    { key: "kpi-config", label: "KPI Configuration", icon: Settings2 },
+    { key: "kpi-config", label: "KPI Configuration", icon: Target },
     { key: "audit", label: "Audit Trail", icon: ScrollText },
     { key: "notifications", label: "Notifications", icon: Bell },
   ];
@@ -97,12 +98,14 @@ function SidebarBody({
               onClick={() => { onNavigate(item.key); if (isMobile) onToggleExpand?.(); }}
               title={expanded ? undefined : item.label}
               className={cn(
-                "k-nav-item group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium",
+                "k-nav-item group relative flex w-full items-center rounded-xl py-2.5 text-sm font-medium",
                 active ? "k-nav-active" : "text-slate-400 hover:bg-white/[0.055] hover:text-slate-200",
-                !expanded && "justify-center px-0",
+                expanded ? "gap-3 px-3" : "justify-center px-0",
               )}
             >
-              <Icon className={cn("h-4 w-4 shrink-0", active ? "text-[#c4bbff]" : "text-slate-500 group-hover:text-slate-300")} />
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                <Icon className={cn("h-[18px] w-[18px]", active ? "text-[#c4bbff]" : "text-slate-500 group-hover:text-slate-300")} />
+              </span>
               <span className={cn("k-fade-collapse flex-1 truncate text-left", !expanded && "k-collapsed-hide")}>{item.label}</span>
               {item.key === "notifications" && unread > 0 && (
                 <span className={cn(
@@ -207,9 +210,6 @@ export default function Shell({
           <div className="flex min-w-0 items-center gap-2">
             <Home className="h-4 w-4 shrink-0 text-slate-500" />
             <span className="truncate text-sm font-semibold text-slate-200">{nav.find((n) => n.key === view)?.label || "Kallmania"}</span>
-            <span className="ml-1 hidden items-center gap-1 rounded-full border border-[#8b7ff5]/30 bg-[#6c5ce7]/12 px-2 py-0.5 text-[10px] font-semibold text-[#b3a5ff] sm:inline-flex">
-              <Sparkles className="h-3 w-3" /> Liquid Glass
-            </span>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" className="relative h-9 w-9 text-slate-400 hover:bg-white/10 hover:text-slate-100" onClick={() => handleNavigate("notifications")} title="Notifications">

@@ -5,12 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { api, fmtDate, fmtDateTime, ROLE_LABELS, DEPT_LABELS, type UserDTO, type NotificationDTO } from "@/lib/client";
+import { api, fmtDate, fmtDateTime, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, type UserDTO, type NotificationDTO } from "@/lib/client";
 import { PageHeader, EmptyState, StatusBadge, SectionCard, Field, inputCls } from "@/components/kallmania/shared";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2, Loader2, Bell, Settings2, ScrollText } from "lucide-react";
 
 // ───────────────────────── USER MANAGEMENT ─────────────────────────
+
+const ALL_ROLES = ["AGENT_BPO", "TEAM_LEAD", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR", "ADMIN"];
+const ALL_TEAMS = ["OUTBOUND", "INBOUND", "EMAIL", "SOCIAL", "TECH"];
 
 export function AdminUsersView() {
   const [users, setUsers] = useState<UserDTO[]>([]);
@@ -41,10 +44,23 @@ export function AdminUsersView() {
     }
   };
 
-  const changeRole = async (userId: string, role: string) => {
+  const changeRole = async (userId: string, role: string, team?: string) => {
     setBusy(userId + "role");
     try {
-      await api("/api/users", { method: "PATCH", body: JSON.stringify({ userId, action: "changeRole", role }) });
+      await api("/api/users", { method: "PATCH", body: JSON.stringify({ userId, action: "changeRole", role, ...(team !== undefined ? { team } : {}) }) });
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const changeTeam = async (u: UserDTO, team: string) => {
+    setBusy(u.id + "team");
+    try {
+      // Keep the current role; move the user to another team under the BPO division
+      const agentRoleByTeam: Record<string, string> = { OUTBOUND: "AGENT_BPO", INBOUND: "AGENT_BPO", EMAIL: "AGENT_BPO", SOCIAL: "SOCIAL_MEDIA", TECH: "DEVELOPER" };
+      const role = u.role === "TEAM_LEAD" ? "TEAM_LEAD" : agentRoleByTeam[team] || u.role;
+      await api("/api/users", { method: "PATCH", body: JSON.stringify({ userId: u.id, action: "changeRole", role, team }) });
       await load();
     } finally {
       setBusy(null);
@@ -75,15 +91,20 @@ export function AdminUsersView() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-slate-100">{u.fullName} <span className="ml-2 text-xs font-normal text-slate-400">{u.email}</span></p>
                   <p className="mt-0.5 text-[11px] text-slate-500">
-                    Requested role: <span className="font-semibold text-[#b3a5ff]">{ROLE_LABELS[u.role]}</span> · Department: {DEPT_LABELS[u.department] || u.department} · registered {fmtDate(u.createdAt)}
+                    Requested: <span className="font-semibold text-[#b3a5ff]">{ROLE_LABELS[u.role]}</span>
+                    {u.team ? ` · ${TEAM_LABELS[u.team] || u.team}` : ""} · {DEPT_LABELS[u.department] || u.department} · registered {fmtDate(u.createdAt)}
                   </p>
                 </div>
-                <Select defaultValue={u.role} onValueChange={(v) => changeRole(u.id, v)}>
-                  <SelectTrigger className="h-8 w-52 border-slate-600/50 bg-[#15202e]/60 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR", "ADMIN"].map((r) => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select defaultValue={u.team || undefined} onValueChange={(v) => changeTeam(u, v)}>
+                    <SelectTrigger className="h-8 w-40 border-slate-600/50 bg-[#15202e]/60 text-xs"><SelectValue placeholder="Team under BPO" /></SelectTrigger>
+                    <SelectContent>{ALL_TEAMS.map((t) => <SelectItem key={t} value={t}>{TEAM_LABELS[t]}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Select defaultValue={u.role} onValueChange={(v) => changeRole(u.id, v, u.team || undefined)}>
+                    <SelectTrigger className="h-8 w-44 border-slate-600/50 bg-[#15202e]/60 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>{ALL_ROLES.map((r) => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
                 <Button size="sm" disabled={busy === u.id + "approve"} onClick={() => act(u.id, "approve")} className="bg-emerald-600 hover:bg-emerald-500">
                   {busy === u.id + "approve" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1 h-3.5 w-3.5" />} Confirm
                 </Button>
@@ -108,6 +129,7 @@ export function AdminUsersView() {
                 <TableHead className="text-[11px] text-slate-400">Name</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Email</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Role</TableHead>
+                <TableHead className="text-[11px] text-slate-400">Team under BPO</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Status</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Registered</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Actions</TableHead>
@@ -119,12 +141,20 @@ export function AdminUsersView() {
                   <TableCell className="py-2.5 text-xs font-semibold text-slate-200">{u.fullName}</TableCell>
                   <TableCell className="py-2.5 text-xs text-slate-400">{u.email}</TableCell>
                   <TableCell className="py-2.5">
-                    <Select defaultValue={u.role} onValueChange={(v) => changeRole(u.id, v)}>
-                      <SelectTrigger className="h-7 w-44 border-slate-600/50 bg-[#15202e]/60 text-[11px]"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR", "ADMIN"].map((r) => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}
-                      </SelectContent>
+                    <Select defaultValue={u.role} onValueChange={(v) => changeRole(u.id, v, u.team || undefined)}>
+                      <SelectTrigger className="h-7 w-40 border-slate-600/50 bg-[#15202e]/60 text-[11px]"><SelectValue /></SelectTrigger>
+                      <SelectContent>{ALL_ROLES.map((r) => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
                     </Select>
+                  </TableCell>
+                  <TableCell className="py-2.5">
+                    {["SUPERVISOR", "ADMIN"].includes(u.role) ? (
+                      <span className="text-[11px] text-slate-500">— division-wide —</span>
+                    ) : (
+                      <Select defaultValue={u.team || undefined} onValueChange={(v) => changeTeam(u, v)}>
+                        <SelectTrigger className="h-7 w-40 border-slate-600/50 bg-[#15202e]/60 text-[11px]"><SelectValue placeholder="Set team" /></SelectTrigger>
+                        <SelectContent>{ALL_TEAMS.map((t) => <SelectItem key={t} value={t}>{TEAM_LABELS[t]}</SelectItem>)}</SelectContent>
+                      </Select>
+                    )}
                   </TableCell>
                   <TableCell className="py-2.5"><StatusBadge status={u.status} /></TableCell>
                   <TableCell className="py-2.5 text-[11px] text-slate-500">{fmtDate(u.createdAt)}</TableCell>

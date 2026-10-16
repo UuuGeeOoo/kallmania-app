@@ -86,7 +86,7 @@ export async function checkOverdueReports(dateISO: string): Promise<void> {
   if (!workdayOver) return;
 
   const reporters = await db.user.findMany({
-    where: { status: "APPROVED", role: { in: ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA"] } },
+    where: { status: "APPROVED", role: { in: ["AGENT_BPO", "TEAM_LEAD", "DEVELOPER", "SOCIAL_MEDIA"] } },
   });
   const submitted = await db.report.findMany({
     where: { reportDate: { gte: dayStart, lte: dayEnd }, type: { not: "SUPERVISOR" }, status: { in: ["SUBMITTED", "APPROVED"] } },

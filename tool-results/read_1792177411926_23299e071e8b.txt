@@ -1,0 +1,436 @@
+     1→"use client";
+     2→
+     3→import { useCallback, useEffect, useMemo, useState } from "react";
+     4→import { Button } from "@/components/ui/button";
+     5→import { Input } from "@/components/ui/input";
+     6→import { Textarea } from "@/components/ui/textarea";
+     7→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+     8→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+     9→import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+    10→import { api, todayISO, type KpiMetric, type CallLogEntry, type ReportDTO, type SessionUser } from "@/lib/client";
+    11→import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner } from "@/components/kallmania/shared";
+    12→import { cn } from "@/lib/utils";
+    13→import { ChevronDown, Save, Send, Calculator, Loader2, FileDown, Plus, Trash2 } from "lucide-react";
+    14→
+    15→export const DISPOSITIONS = ["Interested", "Callback Requested", "Not Interested", "No Answer", "Busy / Unreachable", "Wrong Number", "Voicemail", "Meeting Booked", "Hot Lead", "Warm Lead"];
+    16→const CALL_LOG_ROWS = 8;
+    17→
+    18→function useRecalc() {
+    19→  return useCallback((metrics: KpiMetric[]): KpiMetric[] => {
+    20→    const out = metrics.map((m) => ({ ...m }));
+    21→    const get = (key: string): number | null => {
+    22→      const m = out.find((x) => x.key === key);
+    23→      return m && m.actual !== null && !Number.isNaN(m.actual) ? m.actual : null;
+    24→    };
+    25→    for (const m of out) {
+    26→      // derived metrics
+    27→      if (m.key === "contactRate") {
+    28→        const c = get("callsConnected"), t = get("totalCallsMade");
+    29→        const manual = m.actual !== null && !m.auto;
+    30→        if (!manual) { m.actual = t !== null && t !== 0 && c !== null ? Math.round((c / t) * 10000) / 100 : null; m.auto = m.actual !== null; }
+    31→      }
+    32→      if (m.key === "conversionRate") {
+    33→        const leads = get("hotLeads"), warm = get("warmLeads"), c = get("callsConnected");
+    34→        const manual = m.actual !== null && !m.auto;
+    35→        if (!manual) {
+    36→          const totalLeads = leads !== null && warm !== null ? leads + warm : null;
+    37→          m.actual = totalLeads !== null && c !== null && c !== 0 ? Math.round((totalLeads / c) * 10000) / 100 : null;
+    38→          m.auto = m.actual !== null;
+    39→        }
+    40→      }
+    41→      if (m.key === "leadsGenerated") {
+    42→        const h = get("hotLeads"), w = get("warmLeads");
+    43→        const manual = m.actual !== null && !m.auto;
+    44→        if (!manual) { m.actual = h !== null && w !== null ? h + w : null; m.auto = m.actual !== null; }
+    45→      }
+    46→      // variance
+    47→      if (m.actual !== null && m.target !== null) m.variance = Math.round((m.actual - m.target) * 100) / 100;
+    48→      else m.variance = null;
+    49→    }
+    50→    return out;
+    51→  }, []);
+    52→}
+    53→
+    54→export function KpiTable({ metrics, onChange, showCategory }: { metrics: KpiMetric[]; onChange: (m: KpiMetric[]) => void; showCategory?: boolean }) {
+    55→  const recalc = useRecalc();
+    56→  const [emailOpen, setEmailOpen] = useState(false);
+    57→  const core = metrics.filter((m) => m.category === "CORE_TEMPLATE" || m.category === "LEADS_EXTENSION");
+    58→  const email = metrics.filter((m) => m.category === "EMAIL_EXTENSION");
+    59→
+    60→  const setActual = (key: string, raw: string) => {
+    61→    const v = raw === "" ? null : parseFloat(raw);
+    62→    onChange(recalc(metrics.map((m) => (m.key === key ? { ...m, actual: Number.isNaN(v as number) ? null : v, auto: false } : m))));
+    63→  };
+    64→  const setNotes = (key: string, notes: string) => onChange(metrics.map((m) => (m.key === key ? { ...m, notes } : m)));
+    65→
+    66→  const renderRow = (m: KpiMetric) => (
+    67→    <TableRow key={m.key} className="border-white/5">
+    68→      <TableCell className="py-2 text-xs font-medium text-slate-200">
+    69→        {m.label}
+    70→        {m.mandatory && <span className="ml-1 text-rose-400">*</span>}
+    71→        {m.auto && m.actual !== null && (
+    72→          <span className="ml-2 inline-flex items-center gap-0.5 rounded bg-[#6c5ce7]/20 px-1.5 py-0.5 text-[9px] font-semibold text-[#b3a5ff]">
+    73→            <Calculator className="h-2.5 w-2.5" /> auto
+    74→          </span>
+    75→        )}
+    76→      </TableCell>
+    77→      <TableCell className="py-2 text-xs tabular-nums text-slate-400">{m.targetLabel}{m.unit === "percent" && m.target !== null ? "" : ""}</TableCell>
+    78→      <TableCell className="py-2">
+    79→        <Input
+    80→          type="number" step="any" inputMode="decimal"
+    81→          className={cn(inputCls, "h-8 w-24 text-xs tabular-nums")}
+    82→          value={m.actual === null ? "" : m.actual}
+    83→          onChange={(e) => setActual(m.key, e.target.value)}
+    84→          placeholder="—"
+    85→        />
+    86→      </TableCell>
+    87→      <TableCell className="py-2 text-xs font-semibold tabular-nums">
+    88→        {m.variance === null ? <span className="text-slate-600">—</span> : m.variance >= 0 ? <span className="text-emerald-400">+{m.variance}</span> : <span className="text-rose-400">{m.variance}</span>}
+    89→      </TableCell>
+    90→      <TableCell className="py-2">
+    91→        <Input className={cn(inputCls, "h-8 text-xs")} value={m.notes} onChange={(e) => setNotes(m.key, e.target.value)} placeholder="optional" />
+    92→      </TableCell>
+    93→    </TableRow>
+    94→  );
+    95→
+    96→  return (
+    97→    <div className="overflow-x-auto rounded-lg border border-white/10">
+    98→      <Table>
+    99→        <TableHeader>
+   100→          <TableRow className="border-white/10 bg-white/[0.03]">
+   101→            <TableHead className="text-[11px] uppercase tracking-wide text-slate-400">KPI</TableHead>
+   102→            <TableHead className="text-[11px] uppercase tracking-wide text-slate-400">Target</TableHead>
+   103→            <TableHead className="text-[11px] uppercase tracking-wide text-slate-400">Actual</TableHead>
+   104→            <TableHead className="text-[11px] uppercase tracking-wide text-slate-400">Variance</TableHead>
+   105→            <TableHead className="text-[11px] uppercase tracking-wide text-slate-400">Notes</TableHead>
+   106→          </TableRow>
+   107→        </TableHeader>
+   108→        <TableBody>
+   109→          {core.map(renderRow)}
+   110→          <TableRow className="border-white/5">
+   111→            <TableCell colSpan={5} className="p-0">
+   112→              <Collapsible open={emailOpen} onOpenChange={setEmailOpen}>
+   113→                <CollapsibleTrigger className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-[#b3a5ff] hover:bg-white/[0.03]">
+   114→                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${emailOpen ? "rotate-180" : ""}`} />
+   115→                  Email activity metrics (extension) — {email.filter((m) => m.actual !== null).length} filled
+   116→                </CollapsibleTrigger>
+   117→                <CollapsibleContent>{email.map(renderRow)}</CollapsibleContent>
+   118→              </Collapsible>
+   119→            </TableCell>
+   120→          </TableRow>
+   121→        </TableBody>
+   122→      </Table>
+   123→    </div>
+   124→  );
+   125→}
+   126→
+   127→export function AttendanceBlock({
+   128→  values, onChange, user, isSupervisor,
+   129→}: {
+   130→  values: { shiftTime: string; clockIn: string; clockOut: string; attendanceStatus: string; latenessMins: string; teamName?: string };
+   131→  onChange: (v: Partial<typeof values>) => void;
+   132→  user: SessionUser;
+   133→  isSupervisor?: boolean;
+   134→}) {
+   135→  return (
+   136→    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+   137→      <Field label={isSupervisor ? "Supervisor Name" : "Agent Name"}>
+   138→        <Input readOnly disabled className={inputCls} value={user.fullName} />
+   139→      </Field>
+   140→      <Field label={isSupervisor ? "Team Name" : "Agent ID"}>
+   141→        <Input className={inputCls} value={isSupervisor ? values.teamName || "" : user.employeeId || ""} onChange={(e) => isSupervisor && onChange({ teamName: e.target.value } as never)} placeholder={isSupervisor ? "e.g. ICBM Outbound Team A" : "Auto from profile"} />
+   142→      </Field>
+   143→    </div>
+   144→  );
+   145→}
+   146→
+   147→export default function AgentBpoReportForm({
+   148→  user, date, onDone,
+   149→}: {
+   150→  user: SessionUser;
+   151→  date: string;
+   152→  onDone?: () => void;
+   153→}) {
+   154→  const [loading, setLoading] = useState(true);
+   155→  const [saving, setSaving] = useState(false);
+   156→  const [reportId, setReportId] = useState<string | null>(null);
+   157→  const [ref, setRef] = useState<string | null>(null);
+   158→  const [status, setStatus] = useState<string>("DRAFT");
+   159→  const [kpiMetrics, setKpiMetrics] = useState<KpiMetric[]>([]);
+   160→  const [callLogs, setCallLogs] = useState<CallLogEntry[]>(Array.from({ length: CALL_LOG_ROWS }, () => ({})));
+   161→  const [info, setInfo] = useState({ shiftTime: "", clockIn: "", clockOut: "", attendanceStatus: "Present", latenessMins: "" });
+   162→  const [campaignName, setCampaignName] = useState("");
+   163→  const [challenges, setChallenges] = useState("");
+   164→  const [escalations, setEscalations] = useState("");
+   165→  const [additional, setAdditional] = useState("");
+   166→  const [feedback, setFeedback] = useState<string | null>(null);
+   167→  const [reviewer, setReviewer] = useState<string | null>(null);
+   168→  const [reviewedAt, setReviewedAt] = useState<string | null>(null);
+   169→  const [error, setError] = useState<string | null>(null);
+   170→
+   171→  const DEFAULT_KPIS: KpiMetric[] = useMemo(() => ([
+   172→    { key: "totalCallsMade", label: "Total Calls Made", target: 30, targetLabel: "30", actual: null, variance: null, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "", mandatory: true },
+   173→    { key: "totalMailsSent", label: "Total Mails Sent", target: 10, targetLabel: "10", actual: null, variance: null, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "", mandatory: true },
+   174→    { key: "callsConnected", label: "Calls Connected", target: 25, targetLabel: "25", actual: null, variance: null, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "", mandatory: true },
+   175→    { key: "successfulMailsSent", label: "Successful Mails Sent", target: 8, targetLabel: "8", actual: null, variance: null, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "" },
+   176→    { key: "contactRate", label: "Contact Rate (%)", target: 100, targetLabel: "100%", actual: null, variance: null, unit: "percent", category: "CORE_TEMPLATE", auto: false, notes: "" },
+   177→    { key: "conversionRate", label: "Conversion Rate (%)", target: 2, targetLabel: "2%", actual: null, variance: null, unit: "percent", category: "CORE_TEMPLATE", auto: false, notes: "" },
+   178→    { key: "avgTalkTime", label: "Avg. Talk Time (mins)", target: null, targetLabel: "-", actual: null, variance: null, unit: "minutes", category: "CORE_TEMPLATE", auto: false, notes: "" },
+   179→    { key: "avgHoldTime", label: "Avg. Hold Time (mins)", target: null, targetLabel: "-", actual: null, variance: null, unit: "minutes", category: "CORE_TEMPLATE", auto: false, notes: "" },
+   180→    { key: "callbacksScheduled", label: "Callbacks Scheduled", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "" },
+   181→    { key: "leadsGenerated", label: "Leads Generated (HOT / WARM)", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "" },
+   182→    { key: "hotLeads", label: "— Hot Leads", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "LEADS_EXTENSION", auto: false, notes: "" },
+   183→    { key: "warmLeads", label: "— Warm Leads", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "LEADS_EXTENSION", auto: false, notes: "" },
+   184→    { key: "positiveDispositions", label: "Positive Dispositions", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "" },
+   185→    { key: "notInterested", label: "Not Interested / Declined", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "" },
+   186→    { key: "wrapUpTime", label: "Wrap-Up / After-Call Work (mins)", target: 20, targetLabel: "20mins", actual: null, variance: null, unit: "minutes", category: "CORE_TEMPLATE", auto: false, notes: "" },
+   187→    { key: "bouncedEmails", label: "Bounced Emails", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
+   188→    { key: "failedSends", label: "Failed Sending Attempts", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
+   189→    { key: "followUpEmails", label: "Follow-up Emails Sent", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
+   190→    { key: "personalizedOutreach", label: "Personalized Outreach Emails", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
+   191→    { key: "campaignEmails", label: "Campaign Emails Sent", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
+   192→    { key: "repliesReceived", label: "Replies Received", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
+   193→    { key: "positiveReplies", label: "Positive Replies", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
+   194→    { key: "negativeReplies", label: "Negative Replies", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
+   195→    { key: "interestedProspects", label: "Interested Prospects", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
+   196→    { key: "emailHotLeads", label: "Hot Leads via Email", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
+   197→    { key: "emailWarmLeads", label: "Warm Leads via Email", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
+   198→    { key: "meetingsBookedEmail", label: "Meetings Booked via Email", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
+   199→    { key: "emailTasksCompleted", label: "Email-related Tasks Completed", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
+   200→    { key: "outstandingFollowUps", label: "Outstanding Email Follow-ups", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
+   201→  ]), []);
+   202→
+   203→  useEffect(() => {
+   204→    let cancelled = false;
+   205→    (async () => {
+   206→      setLoading(true);
+   207→      setError(null);
+   208→      try {
+   209→        const { reports } = await api<{ reports: ReportDTO[] }>(`/api/reports?mine=1&type=AGENT_BPO&date=${date}`);
+   210→        const existing = reports[0];
+   211→        if (cancelled) return;
+   212→        if (existing) {
+   213→          setReportId(existing.id);
+   214→          setRef(existing.ref);
+   215→          setStatus(existing.status);
+   216→          setInfo({
+   217→            shiftTime: existing.shiftTime || "", clockIn: existing.clockIn || "", clockOut: existing.clockOut || "",
+   218→            attendanceStatus: existing.attendanceStatus || "Present", latenessMins: existing.latenessMins !== null && existing.latenessMins !== undefined ? String(existing.latenessMins) : "",
+   219→          });
+   220→          const metrics = existing.kpiMetrics ? JSON.parse(existing.kpiMetrics) as KpiMetric[] : [];
+   221→          // merge defaults so new template rows appear for older reports
+   222→          const merged = DEFAULT_KPIS.map((d) => {
+   223→            const found = metrics.find((m) => m.key === d.key);
+   224→            return found ? { ...d, ...found, label: d.label } : d;
+   225→          });
+   226→          setKpiMetrics(merged);
+   227→          const logs = existing.callLogs ? JSON.parse(existing.callLogs) as CallLogEntry[] : [];
+   228→          // start from the 8 template rows, extend if the agent logged more calls
+   229→          setCallLogs(Array.from({ length: Math.max(CALL_LOG_ROWS, logs.length) }, (_, i) => logs[i] || {}));
+   230→          const ctx = existing.emailContext ? JSON.parse(existing.emailContext) as { campaignName?: string } : {};
+   231→          setCampaignName(ctx.campaignName || "");
+   232→          setChallenges(existing.challenges || "");
+   233→          setEscalations(existing.escalations || "");
+   234→          setAdditional(existing.additionalActivities || "");
+   235→          setFeedback(existing.supervisorFeedback || null);
+   236→          setReviewer(existing.reviewer?.fullName || null);
+   237→          setReviewedAt(existing.reviewedAt || null);
+   238→        } else {
+   239→          setReportId(null); setRef(null); setStatus("DRAFT");
+   240→          setKpiMetrics(DEFAULT_KPIS.map((d) => ({ ...d })));
+   241→          setCallLogs(Array.from({ length: CALL_LOG_ROWS }, () => ({})));
+   242→          setCampaignName(""); setChallenges(""); setEscalations(""); setAdditional("");
+   243→          setFeedback(null); setReviewer(null); setReviewedAt(null);
+   244→          setInfo({ shiftTime: "", clockIn: "", clockOut: "", attendanceStatus: "Present", latenessMins: "" });
+   245→        }
+   246→      } catch (e) {
+   247→        setError((e as Error).message);
+   248→      } finally {
+   249→        if (!cancelled) setLoading(false);
+   250→      }
+   251→    })();
+   252→    return () => { cancelled = true; };
+   253→  }, [date, user.id, DEFAULT_KPIS]);
+   254→
+   255→  const save = async (submit: boolean) => {
+   256→    setSaving(true);
+   257→    setError(null);
+   258→    try {
+   259→      // drop fully-empty call log rows so the stored log stays clean
+   260→      const cleanLogs = callLogs.filter((l) => l.leadName || l.disposition || l.followUp || l.notes);
+   261→      const body: Record<string, unknown> = {
+   262→        type: "AGENT_BPO", reportDate: date, department: user.department, submit,
+   263→        ...info,
+   264→        latenessMins: info.latenessMins === "" ? null : info.latenessMins,
+   265→        kpiMetrics, callLogs: cleanLogs,
+   266→        emailContext: { campaignName },
+   267→        challenges, escalations, additionalActivities: additional,
+   268→      };
+   269→      if (reportId) body.id = reportId;
+   270→      const { report } = await api<{ report: ReportDTO }>("/api/reports", { method: "POST", body: JSON.stringify(body) });
+   271→      setReportId(report.id); setRef(report.ref); setStatus(report.status);
+   272→      onDone?.();
+   273→    } catch (e) {
+   274→      setError((e as Error).message);
+   275→    } finally {
+   276→      setSaving(false);
+   277→    }
+   278→  };
+   279→
+   280→  if (loading) {
+   281→    return <div className="flex items-center justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
+   282→  }
+   283→
+   284→  // Submitted → awaiting approval (locked); Approved → locked; Returned → editable again
+   285→  const locked = status === "APPROVED" || status === "SUBMITTED";
+   286→
+   287→  return (
+   288→    <div className="space-y-5">
+   289→      {ref && status !== "DRAFT" && (
+   290→        <ReportStateBanner status={status} ref={ref} feedback={feedback} reviewer={reviewer} reviewedAt={reviewedAt} />
+   291→      )}
+   292→      {ref && status === "DRAFT" && (
+   293→        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+   294→          <span className="font-mono font-semibold text-[#b3a5ff]">{ref}</span>
+   295→          <StatusBadge status={status} />
+   296→        </div>
+   297→      )}
+   298→      {error && <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</div>}
+   299→
+   300→      <SectionCard title="Agent Information" subtitle="DAILY REPORT — BPO CALL CENTER AGENTS (OUTBOUND CALLS)">
+   301→        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+   302→          <Field label="Agent Name"><Input readOnly disabled className={inputCls} value={user.fullName} /></Field>
+   303→          <Field label="Date"><Input readOnly disabled className={inputCls} value={date} /></Field>
+   304→          <Field label="Agent ID"><Input readOnly disabled className={inputCls} value={user.employeeId || "—"} /></Field>
+   305→          <Field label="Shift Time" hint="e.g. 09:00 - 17:00">
+   306→            <Input disabled={locked} className={inputCls} value={info.shiftTime} onChange={(e) => setInfo({ ...info, shiftTime: e.target.value })} />
+   307→          </Field>
+   308→          <Field label="Clock-In Time">
+   309→            <Input type="time" disabled={locked} className={inputCls} value={info.clockIn} onChange={(e) => setInfo({ ...info, clockIn: e.target.value })} />
+   310→          </Field>
+   311→          <Field label="Clock-Out Time">
+   312→            <Input type="time" disabled={locked} className={inputCls} value={info.clockOut} onChange={(e) => setInfo({ ...info, clockOut: e.target.value })} />
+   313→          </Field>
+   314→          <Field label="Attendance Status">
+   315→            <Select disabled={locked} value={info.attendanceStatus} onValueChange={(v) => setInfo({ ...info, attendanceStatus: v })}>
+   316→              <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
+   317→              <SelectContent>{["Present", "Late", "Absent"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+   318→            </Select>
+   319→          </Field>
+   320→          <Field label="Lateness (mins)">
+   321→            <Input type="number" disabled={locked} className={inputCls} value={info.latenessMins} onChange={(e) => setInfo({ ...info, latenessMins: e.target.value })} placeholder="0" />
+   322→          </Field>
+   323→        </div>
+   324→      </SectionCard>
+   325→
+   326→      <SectionCard title="Key Performance Metrics (KPIs)" subtitle="Targets from the master template — derived KPIs calculate automatically; leave blank if not applicable">
+   327→        <KpiTable metrics={kpiMetrics} onChange={setKpiMetrics} />
+   328→        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+   329→          <Field label="Campaign / Outreach Name" hint="Which email campaign or outreach list did you work on today?">
+   330→            <Input disabled={locked} className={inputCls} value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder="e.g. Q3 SaaS Outreach — Batch 2" />
+   331→          </Field>
+   332→          <div className="flex items-end text-[11px] text-slate-500">
+   333→            <p>Metrics marked <span className="mx-1 rounded bg-[#6c5ce7]/20 px-1 py-0.5 text-[#b3a5ff]">auto</span> are calculated from your entries (Contact Rate = Connected ÷ Calls; Conversion = Leads ÷ Connected). Missing data is never counted as zero.</p>
+   334→          </div>
+   335→        </div>
+   336→      </SectionCard>
+   337→
+   338→      <SectionCard
+   339→        title="Call Log Summary"
+   340→        subtitle="Log the key calls you made today — add as many rows as you need"
+   341→        actions={
+   342→          !locked && (
+   343→            <Button size="sm" className="k-btn-glass h-8 text-xs text-slate-200" onClick={() => setCallLogs([...callLogs, {}])}>
+   344→              <Plus className="mr-1 h-3.5 w-3.5" /> Add another call
+   345→            </Button>
+   346→          )
+   347→        }
+   348→      >
+   349→        <div className="overflow-x-auto rounded-lg border border-white/10">
+   350→          <Table>
+   351→            <TableHeader>
+   352→              <TableRow className="border-white/10 bg-white/[0.03]">
+   353→                <TableHead className="w-10 text-[11px] text-slate-400">#</TableHead>
+   354→                <TableHead className="text-[11px] text-slate-400">Lead / Contact Name</TableHead>
+   355→                <TableHead className="text-[11px] text-slate-400">Disposition</TableHead>
+   356→                <TableHead className="text-[11px] text-slate-400">Follow-Up Required?</TableHead>
+   357→                <TableHead className="text-[11px] text-slate-400">Notes</TableHead>
+   358→                {!locked && <TableHead className="w-10 text-[11px] text-slate-400"><span className="sr-only">Remove</span></TableHead>}
+   359→              </TableRow>
+   360→            </TableHeader>
+   361→            <TableBody>
+   362→              {callLogs.map((log, i) => (
+   363→                <TableRow key={i} className="border-white/5">
+   364→                  <TableCell className="py-1.5 text-xs text-slate-500">{i + 1}</TableCell>
+   365→                  <TableCell className="py-1.5">
+   366→                    <Input disabled={locked} className={inputCls} value={log.leadName || ""} onChange={(e) => setCallLogs(callLogs.map((l, j) => (j === i ? { ...l, leadName: e.target.value } : l)))} />
+   367→                  </TableCell>
+   368→                  <TableCell className="py-1.5">
+   369→                    <Select disabled={locked} value={log.disposition || ""} onValueChange={(v) => setCallLogs(callLogs.map((l, j) => (j === i ? { ...l, disposition: v } : l)))}>
+   370→                      <SelectTrigger className={inputCls}><SelectValue placeholder="Select" /></SelectTrigger>
+   371→                      <SelectContent>{DISPOSITIONS.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+   372→                    </Select>
+   373→                  </TableCell>
+   374→                  <TableCell className="py-1.5">
+   375→                    <Select disabled={locked} value={log.followUp || ""} onValueChange={(v) => setCallLogs(callLogs.map((l, j) => (j === i ? { ...l, followUp: v } : l)))}>
+   376→                      <SelectTrigger className={cn(inputCls, "w-24")}><SelectValue placeholder="—" /></SelectTrigger>
+   377→                      <SelectContent>{["Yes", "No"].map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+   378→                    </Select>
+   379→                  </TableCell>
+   380→                  <TableCell className="py-1.5">
+   381→                    <Input disabled={locked} className={inputCls} value={log.notes || ""} onChange={(e) => setCallLogs(callLogs.map((l, j) => (j === i ? { ...l, notes: e.target.value } : l)))} />
+   382→                  </TableCell>
+   383→                  {!locked && (
+   384→                    <TableCell className="py-1.5">
+   385→                      <Button
+   386→                        size="icon" variant="ghost"
+   387→                        className="h-7 w-7 text-slate-500 hover:bg-rose-500/10 hover:text-rose-300"
+   388→                        title="Remove this call"
+   389→                        onClick={() => setCallLogs(callLogs.length > 1 ? callLogs.filter((_, j) => j !== i) : [{}])}
+   390→                      >
+   391→                        <Trash2 className="h-3.5 w-3.5" />
+   392→                      </Button>
+   393→                    </TableCell>
+   394→                  )}
+   395→                </TableRow>
+   396→              ))}
+   397→            </TableBody>
+   398→          </Table>
+   399→        </div>
+   400→        {!locked && (
+   401→          <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500">
+   402→            <span>{callLogs.filter((l) => l.leadName || l.disposition).length} call(s) logged</span>
+   403→            <Button size="sm" variant="ghost" className="h-7 text-[11px] text-[#8b7ff5] hover:bg-white/10" onClick={() => setCallLogs([...callLogs, {}])}>
+   404→              <Plus className="mr-1 h-3 w-3" /> Add call log row
+   405→            </Button>
+   406→          </div>
+   407→        )}
+   408→      </SectionCard>
+   409→
+   410→      <div className="grid gap-5 lg:grid-cols-2">
+   411→        <SectionCard title="Challenges / Blockers">
+   412→          <Textarea disabled={locked} rows={4} className={inputCls} value={challenges} onChange={(e) => setChallenges(e.target.value)} placeholder="What made your work harder today?" />
+   413→        </SectionCard>
+   414→        <SectionCard title="Escalations">
+   415→          <Textarea disabled={locked} rows={4} className={inputCls} value={escalations} onChange={(e) => setEscalations(e.target.value)} placeholder="Issues that need supervisor or management attention" />
+   416→        </SectionCard>
+   417→      </div>
+   418→
+   419→      <SectionCard title="Additional Activities" subtitle="Any other work performed today beyond your assigned tasks">
+   420→        <Textarea disabled={locked} rows={3} className={inputCls} value={additional} onChange={(e) => setAdditional(e.target.value)} placeholder="e.g. helped onboard a new agent, data cleanup…" />
+   421→      </SectionCard>
+   422→
+   423→      {status !== "APPROVED" && (
+   424→        <div className="flex flex-wrap items-center justify-end gap-3">
+   425→          <Button variant="outline" disabled={saving || status === "SUBMITTED"} onClick={() => save(false)} className="k-btn-glass text-slate-200">
+   426→            <Save className="mr-2 h-4 w-4" /> Save Draft
+   427→          </Button>
+   428→          <Button disabled={saving} onClick={() => save(true)} className="k-btn-primary">
+   429→            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Submit Daily Report
+   430→          </Button>
+   431→        </div>
+   432→      )}
+   433→    </div>
+   434→  );
+   435→}
+   436→

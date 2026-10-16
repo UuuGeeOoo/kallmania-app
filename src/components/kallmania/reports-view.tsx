@@ -14,6 +14,98 @@ function parseKpis(r: ReportDTO): KpiMetric[] {
   try { return r.kpiMetrics ? JSON.parse(r.kpiMetrics) : []; } catch { return []; }
 }
 
+/** Generic renderer for TEAM_LEAD dynamic-template payloads. */
+function TeamLeadPayloadView({ payload }: { payload: string | null | undefined }) {
+  if (!payload) return null;
+  let sections: Record<string, unknown> = {};
+  try { sections = (JSON.parse(payload) as { sections?: Record<string, unknown> }).sections || {}; } catch { return null; }
+  const titleize = (k: string) => k.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+  return (
+    <>
+      {Object.entries(sections).map(([id, raw]) => {
+        const empty = raw === null || raw === undefined || raw === "" || (Array.isArray(raw) && raw.length === 0) || (typeof raw === "object" && !Array.isArray(raw) && Object.keys(raw).length === 0);
+        if (empty) return null;
+        // Metrics table rows
+        if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === "object" && raw[0] !== null && "label" in (raw[0] as Record<string, unknown>) && "target" in (raw[0] as Record<string, unknown>)) {
+          return (
+            <div key={id}>
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#b3a5ff]">▸ {titleize(id)}</p>
+              <div className="overflow-x-auto rounded-lg border border-white/10">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-white/10 bg-white/[0.03]">
+                      <TableHead className="text-[11px] text-slate-400">KPI</TableHead>
+                      <TableHead className="text-[11px] text-slate-400">Target</TableHead>
+                      <TableHead className="text-[11px] text-slate-400">Actual</TableHead>
+                      <TableHead className="text-[11px] text-slate-400">Notes</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(raw as Record<string, unknown>[]).map((m, i) => {
+                      const actual = m.actual;
+                      const target = m.target;
+                      const variance = actual !== null && actual !== undefined && target !== null && target !== undefined && actual !== "" ? Math.round((Number(actual) - Number(target)) * 100) / 100 : null;
+                      return (
+                        <TableRow key={i} className="border-white/5">
+                          <TableCell className="py-2 text-xs text-slate-200">{String(m.label)}</TableCell>
+                          <TableCell className="py-2 text-xs tabular-nums text-slate-400">{String(m.targetLabel ?? target ?? "-")}</TableCell>
+                          <TableCell className="py-2 text-xs font-semibold tabular-nums text-slate-100">{actual === null || actual === undefined || actual === "" ? "—" : String(actual)}</TableCell>
+                          <TableCell className={`py-2 text-xs font-semibold tabular-nums ${variance === null ? "text-slate-600" : variance >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{variance === null ? "—" : variance}</TableCell>
+                          <TableCell className="py-2 text-xs text-slate-400">{String(m.notes || "")}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          );
+        }
+        // Generic table rows
+        if (Array.isArray(raw)) {
+          return (
+            <div key={id}>
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#b3a5ff]">▸ {titleize(id)}</p>
+              <div className="space-y-1">
+                {(raw as Record<string, unknown>[]).map((row, i) => (
+                  <div key={i} className="flex flex-wrap items-center gap-2 rounded border border-white/10 px-2 py-1.5 text-xs">
+                    {Object.entries(row).filter(([, v]) => String(v ?? "").trim() !== "").map(([k, v]) => (
+                      <span key={k} className={k === Object.keys(row)[0] ? "font-medium text-slate-200" : "rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-slate-300"}>
+                        {k === Object.keys(row)[0] ? String(v) : `${titleize(k)}: ${String(v)}`}
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+        // Staff info object
+        if (typeof raw === "object") {
+          return (
+            <div key={id}>
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#b3a5ff]">▸ {titleize(id)}</p>
+              <div className="grid grid-cols-2 gap-2 rounded-lg border border-white/10 p-3 text-xs sm:grid-cols-4">
+                {Object.entries(raw as Record<string, unknown>).filter(([, v]) => String(v ?? "").trim() !== "").map(([k, v]) => (
+                  <div key={k}><p className="text-slate-500">{titleize(k)}</p><p className="mt-0.5 font-medium text-slate-200">{String(v)}</p></div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+        // Text section
+        const isEscalation = id === "escalations";
+        return (
+          <div key={id}>
+            <p className="mb-1 text-xs font-bold uppercase text-[#b3a5ff]">▸ {titleize(id)}</p>
+            <p className={`whitespace-pre-wrap rounded-lg border p-3 text-xs ${isEscalation ? "border-rose-500/30 bg-rose-500/5 text-rose-200" : "border-white/10 text-slate-300"}`}>{String(raw)}</p>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 export function ReportDetailDialog({ report, open, onClose }: { report: ReportDTO | null; open: boolean; onClose: () => void }) {
   if (!report) return null;
   const kpis = parseKpis(report);
@@ -106,6 +198,7 @@ export function ReportDetailDialog({ report, open, onClose }: { report: ReportDT
           {report.challenges && (<div><p className="mb-1 text-xs font-bold uppercase text-[#b3a5ff]">▸ Challenges / Blockers</p><p className="whitespace-pre-wrap rounded-lg border border-white/10 p-3 text-xs text-slate-300">{report.challenges}</p></div>)}
           {report.escalations && (<div><p className="mb-1 text-xs font-bold uppercase text-[#b3a5ff]">▸ Escalations</p><p className="whitespace-pre-wrap rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 text-xs text-rose-200">{report.escalations}</p></div>)}
           {report.additionalActivities && (<div><p className="mb-1 text-xs font-bold uppercase text-[#b3a5ff]">▸ Additional Activities</p><p className="whitespace-pre-wrap rounded-lg border border-white/10 p-3 text-xs text-slate-300">{report.additionalActivities}</p></div>)}
+          {report.type === "TEAM_LEAD" && <TeamLeadPayloadView payload={report.payload} />}
           {report.supervisorFeedback && (<div><p className="mb-1 text-xs font-bold uppercase text-[#b3a5ff]">▸ Supervisor Feedback</p><p className="whitespace-pre-wrap rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs text-emerald-200">{report.supervisorFeedback}</p></div>)}
         </div>
       </DialogContent>
@@ -404,6 +497,7 @@ export function ReportSummary({ report }: { report: ReportDTO }) {
       {report.challenges && <div><p className="mb-1 text-xs font-bold uppercase text-[#b3a5ff]">▸ Challenges</p><p className="whitespace-pre-wrap rounded-lg border border-white/10 p-3 text-xs text-slate-300">{report.challenges}</p></div>}
       {report.escalations && <div><p className="mb-1 text-xs font-bold uppercase text-[#b3a5ff]">▸ Escalations</p><p className="whitespace-pre-wrap rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 text-xs text-rose-200">{report.escalations}</p></div>}
       {report.additionalActivities && <div><p className="mb-1 text-xs font-bold uppercase text-[#b3a5ff]">▸ Additional activities</p><p className="whitespace-pre-wrap rounded-lg border border-white/10 p-3 text-xs text-slate-300">{report.additionalActivities}</p></div>}
+      {report.type === "TEAM_LEAD" && <TeamLeadPayloadView payload={report.payload} />}
       {report.supervisorFeedback && <div><p className="mb-1 text-xs font-bold uppercase text-[#b3a5ff]">▸ Feedback</p><p className="whitespace-pre-wrap rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs text-emerald-200">{report.supervisorFeedback}</p></div>}
     </div>
   );

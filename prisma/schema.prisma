@@ -17,10 +17,12 @@ model User {
   email        String    @unique
   passwordHash String
   fullName     String
-  // Roles: ADMIN | SUPERVISOR | AGENT_BPO | DEVELOPER | SOCIAL_MEDIA
+  // Roles: ADMIN | SUPERVISOR | TEAM_LEAD | AGENT_BPO | DEVELOPER | SOCIAL_MEDIA
   role         String    @default("AGENT_BPO")
   // Departments: BPO | WEB_DEV | SOCIAL_MEDIA | MANAGEMENT
   department   String    @default("BPO")
+  // Team under the BPO division: OUTBOUND | INBOUND | EMAIL | SOCIAL | TECH
+  team         String?
   employeeId   String?
   phone        String?
   // PENDING | APPROVED | REJECTED | SUSPENDED
@@ -37,6 +39,7 @@ model User {
   notifications  Notification[]
   auditLogs      AuditLog[]
   uploadedFiles  UploadedFile[]
+  updatedTemplates ReportTemplate[] @relation("TemplateUpdater")
 }
 
 model Report {
@@ -73,6 +76,10 @@ model Report {
   // JSON: department aggregate metrics { key: value }
   metricsSummary String?
 
+  // ── TEAM_LEAD dynamic template ──
+  // JSON: { sections: { [sectionId]: string | number | Row[] } } rendered from ReportTemplate
+  payload String?
+
   // ── SUPERVISOR template ──
   teamName          String?
   campusLocation    String?
@@ -108,6 +115,20 @@ model Report {
   @@index([reportDate])
   @@index([userId])
   @@index([type, status])
+}
+
+model ReportTemplate {
+  id          String   @id @default(cuid())
+  // Template key, e.g. TEAM_LEAD
+  key         String   @unique
+  name        String
+  description String?
+  // JSON: { title, sections: [...] } — editable by administrators & supervisors
+  definition  String
+  updatedById String?
+  updatedBy   User?    @relation("TemplateUpdater", fields: [updatedById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Task {

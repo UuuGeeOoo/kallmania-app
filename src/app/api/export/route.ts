@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, isSupervisorLike } from "@/lib/auth";
 import { handle, fail, safeParse } from "@/lib/api-utils";
-import { buildAgentDocx, buildSupervisorDocx, buildGenericDocx, buildSocialDocx } from "@/lib/word-export";
+import { buildAgentDocx, buildSupervisorDocx, buildGenericDocx, buildSocialDocx, buildTeamLeadDocx } from "@/lib/word-export";
 import { TECH_SUMMARY_METRICS, SOCIAL_SUMMARY_METRICS } from "@/lib/template-config";
 import { audit } from "@/lib/notify";
 
@@ -105,6 +105,26 @@ export async function GET(req: NextRequest) {
       } else if (report.type === "SUPERVISOR") {
         buf = await buildSupervisorDocx(report as never);
         filename = `Supervisor_Daily_Report_${new Date(report.reportDate).toISOString().slice(0, 10)}.docx`;
+      } else if (report.type === "TEAM_LEAD") {
+        // render from the currently configured Team Lead template (falls back to the shipped default)
+        const tplRow = await db.reportTemplate.findUnique({ where: { key: "TEAM_LEAD" } });
+        let definition = null;
+        if (tplRow) { try { definition = JSON.parse(tplRow.definition); } catch {} }
+        buf = await buildTeamLeadDocx({
+          reportDate: report.reportDate,
+          userName: report.user.fullName,
+          employeeId: report.user.employeeId,
+          department: report.department,
+          teamName: report.teamName,
+          payload: report.payload,
+          status: report.status,
+          sourceType: report.sourceType,
+          verificationStatus: report.verificationStatus,
+          supervisorFeedback: report.supervisorFeedback,
+          reviewerName: report.reviewer?.fullName || null,
+          definition,
+        });
+        filename = `Team_Lead_Daily_Report_${report.user.fullName.replace(/\s+/g, "_")}_${new Date(report.reportDate).toISOString().slice(0, 10)}.docx`;
       } else if (report.type === "SOCIAL") {
         buf = await buildSocialDocx({
           reportDate: report.reportDate,
@@ -168,6 +188,25 @@ export async function GET(req: NextRequest) {
       sheetName = "Team KPIs";
       const kpis = safeParse<{ label: string; teamTarget: number | null; teamAvg: number | null; best: string | null; lowest: string | null }[]>(report.teamKpiAverages, []);
       rows = kpis.map((k) => ({ KPI: k.label, "Team Target": k.teamTarget ?? "", "Team Average": k.teamAvg ?? "", "Best Performer": k.best || "", "Lowest Performer": k.lowest || "" }));
+    } else if (report.type === "TEAM_LEAD") {
+      sheetName = "Team Lead Report";
+      try {
+        const payload = JSON.parse(report.payload || "{}") as { sections?: Record<string, unknown> };
+        const secs = payload.sections || {};
+        const flat: Record<string, unknown>[] = [];
+        for (const [id, raw] of Object.entries(secs)) {
+          if (typeof raw === "string") flat.push({ Section: id.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()), Entry: raw });
+          else if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+            for (const [k, v] of Object.entries(raw as Record<string, unknown>)) flat.push({ Section: id.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()), Entry: `${k}: ${String(v ?? "")}` });
+          } else if (Array.isArray(raw)) {
+            for (const row of raw as Record<string, unknown>[]) {
+              const parts = Object.entries(row).filter(([, v]) => String(v ?? "").trim() !== "").map(([k, v]) => `${k}: ${String(v)}`);
+              flat.push({ Section: id.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()), Entry: parts.join(" | ") });
+            }
+          }
+        }
+        rows = flat;
+      } catch { rows = []; }
     } else {
       sheetName = "Metrics";
       const ms = safeParse<Record<string, number>>(report.metricsSummary, {});

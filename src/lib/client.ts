@@ -6,6 +6,7 @@ export interface SessionUser {
   fullName: string;
   role: string;
   department: string;
+  team?: string | null;
   employeeId: string | null;
   status: string;
 }
@@ -51,6 +52,7 @@ export interface ReportDTO {
   emailContext?: string | null;
   workEntries?: string | null;
   metricsSummary?: string | null;
+  payload?: string | null;
   teamName?: string | null;
   campusLocation?: string | null;
   agentsManaged?: number | null;
@@ -131,6 +133,7 @@ export interface UserDTO {
   fullName: string;
   role: string;
   department: string;
+  team?: string | null;
   employeeId?: string | null;
   phone?: string | null;
   status: string;
@@ -160,16 +163,33 @@ export async function api<T = unknown>(path: string, options?: RequestInit): Pro
 
 export const ROLE_LABELS: Record<string, string> = {
   ADMIN: "Administrator",
-  SUPERVISOR: "Supervisor / Team Lead",
-  AGENT_BPO: "BPO Outbound Agent",
-  DEVELOPER: "Web Developer",
-  SOCIAL_MEDIA: "Social Media",
+  SUPERVISOR: "Supervisor",
+  TEAM_LEAD: "Team Lead",
+  AGENT_BPO: "BPO Call Centre Agent",
+  DEVELOPER: "Web Development & Technical",
+  SOCIAL_MEDIA: "Social Media & Campaign",
+};
+
+export const POSITION_LABELS: Record<string, string> = {
+  AGENT: "Agent",
+  TEAM_LEAD: "Team Lead",
+  SUPERVISOR: "Supervisor",
+  ADMIN: "Administrator",
+};
+
+/** Teams under the BPO division — registration & profile display */
+export const TEAM_LABELS: Record<string, string> = {
+  OUTBOUND: "Outbound Call Centre",
+  INBOUND: "Inbound Call Centre",
+  EMAIL: "Email Marketing",
+  SOCIAL: "Social Media & Campaign",
+  TECH: "Web & Technical",
 };
 
 export const DEPT_LABELS: Record<string, string> = {
-  BPO: "BPO & Outbound Call Centre",
+  BPO: "BPO Division",
   WEB_DEV: "Web Development & Technical",
-  SOCIAL_MEDIA: "Social Media",
+  SOCIAL_MEDIA: "Social Media & Campaign",
   MANAGEMENT: "Management & Supervision",
 };
 
@@ -178,6 +198,7 @@ export const REPORT_TYPE_LABELS: Record<string, string> = {
   TECH: "Technical Team Daily Report",
   SOCIAL: "Social Media Daily Report",
   SUPERVISOR: "Supervisor Daily Report",
+  TEAM_LEAD: "Team Lead Daily Report",
 };
 
 export const STATUS_COLORS: Record<string, string> = {

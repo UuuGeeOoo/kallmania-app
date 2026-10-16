@@ -8,6 +8,7 @@ import {
   WidthType, AlignmentType, BorderStyle, HeadingLevel, ShadingType,
 } from "docx";
 import { COMPANY_HEADER, AGENT_TEMPLATE_TITLE, SUPERVISOR_TEMPLATE_TITLE, AGENT_KPI_DEFS, SUPERVISOR_TEAM_KPIS, ATTENDANCE_ROWS, CALL_LOG_ROWS } from "@/lib/template-config";
+import { defaultTeamLeadTemplate, type TlDefinition, type TlSection } from "@/lib/team-lead-template";
 import { formatMetricValue, type KpiMetric } from "@/lib/kpi";
 
 const VIOLET = "6C5CE7";
@@ -572,4 +573,92 @@ export async function buildSocialDocx(report: {
   ];
 
   return Buffer.from(await Packer.toBuffer(docShell(sections)));
+}
+
+// ───────────────────── TEAM LEAD REPORT — dynamic template export ─────────────────────────
+
+export async function buildTeamLeadDocx(report: {
+  reportDate: Date | string;
+  userName: string;
+  employeeId?: string | null;
+  department: string;
+  teamName?: string | null;
+  payload?: string | null;
+  status?: string | null;
+  sourceType?: string | null;
+  verificationStatus?: string | null;
+  supervisorFeedback?: string | null;
+  reviewerName?: string | null;
+  definition?: TlDefinition | null;
+}): Promise<Buffer> {
+  const def = report.definition || defaultTeamLeadTemplate();
+  let sectionsData: Record<string, unknown> = {};
+  try { sectionsData = report.payload ? (JSON.parse(report.payload) as { sections?: Record<string, unknown> }).sections || {} : {}; } catch {}
+
+  const titleize = (k: string) => k.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+
+  const out: (Table | Paragraph)[] = [...titleBlock(def.title || "DAILY REPORT — TEAM LEAD")];
+
+  for (const s of def.sections as TlSection[]) {
+    const raw = sectionsData[s.id];
+    const empty = raw === null || raw === undefined || raw === "" || (Array.isArray(raw) && raw.length === 0) || (typeof raw === "object" && !Array.isArray(raw) && Object.keys(raw as object).length === 0);
+    if (s.type === "fields") {
+      const vals = (typeof raw === "object" && raw !== null && !Array.isArray(raw) ? raw : {}) as Record<string, string>;
+      const pairs: [string, string][] = [
+        ["Team Lead Name", report.userName],
+        ["Team / Squad", report.teamName || ""],
+        ...(s.fields || []).map((f) => [f.label, vals[f.key] ?? ""] as [string, string]),
+      ];
+      out.push(kvTable5(s.title, ["Field", "Entry"], pairs), spacer());
+      continue;
+    }
+    if (s.type === "metrics" && Array.isArray(raw) && raw.length > 0) {
+      out.push(
+        kvTable5(
+          s.title,
+          ["KPI", "Target", "Actual", "Variance", "Notes"],
+          (raw as Record<string, unknown>[]).map((m) => {
+            const actual = m.actual;
+            const target = m.target;
+            const variance = actual !== null && actual !== undefined && actual !== "" && target !== null && target !== undefined ? String(Math.round((Number(actual) - Number(target)) * 100) / 100) : "";
+            return [String(m.label ?? ""), String(m.targetLabel ?? target ?? "-"), actual === null || actual === undefined || actual === "" ? "" : String(actual), variance, String(m.notes ?? "")];
+          })
+        ),
+        spacer()
+      );
+      continue;
+    }
+    if (s.type === "table" && Array.isArray(raw) && raw.some((r) => Object.values(r as object).some((v) => String(v ?? "").trim() !== ""))) {
+      const cols = s.columns || [];
+      out.push(
+        kvTable5(
+          s.title,
+          ["#", ...cols.map((c) => c.label)],
+          (raw as Record<string, unknown>[]).map((r, i) => [String(i + 1), ...cols.map((c) => String(r[c.key] ?? ""))])
+        ),
+        spacer()
+      );
+      continue;
+    }
+    if (s.type === "textarea" && !empty) {
+      out.push(textSection(s.title, String(raw)), spacer());
+      continue;
+    }
+    if (s.type === "textarea" && empty) {
+      // keep the section heading present (template replica) with an empty body
+      out.push(textSection(s.title, ""), spacer());
+    }
+  }
+
+  const provenance = `Data provenance: ${report.sourceType === "UPLOAD_EXTRACTED" ? "Extracted from uploaded document" : "Manually entered"} · Verification: ${report.verificationStatus?.replace(/_/g, " ")} · Status: ${report.status}`;
+  out.push(new Paragraph({ children: [new TextRun({ text: provenance, italics: true, fontSize: 16, color: "6B7280" })] }));
+
+  out.push(spacer());
+  out.push(
+    kvTable5("REVIEW", ["Supervisor Name", "Signature / Date"], [[report.reviewerName || "", ""]], false)
+  );
+  out.push(spacer());
+  out.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "Confidential — For Internal Use Only", italics: true, fontSize: 16, color: "6B7280" })] }));
+
+  return Buffer.from(await Packer.toBuffer(docShell(out)));
 }

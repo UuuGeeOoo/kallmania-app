@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     const users = await db.user.findMany({
       where,
       select: {
-        id: true, email: true, fullName: true, role: true, department: true,
+        id: true, email: true, fullName: true, role: true, department: true, team: true,
         employeeId: true, phone: true, status: true, createdAt: true, approvedAt: true,
       },
       orderBy: { createdAt: "desc" },
@@ -33,7 +33,7 @@ export async function PATCH(req: NextRequest) {
   return handle(async () => {
     const admin = await requireAdmin();
     const body = await req.json();
-    const { userId, action, role, department, newPassword } = body;
+    const { userId, action, role, department, team, newPassword } = body;
     if (!userId || !action) return fail("userId and action are required");
     const user = await db.user.findUnique({ where: { id: userId } });
     if (!user) return fail("User not found", 404);
@@ -62,11 +62,21 @@ export async function PATCH(req: NextRequest) {
       }
       case "changeRole": {
         if (!role) return fail("role is required");
-        const { ROLE_META } = await import("@/lib/auth");
+        const { ROLE_META, TEAM_META } = await import("@/lib/auth");
         if (!ROLE_META[role]) return fail("Invalid role");
-        await db.user.update({ where: { id: userId }, data: { role, department: department || ROLE_META[role].department } });
-        await notify({ userId, type: "ROLE_CHANGED", severity: "INFO", title: "Your role was updated", message: `Your role is now: ${ROLE_META[role].label}.`, dedupeKey: `role:${userId}:${role}` });
-        await audit({ userId: admin.id, actorName: admin.fullName, action: "CHANGE_ROLE", entity: "User", entityId: userId, details: `${user.email} → ${role}` });
+        if (team && !TEAM_META[team]) return fail("Invalid team");
+        const effectiveTeam = ["SUPERVISOR", "ADMIN"].includes(role) ? null : (team !== undefined ? team : user.team);
+        const dept = department || (effectiveTeam && TEAM_META[effectiveTeam] ? TEAM_META[effectiveTeam].department : ROLE_META[role].department);
+        await db.user.update({
+          where: { id: userId },
+          data: {
+            role,
+            department: dept,
+            team: effectiveTeam,
+          },
+        });
+        await notify({ userId, type: "ROLE_CHANGED", severity: "INFO", title: "Your role was updated", message: `Your role is now: ${ROLE_META[role].label}.${team && !['SUPERVISOR','ADMIN'].includes(role) ? ` Team: ${TEAM_META[team]?.label || team}.` : ""}`, dedupeKey: `role:${userId}:${role}:${team || "x"}` });
+        await audit({ userId: admin.id, actorName: admin.fullName, action: "CHANGE_ROLE", entity: "User", entityId: userId, details: `${user.email} → ${role}${team && !['SUPERVISOR','ADMIN'].includes(role) ? ` (${team})` : ""}` });
         return ok({ success: true });
       }
       case "resetPassword": {

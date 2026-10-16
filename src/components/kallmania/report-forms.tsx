@@ -145,12 +145,15 @@ export function AttendanceBlock({
 }
 
 export default function AgentBpoReportForm({
-  user, date, onDone,
+  user, date, onDone, variant = "outbound",
 }: {
   user: SessionUser;
   date: string;
   onDone?: () => void;
+  /** outbound = classic required template; inbound = same format but the required (mandatory) tasks become optional */
+  variant?: "outbound" | "inbound";
 }) {
+  const inbound = variant === "inbound";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [reportId, setReportId] = useState<string | null>(null);
@@ -260,6 +263,7 @@ export default function AgentBpoReportForm({
       const cleanLogs = callLogs.filter((l) => l.leadName || l.disposition || l.followUp || l.notes);
       const body: Record<string, unknown> = {
         type: "AGENT_BPO", reportDate: date, department: user.department, submit,
+        teamName: inbound ? "Inbound Call Centre" : "Outbound Call Centre",
         ...info,
         latenessMins: info.latenessMins === "" ? null : info.latenessMins,
         kpiMetrics, callLogs: cleanLogs,
@@ -283,6 +287,10 @@ export default function AgentBpoReportForm({
 
   // Submitted → awaiting approval (locked); Approved → locked; Returned → editable again
   const locked = status === "APPROVED" || status === "SUBMITTED";
+  // Inbound call centre uses the outbound report format but the required tasks are optional
+  const kpiTable = inbound
+    ? kpiMetrics.map((m) => ({ ...m, mandatory: false }))
+    : kpiMetrics;
 
   return (
     <div className="space-y-5">
@@ -297,11 +305,12 @@ export default function AgentBpoReportForm({
       )}
       {error && <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</div>}
 
-      <SectionCard title="Agent Information" subtitle="DAILY REPORT — BPO CALL CENTER AGENTS (OUTBOUND CALLS)">
+      <SectionCard title="Agent Information" subtitle={inbound ? "DAILY REPORT — CALL CENTRE AGENT (INBOUND CALLS)" : "DAILY REPORT — BPO CALL CENTER AGENTS (OUTBOUND CALLS)"}>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Field label="Agent Name"><Input readOnly disabled className={inputCls} value={user.fullName} /></Field>
           <Field label="Date"><Input readOnly disabled className={inputCls} value={date} /></Field>
           <Field label="Agent ID"><Input readOnly disabled className={inputCls} value={user.employeeId || "—"} /></Field>
+          <Field label="Team / Queue"><Input readOnly disabled className={inputCls} value={inbound ? "Inbound Call Centre" : "Outbound Call Centre"} /></Field>
           <Field label="Shift Time" hint="e.g. 09:00 - 17:00">
             <Input disabled={locked} className={inputCls} value={info.shiftTime} onChange={(e) => setInfo({ ...info, shiftTime: e.target.value })} />
           </Field>
@@ -323,21 +332,21 @@ export default function AgentBpoReportForm({
         </div>
       </SectionCard>
 
-      <SectionCard title="Key Performance Metrics (KPIs)" subtitle="Targets from the master template — derived KPIs calculate automatically; leave blank if not applicable">
-        <KpiTable metrics={kpiMetrics} onChange={setKpiMetrics} />
+      <SectionCard title="Key Performance Metrics (KPIs)" subtitle={inbound ? "Same template as the outbound call centre — all entries are optional, fill what applies to your inbound shift" : "Targets from the master template — derived KPIs calculate automatically; leave blank if not applicable"}>
+        <KpiTable metrics={kpiTable} onChange={setKpiMetrics} />
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Field label="Campaign / Outreach Name" hint="Which email campaign or outreach list did you work on today?">
-            <Input disabled={locked} className={inputCls} value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder="e.g. Q3 SaaS Outreach — Batch 2" />
+          <Field label={inbound ? "Queue / Campaign Name" : "Campaign / Outreach Name"} hint={inbound ? "Which inbound queue or campaign did you handle today? (optional)" : "Which email campaign or outreach list did you work on today?"}>
+            <Input disabled={locked} className={inputCls} value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder={inbound ? "e.g. Customer Support Queue — Line 1" : "e.g. Q3 SaaS Outreach — Batch 2"} />
           </Field>
           <div className="flex items-end text-[11px] text-slate-500">
-            <p>Metrics marked <span className="mx-1 rounded bg-[#6c5ce7]/20 px-1 py-0.5 text-[#b3a5ff]">auto</span> are calculated from your entries (Contact Rate = Connected ÷ Calls; Conversion = Leads ÷ Connected). Missing data is never counted as zero.</p>
+            <p>Metrics marked <span className="mx-1 rounded bg-[#6c5ce7]/20 px-1 py-0.5 text-[#b3a5ff]">auto</span> are calculated from your entries (Contact Rate = Connected ÷ Calls; Conversion = Leads ÷ Connected). Missing data is never counted as zero.{inbound && " As an inbound agent no entry is mandatory today."}</p>
           </div>
         </div>
       </SectionCard>
 
       <SectionCard
         title="Call Log Summary"
-        subtitle="Log the key calls you made today — add as many rows as you need"
+        subtitle={inbound ? "Log the key calls you handled today (optional) — add as many rows as you need" : "Log the key calls you made today — add as many rows as you need"}
         actions={
           !locked && (
             <Button size="sm" className="k-btn-glass h-8 text-xs text-slate-200" onClick={() => setCallLogs([...callLogs, {}])}>
@@ -351,7 +360,7 @@ export default function AgentBpoReportForm({
             <TableHeader>
               <TableRow className="border-white/10 bg-white/[0.03]">
                 <TableHead className="w-10 text-[11px] text-slate-400">#</TableHead>
-                <TableHead className="text-[11px] text-slate-400">Lead / Contact Name</TableHead>
+                <TableHead className="text-[11px] text-slate-400">{inbound ? "Caller / Contact Name" : "Lead / Contact Name"}</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Disposition</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Follow-Up Required?</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Notes</TableHead>

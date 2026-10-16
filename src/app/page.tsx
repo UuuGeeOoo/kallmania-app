@@ -7,6 +7,7 @@ import Dashboard from "@/components/kallmania/dashboard";
 import AgentBpoReportForm from "@/components/kallmania/report-forms";
 import { TechReportForm, SocialReportForm } from "@/components/kallmania/dept-report-forms";
 import SupervisorReportForm from "@/components/kallmania/supervisor-form";
+import TeamLeadReportForm, { TeamLeadTemplateEditor } from "@/components/kallmania/team-lead-form";
 import UploadView from "@/components/kallmania/upload-view";
 import TasksView from "@/components/kallmania/tasks-view";
 import { MyReportsView, ReviewView } from "@/components/kallmania/reports-view";
@@ -96,11 +97,14 @@ export default function Page() {
       case "dashboard":
         return <Dashboard user={user} onNavigate={navigate} />;
       case "daily-report":
+        if (user.role === "TEAM_LEAD") return <TeamLeadReportForm user={user} date={reportDate} />;
         if (user.role === "DEVELOPER") return <TechReportForm user={user} date={reportDate} />;
         if (user.role === "SOCIAL_MEDIA") return <SocialReportForm user={user} date={reportDate} />;
-        return <AgentBpoReportForm user={user} date={reportDate} onDone={refreshUnread} />;
+        return <AgentBpoReportForm user={user} date={reportDate} onDone={refreshUnread} variant={user.team === "INBOUND" ? "inbound" : "outbound"} />;
       case "supervisor-report":
         return <SupervisorReportForm user={user} date={supervisorDate} onExport={exportReport} />;
+      case "tl-template":
+        return <TeamLeadTemplateEditor />;
       case "upload":
         return <UploadView user={user} defaultDate={reportDate} />;
       case "tasks":

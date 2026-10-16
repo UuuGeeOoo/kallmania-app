@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { hashPassword, verifyPassword, setSessionCookie, clearSessionCookie, getCurrentUser, ROLE_META } from "@/lib/auth";
+import { hashPassword, verifyPassword, setSessionCookie, clearSessionCookie, getCurrentUser, ROLE_META, TEAM_META, resolveRegistration } from "@/lib/auth";
 import { handle, ok, fail } from "@/lib/api-utils";
 import { audit } from "@/lib/notify";
 
@@ -18,11 +18,23 @@ export async function POST(req: NextRequest) {
 
     // ── REGISTRATION ──────────────────────────────────────────
     if (action === "register") {
-      const { email, password, fullName, role, department, employeeId, phone } = body;
-      if (!email || !password || !fullName || !role) return fail("Email, password, full name and role are required");
+      const { email, password, fullName, role, department, team, position, employeeId, phone } = body;
+      if (!email || !password || !fullName) return fail("Email, password and full name are required");
       if (String(password).length < 6) return fail("Password must be at least 6 characters");
-      const validRoles = ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR"];
-      if (!validRoles.includes(role)) return fail("Invalid role selection");
+
+      // New hierarchy: BPO division → team → position. Legacy direct role picks still accepted.
+      let resolved: { role: string; department: string; team: string | null } | null = null;
+      if (team || position) {
+        if (team && !TEAM_META[team]) return fail("Invalid team selection");
+        if (position && !["AGENT", "TEAM_LEAD", "SUPERVISOR"].includes(position)) return fail("Invalid position selection");
+        if (position === "TEAM_LEAD" && !team) return fail("Team Leads must choose the team they lead");
+        resolved = resolveRegistration(team, position);
+        if (!resolved) return fail("Select where you fall in under the BPO division");
+      } else {
+        const validRoles = ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR"];
+        if (!role || !validRoles.includes(role)) return fail("Select where you fall in under the BPO division");
+        resolved = { role, department: department || ROLE_META[role]?.department || "BPO", team: null };
+      }
       const emailNorm = String(email).trim().toLowerCase();
       const existing = await db.user.findUnique({ where: { email: emailNorm } });
       if (existing) return fail("An account with this email already exists. Please sign in or contact the administrator.");
@@ -34,14 +46,18 @@ export async function POST(req: NextRequest) {
           email: emailNorm,
           passwordHash,
           fullName: String(fullName).trim(),
-          role,
-          department: department || ROLE_META[role]?.department || "BPO",
+          role: resolved.role,
+          department: resolved.department,
+          team: resolved.team,
           employeeId: employeeId ? String(employeeId).trim() : null,
           phone: phone ? String(phone).trim() : null,
           status: "PENDING",
         },
       });
-      await audit({ userId: user.id, actorName: user.fullName, action: "REGISTER", entity: "User", entityId: user.id, details: `Self-registration as ${role}, awaiting admin confirmation` });
+      const chosenLabel = team
+        ? `${TEAM_META[team]?.label || team}${position === "TEAM_LEAD" ? " — Team Lead" : position === "SUPERVISOR" ? " — Supervisor" : " — Agent"}`
+        : resolved.role;
+      await audit({ userId: user.id, actorName: user.fullName, action: "REGISTER", entity: "User", entityId: user.id, details: `Self-registration as ${chosenLabel}, awaiting admin confirmation` });
       // Notify admins
       const admins = await db.user.findMany({ where: { role: "ADMIN", status: "APPROVED" } });
       const { notify } = await import("@/lib/notify");
@@ -51,7 +67,7 @@ export async function POST(req: NextRequest) {
           type: "USER_PENDING_APPROVAL",
           severity: "INFO",
           title: "New registration awaiting confirmation",
-          message: `${user.fullName} (${emailNorm}) registered as ${ROLE_META[role]?.label || role} and needs confirmation.`,
+          message: `${user.fullName} (${emailNorm}) registered as ${ROLE_META[resolved.role]?.label || resolved.role}${team ? ` · ${TEAM_META[team]?.label || team}` : ""} and needs confirmation.`,
           linkData: { view: "admin-users" },
         });
       }

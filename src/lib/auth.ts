@@ -15,6 +15,7 @@ export interface SessionUser {
   fullName: string;
   role: string;
   department: string;
+  team: string | null;
   employeeId: string | null;
   status: string;
 }
@@ -75,6 +76,7 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
     fullName: user.fullName,
     role: user.role,
     department: user.department,
+    team: user.team,
     employeeId: user.employeeId,
     status: user.status,
   };
@@ -115,15 +117,38 @@ export function isSupervisorLike(user: SessionUser): boolean {
 
 export const ROLE_META: Record<string, { label: string; department: string }> = {
   ADMIN: { label: "Administrator", department: "MANAGEMENT" },
-  SUPERVISOR: { label: "Supervisor / Team Lead", department: "MANAGEMENT" },
-  AGENT_BPO: { label: "BPO / Outbound Call Centre Agent", department: "BPO" },
+  SUPERVISOR: { label: "Supervisor", department: "MANAGEMENT" },
+  TEAM_LEAD: { label: "Team Lead", department: "BPO" },
+  AGENT_BPO: { label: "BPO Call Centre Agent", department: "BPO" },
   DEVELOPER: { label: "Web Development & Technical", department: "WEB_DEV" },
-  SOCIAL_MEDIA: { label: "Social Media Team", department: "SOCIAL_MEDIA" },
+  SOCIAL_MEDIA: { label: "Social Media & Campaign", department: "SOCIAL_MEDIA" },
+};
+
+/** Teams under the BPO division — every operational role falls under BPO. */
+export const TEAM_META: Record<string, { label: string; department: string; agentRole: string }> = {
+  OUTBOUND: { label: "Outbound Call Centre", department: "BPO", agentRole: "AGENT_BPO" },
+  INBOUND: { label: "Inbound Call Centre", department: "BPO", agentRole: "AGENT_BPO" },
+  EMAIL: { label: "Email Marketing", department: "BPO", agentRole: "AGENT_BPO" },
+  SOCIAL: { label: "Social Media & Campaign", department: "SOCIAL_MEDIA", agentRole: "SOCIAL_MEDIA" },
+  TECH: { label: "Web & Technical", department: "WEB_DEV", agentRole: "DEVELOPER" },
 };
 
 export const DEPARTMENT_META: Record<string, { label: string }> = {
-  BPO: { label: "BPO & Outbound Call Centre" },
+  BPO: { label: "BPO Division" },
   WEB_DEV: { label: "Web Development & Technical" },
-  SOCIAL_MEDIA: { label: "Social Media" },
+  SOCIAL_MEDIA: { label: "Social Media & Campaign" },
   MANAGEMENT: { label: "Management & Supervision" },
 };
+
+/**
+ * Map a registration selection (division → team → position) to the internal role/department.
+ * Division is always BPO — every team falls under it. Positions are Agent / Team Lead / Supervisor.
+ */
+export function resolveRegistration(team: string | undefined, position: string | undefined): { role: string; department: string; team: string | null } | null {
+  const pos = position || "AGENT";
+  if (pos === "SUPERVISOR") return { role: "SUPERVISOR", department: "MANAGEMENT", team: null };
+  if (!team || !TEAM_META[team]) return null;
+  if (pos === "TEAM_LEAD") return { role: "TEAM_LEAD", department: TEAM_META[team].department, team };
+  if (pos === "AGENT") return { role: TEAM_META[team].agentRole, department: TEAM_META[team].department, team };
+  return null;
+}

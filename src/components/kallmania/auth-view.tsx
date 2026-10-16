@@ -5,22 +5,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { api, ROLE_LABELS, type SessionUser } from "@/lib/client";
-import { Loader2, LogIn, UserPlus, ShieldCheck, AlertCircle, CheckCircle2 } from "lucide-react";
+import { api, TEAM_LABELS, type SessionUser } from "@/lib/client";
+import { Loader2, LogIn, UserPlus, ShieldCheck, AlertCircle, CheckCircle2, Building2, Users2, BadgeCheck } from "lucide-react";
 
-const REGISTER_ROLES = [
-  { value: "AGENT_BPO", desc: "Outbound calls & email outreach" },
-  { value: "DEVELOPER", desc: "Web development & technical team" },
-  { value: "SOCIAL_MEDIA", desc: "Social media team" },
-  { value: "SUPERVISOR", desc: "Supervisor / team lead" },
+/** Teams under the BPO division — every operational role falls in under BPO */
+const BPO_TEAMS = [
+  { value: "OUTBOUND", desc: "Outbound calls & email outreach" },
+  { value: "INBOUND", desc: "Inbound call centre — receiving calls" },
+  { value: "EMAIL", desc: "Email marketing & campaigns" },
+  { value: "SOCIAL", desc: "Social media & campaign team" },
+  { value: "TECH", desc: "Web development & technical" },
 ];
 
-const ROLE_DEPT: Record<string, string> = {
-  AGENT_BPO: "BPO",
-  DEVELOPER: "WEB_DEV",
-  SOCIAL_MEDIA: "SOCIAL_MEDIA",
-  SUPERVISOR: "MANAGEMENT",
-};
+const POSITIONS = [
+  { value: "AGENT", label: "Agent", desc: "Day-to-day team member" },
+  { value: "TEAM_LEAD", label: "Team Lead", desc: "Leads the team & submits the team lead report" },
+  { value: "SUPERVISOR", label: "Supervisor", desc: "Supervises teams across the division" },
+];
 
 /** Decorative 3D-cube art panel built from the brand reference (CSS shapes, no external asset needed) */
 function BrandArt() {
@@ -56,7 +57,7 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [form, setForm] = useState({ email: "", password: "", fullName: "", role: "AGENT_BPO", employeeId: "", phone: "" });
+  const [form, setForm] = useState({ email: "", password: "", fullName: "", team: "OUTBOUND", position: "AGENT", employeeId: "", phone: "" });
 
   const submit = async () => {
     setError(null);
@@ -75,8 +76,8 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
             email: form.email,
             password: form.password,
             fullName: form.fullName,
-            role: form.role,
-            department: ROLE_DEPT[form.role],
+            team: form.team,
+            position: form.position,
             employeeId: form.employeeId,
             phone: form.phone,
           }),
@@ -108,7 +109,7 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
 
           <h1 className="text-3xl font-bold text-white">{mode === "login" ? "Login" : "Create your account"}</h1>
           <p className="mt-1.5 text-sm text-slate-400">
-            {mode === "login" ? "See your growth and get consulting support!" : "Register and pick your role — an administrator will confirm your login and role."}
+            {mode === "login" ? "See your growth and get consulting support!" : "Choose where you fall in under the BPO division — an administrator will confirm your login and position."}
           </p>
 
           <div className="mt-7 space-y-4">
@@ -118,17 +119,44 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
                   <Label className="text-slate-300">Full Name *</Label>
                   <Input className="border-slate-600/50 bg-transparent text-slate-100 placeholder:text-slate-500" placeholder="e.g. Jane Okoro" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
                 </div>
+                {/* Step 1 — Division (BPO is the major marker all roles fall into) */}
                 <div className="space-y-1.5">
-                  <Label className="text-slate-300">Role *</Label>
-                  <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
+                  <Label className="text-slate-300">Division *</Label>
+                  <div className="flex items-center gap-3 rounded-xl border border-[#8b7ff5]/40 bg-[#6c5ce7]/10 px-3 py-2.5">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#6c5ce7] text-white shadow-[0_4px_14px_-2px_rgba(108,92,231,0.7)]"><Building2 className="h-4 w-4" /></span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white">BPO — ICBM Division</p>
+                      <p className="text-[11px] text-slate-400">All teams and roles fall in under the BPO division</p>
+                    </div>
+                    <BadgeCheck className="ml-auto h-4 w-4 shrink-0 text-[#dce775]" />
+                  </div>
+                </div>
+                {/* Step 2 — Team */}
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Team * <span className="text-xs font-normal text-slate-500">— where do you fall in under BPO?</span></Label>
+                  <Select value={form.team} onValueChange={(v) => setForm({ ...form, team: v })}>
                     <SelectTrigger className="border-slate-600/50 bg-transparent text-slate-100"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {REGISTER_ROLES.map((r) => (
-                        <SelectItem key={r.value} value={r.value}>{ROLE_LABELS[r.value]} — {r.desc}</SelectItem>
+                      {BPO_TEAMS.map((t) => (
+                        <SelectItem key={t.value} value={t.value}>{TEAM_LABELS[t.value]} — {t.desc}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="flex items-center gap-1.5 text-xs text-slate-500"><ShieldCheck className="h-3.5 w-3.5 text-[#dce775]" /> Roles are confirmed (and can be changed) by the administrator.</p>
+                </div>
+                {/* Step 3 — Position within the team */}
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300">Position * <span className="text-xs font-normal text-slate-500">— who are you in “{TEAM_LABELS[form.team]}”?</span></Label>
+                  <Select value={form.position} onValueChange={(v) => setForm({ ...form, position: v })}>
+                    <SelectTrigger className="border-slate-600/50 bg-transparent text-slate-100"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {POSITIONS.map((p) => (
+                        <SelectItem key={p.value} value={p.value}>
+                          <span className="flex items-center gap-2"><Users2 className="h-3.5 w-3.5" /> {p.label} — {p.desc}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="flex items-center gap-1.5 text-xs text-slate-500"><ShieldCheck className="h-3.5 w-3.5 text-[#dce775]" /> Positions are confirmed (and can be changed) by the administrator. Supervisor accounts oversee the whole division.</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">

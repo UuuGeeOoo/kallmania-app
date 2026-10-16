@@ -6,7 +6,7 @@ import { recalcKpis, isShortfall, type KpiMetric } from "@/lib/kpi";
 import { audit, notify, notifySupervisors } from "@/lib/notify";
 
 function genRef(type: string): string {
-  const prefix = type === "AGENT_BPO" ? "BPO" : type === "TECH" ? "TEC" : type === "SOCIAL" ? "SOC" : "SUP";
+  const prefix = type === "AGENT_BPO" ? "BPO" : type === "TECH" ? "TEC" : type === "SOCIAL" ? "SOC" : type === "TEAM_LEAD" ? "TL" : "SUP";
   return `${prefix}-${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 900 + 100)}`;
 }
 
@@ -15,6 +15,7 @@ const REPORT_TYPE_BY_ROLE: Record<string, string> = {
   DEVELOPER: "TECH",
   SOCIAL_MEDIA: "SOCIAL",
   SUPERVISOR: "SUPERVISOR",
+  TEAM_LEAD: "TEAM_LEAD",
 };
 
 /** GET /api/reports?mine=1&date=YYYY-MM-DD&department=&status=&type=&userId= */
@@ -60,10 +61,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { id, submit, ...fields } = body;
 
-    const reportType = fields.type || (me.role === "SUPERVISOR" ? "SUPERVISOR" : REPORT_TYPE_BY_ROLE[me.role]);
-    if (!["AGENT_BPO", "TECH", "SOCIAL", "SUPERVISOR"].includes(reportType)) return fail("Invalid report type");
+    const reportType = fields.type || (me.role === "SUPERVISOR" ? "SUPERVISOR" : me.role === "TEAM_LEAD" ? "TEAM_LEAD" : REPORT_TYPE_BY_ROLE[me.role]);
+    if (!["AGENT_BPO", "TECH", "SOCIAL", "SUPERVISOR", "TEAM_LEAD"].includes(reportType)) return fail("Invalid report type");
     if (reportType === "SUPERVISOR" && !["SUPERVISOR", "ADMIN"].includes(me.role))
       return fail("Only supervisors can submit the supervisor daily report", 403);
+    if (reportType === "TEAM_LEAD" && !["TEAM_LEAD", "SUPERVISOR", "ADMIN"].includes(me.role))
+      return fail("Only team leads can submit the team lead daily report", 403);
 
     const reportDate = toDateOrNull(fields.reportDate) || new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z");
 
@@ -99,7 +102,7 @@ export async function POST(req: NextRequest) {
         data.metricsSummary = JSON.stringify(ms);
       }
     }
-    for (const k of ["callLogs", "emailContext", "workEntries", "attendanceSummary", "teamKpiAverages", "coachingEntries", "escalatedIssues", "actionPlan"]) {
+    for (const k of ["callLogs", "emailContext", "workEntries", "attendanceSummary", "teamKpiAverages", "coachingEntries", "escalatedIssues", "actionPlan", "payload"]) {
       if (k in fields) data[k] = typeof fields[k] === "string" ? fields[k] : fields[k] ? JSON.stringify(fields[k]) : null;
     }
     // metricsSummary: explicit values win; otherwise the SOCIAL derivation above already set it
@@ -183,6 +186,24 @@ export async function POST(req: NextRequest) {
             dedupeKey: `task-incomplete:${report.id}`,
           }, { includeAdmins: true });
         }
+      }
+      // TEAM_LEAD dynamic payload: escalation section triggers an instant alert
+      if (reportType === "TEAM_LEAD" && report.payload) {
+        try {
+          const payload = JSON.parse(report.payload) as { sections?: Record<string, unknown> };
+          const esc = payload.sections?.escalations;
+          const hasEscalation = typeof esc === "string" ? esc.trim().length > 0 : Array.isArray(esc) ? esc.length > 0 : false;
+          if (hasEscalation) {
+            await notifySupervisors({
+              type: "ESCALATION",
+              severity: "CRITICAL",
+              title: `Escalation raised — ${me.fullName} (team lead)`,
+              message: `Team lead report ${report.ref} contains escalations requiring review.`,
+              linkData: { view: "review", id: report.id },
+              dedupeKey: `escalation:${report.id}`,
+            }, { includeAdmins: true });
+          }
+        } catch { /* malformed payload — skip */ }
       }
       // If extracted from upload, mark upload as SUBMITTED
       if (report.sourceFileId) {
