@@ -15,6 +15,7 @@ import ReportsArchiveView from "@/components/kallmania/archive-view";
 import ConsolidatedView from "@/components/kallmania/consolidated-view";
 import { AdminUsersView, KpiConfigView, AuditView, NotificationsView, UploadsAdminView } from "@/components/kallmania/admin-views";
 import NoticeBoardView from "@/components/kallmania/notice-board";
+import ProfileView from "@/components/kallmania/profile-view";
 import { api, todayISO, type SessionUser } from "@/lib/client";
 import { Loader2 } from "lucide-react";
 
@@ -132,6 +133,8 @@ export default function Page() {
         return <AuditView />;
       case "notifications":
         return <NotificationsView user={user} onNavigate={navigate} />;
+      case "profile":
+        return <ProfileView user={user} />;
       default:
         return <Dashboard user={user} onNavigate={navigate} />;
     }

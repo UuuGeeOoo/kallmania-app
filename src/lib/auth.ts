@@ -18,6 +18,9 @@ export interface SessionUser {
   team: string | null;
   employeeId: string | null;
   status: string;
+  phone: string | null;
+  country: string | null;
+  state: string | null;
 }
 
 export async function hashPassword(plain: string): Promise<string> {
@@ -79,6 +82,9 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
     team: user.team,
     employeeId: user.employeeId,
     status: user.status,
+    phone: user.phone,
+    country: user.country,
+    state: user.state,
   };
 }
 

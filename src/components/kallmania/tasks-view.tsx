@@ -8,7 +8,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { api, fmtDate, todayISO, type TaskDTO, type SessionUser, type UserDTO } from "@/lib/client";
 import { SectionCard, PageHeader, EmptyState, StatusBadge, Field, inputCls } from "@/components/kallmania/shared";
-import { Plus, Loader2, Trash2, Pencil, ListTodo } from "lucide-react";
+import { Country } from "country-state-city";
+import { Plus, Loader2, Trash2, Pencil, ListTodo, Globe2, Building2, Users2 } from "lucide-react";
+
+const ALL_COUNTRIES = Country.getAllCountries().slice().sort((a, b) => a.name.localeCompare(b.name));
+const countryName = (code?: string | null) => (code ? ALL_COUNTRIES.find((c) => c.isoCode === code)?.name || code : "");
+
+/** Sentinel values for the Assign-to select */
+const ASSIGN_ALL_CENTRES = "__ALL_CENTRES__";
+const ASSIGN_WHOLE_CENTRE = "__WHOLE_CENTRE__";
 
 const ALL_STATUSES = ["NOT_STARTED", "IN_PROGRESS", "COMPLETED", "UNDER_REVIEW", "BLOCKED", "PENDING_DEPLOYMENT", "AWAITING_APPROVAL", "NOT_COMPLETED"];
 const PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"];
@@ -34,6 +42,19 @@ function categoriesFor(dept: string): string[] {
   return [...BPO_CATEGORIES, ...TECH_CATEGORIES, ...SOCIAL_CATEGORIES];
 }
 
+/** Human label for who/where a task is assigned. */
+function scopeLabel(t: TaskDTO): string {
+  if (t.allCentres) return "→ All centres (everyone)";
+  if (t.assignee) return `→ ${t.assignee.fullName}`;
+  if (t.centreState) {
+    const names = (t.assignees || []).map((a) => a.user.fullName);
+    const where = t.centreCountry ? `${t.centreState}, ${countryName(t.centreCountry)}` : t.centreState;
+    const sample = names.slice(0, 2).join(", ");
+    return `→ ${where} centre — ${names.length} assigned${sample ? ` (${sample}${names.length > 2 ? "…" : ""})` : ""}`;
+  }
+  return "→ Unassigned";
+}
+
 function TaskDialog({ user, task, onSaved, open, setOpen }: { user: SessionUser; task: TaskDTO | null; onSaved: () => void; open: boolean; setOpen: (v: boolean) => void }) {
   const isManager = user.role === "SUPERVISOR" || user.role === "ADMIN";
   const [staff, setStaff] = useState<UserDTO[]>([]);
@@ -42,20 +63,42 @@ function TaskDialog({ user, task, onSaved, open, setOpen }: { user: SessionUser;
   const [form, setForm] = useState({
     title: "", description: "", assigneeId: "", department: user.department, category: "", projectRef: "",
     priority: "MEDIUM", requiredOutcome: "", target: "", deadline: "", estimatedHours: "",
+    country: "", centreState: "",
   });
+
+  // Centre catalogue derived from registered staff — a centre is a state/region
+  // within a country, so the country select lists countries where staff exist.
+  const centreCountries = (() => {
+    const counts = new Map<string, number>();
+    for (const u of staff) if (u.country) counts.set(u.country, (counts.get(u.country) || 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  })();
+  const centreStates = (() => {
+    const counts = new Map<string, number>();
+    for (const u of staff) if (u.country && u.country === form.country && u.state) counts.set(u.state, (counts.get(u.state) || 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  })();
+  // Assign-to list: ONLY agents of the chosen centre (per the assignment scope);
+  // with no centre picked, fall back to the full staff list.
+  const centreAgents = form.centreState
+    ? staff.filter((u) => u.country === form.country && u.state === form.centreState)
+    : staff;
 
   useEffect(() => {
     if (open) {
       if (isManager) api<{ users: UserDTO[] }>("/api/users").then(({ users }) => setStaff(users.filter((u) => ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR"].includes(u.role)))).catch(() => {});
       if (task) {
+        const preAll = task.allCentres ? ASSIGN_ALL_CENTRES : "";
+        const preCentre = !task.allCentres && task.centreState && !task.assigneeId ? ASSIGN_WHOLE_CENTRE : "";
         setForm({
-          title: task.title, description: task.description || "", assigneeId: task.assigneeId || "", department: task.department,
+          title: task.title, description: task.description || "", assigneeId: preAll || preCentre || task.assigneeId || "", department: task.department,
           category: task.category || "", projectRef: task.projectRef || "", priority: task.priority,
           requiredOutcome: task.requiredOutcome || "", target: task.target || "",
           deadline: task.deadline ? new Date(task.deadline).toISOString().slice(0, 10) : "", estimatedHours: task.estimatedHours !== null && task.estimatedHours !== undefined ? String(task.estimatedHours) : "",
+          country: task.centreCountry || "", centreState: task.centreState || "",
         });
       } else {
-        setForm({ title: "", description: "", assigneeId: "", department: user.department, category: "", projectRef: "", priority: "MEDIUM", requiredOutcome: "", target: "", deadline: "", estimatedHours: "" });
+        setForm({ title: "", description: "", assigneeId: "", department: user.department, category: "", projectRef: "", priority: "MEDIUM", requiredOutcome: "", target: "", deadline: "", estimatedHours: "", country: "", centreState: "" });
       }
     }
   }, [open, task, isManager, user.department]);
@@ -63,10 +106,24 @@ function TaskDialog({ user, task, onSaved, open, setOpen }: { user: SessionUser;
   const save = async () => {
     setSaving(true); setError(null);
     try {
+      // Map the assign-to sentinel values onto the API payload. Centre fields
+      // are only a broadcast scope for "Entire centre" — individual picks stay
+      // visible to that person only.
+      const payload: Record<string, unknown> = { ...form };
+      delete payload.country;
+      const wholeCentre = form.assigneeId === ASSIGN_WHOLE_CENTRE;
+      payload.centreCountry = wholeCentre ? form.country : null;
+      payload.centreState = wholeCentre ? form.centreState : null;
+      payload.allCentres = form.assigneeId === ASSIGN_ALL_CENTRES;
+      if (form.assigneeId === ASSIGN_ALL_CENTRES) {
+        payload.assigneeId = null; payload.centreCountry = null; payload.centreState = null;
+      } else if (wholeCentre) {
+        payload.assigneeId = null;
+      }
       if (task) {
-        await api("/api/tasks", { method: "PATCH", body: JSON.stringify({ id: task.id, ...form }) });
+        await api("/api/tasks", { method: "PATCH", body: JSON.stringify({ id: task.id, ...payload }) });
       } else {
-        await api("/api/tasks", { method: "POST", body: JSON.stringify(form) });
+        await api("/api/tasks", { method: "POST", body: JSON.stringify(payload) });
       }
       setOpen(false);
       onSaved();
@@ -83,11 +140,48 @@ function TaskDialog({ user, task, onSaved, open, setOpen }: { user: SessionUser;
         <DialogHeader><DialogTitle className="text-white">{task ? "Edit task" : "New task"}</DialogTitle></DialogHeader>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2"><Field label="Task description" required><Input className={inputCls} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="What needs to be done?" /></Field></div>
-          <Field label="Assign to">
+          {isManager && (
+            <>
+              <Field label="Centre country" hint={centreCountries.length === 0 ? "No staff locations registered yet" : "Countries where your staff are registered"}>
+                <Select
+                  value={form.country || undefined}
+                  onValueChange={(v) => setForm({ ...form, country: v, centreState: "", assigneeId: "" })}
+                >
+                  <SelectTrigger className={inputCls}><SelectValue placeholder={centreCountries.length ? "Select country" : "No countries yet"} /></SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    {centreCountries.map(([code, count]) => <SelectItem key={code} value={code}>{countryName(code)} ({count})</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Centre" hint={form.country ? "Centres (states) with registered staff" : "Pick a country first"}>
+                <Select
+                  value={form.centreState || undefined}
+                  onValueChange={(v) => setForm({ ...form, centreState: v, assigneeId: "" })}
+                  disabled={!form.country}
+                >
+                  <SelectTrigger className={inputCls}><SelectValue placeholder={form.country ? (centreStates.length ? "Select centre" : "No centres in this country") : "Pick a country first"} /></SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    {centreStates.map(([state, count]) => <SelectItem key={state} value={state}>{state} ({count})</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </>
+          )}
+          <Field label={isManager && form.centreState ? `Assign to — agents in ${form.centreState} centre` : "Assign to"}>
             {isManager ? (
-              <Select value={form.assigneeId} onValueChange={(v) => setForm({ ...form, assigneeId: v })}>
-                <SelectTrigger className={inputCls}><SelectValue placeholder="Select employee" /></SelectTrigger>
-                <SelectContent>{staff.map((u) => <SelectItem key={u.id} value={u.id}>{u.fullName} — {u.role.replace(/_/g, " ")}</SelectItem>)}</SelectContent>
+              <Select value={form.assigneeId || undefined} onValueChange={(v) => setForm({ ...form, assigneeId: v })}>
+                <SelectTrigger className={inputCls}><SelectValue placeholder="Select who / where" /></SelectTrigger>
+                <SelectContent className="max-h-64">
+                  <SelectItem value={ASSIGN_ALL_CENTRES} className="font-semibold text-emerald-300">
+                    <span className="inline-flex items-center gap-2"><Globe2 className="h-3.5 w-3.5" />All centres — everyone</span>
+                  </SelectItem>
+                  {form.centreState && (
+                    <SelectItem value={ASSIGN_WHOLE_CENTRE} className="font-semibold text-sky-300">
+                      <span className="inline-flex items-center gap-2"><Building2 className="h-3.5 w-3.5" />Entire {form.centreState} centre ({centreAgents.length})</span>
+                    </SelectItem>
+                  )}
+                  {centreAgents.map((u) => <SelectItem key={u.id} value={u.id}>{u.fullName} — {u.role.replace(/_/g, " ")}</SelectItem>)}
+                </SelectContent>
               </Select>
             ) : (
               <Input readOnly disabled className={inputCls} value="Me" />
@@ -217,7 +311,7 @@ export default function TasksView({ user, managerMode = false }: { user: Session
                     {overdue(t) && <span className="rounded border border-rose-400/40 bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-bold text-rose-300">OVERDUE</span>}
                   </div>
                   <p className="mt-1 text-xs text-slate-400">
-                    {t.assignee ? `→ ${t.assignee.fullName}` : "→ Unassigned"} · {t.department.replace(/_/g, " ")}{t.category ? ` · ${t.category}` : ""}{t.projectRef ? ` · ${t.projectRef}` : ""}
+                    {scopeLabel(t)} · {t.department.replace(/_/g, " ")}{t.category ? ` · ${t.category}` : ""}{t.projectRef ? ` · ${t.projectRef}` : ""}
                     {t.deadline ? ` · due ${fmtDate(t.deadline)}` : ""}
                   </p>
                   {(t.requiredOutcome || t.target) && (

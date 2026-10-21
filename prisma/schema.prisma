@@ -25,9 +25,10 @@ model User {
   team         String?
   employeeId   String?
   phone        String?
-  // Registration location (ISO-3166 country code + state/region name)
+  // Registration location (ISO-3166 country code + state/region name + optional city)
   country      String?
   state        String?
+  city         String?
   // PENDING | APPROVED | REJECTED | SUSPENDED
   status       String    @default("PENDING")
   approvedAt   DateTime?
@@ -45,6 +46,8 @@ model User {
   uploadedFiles  UploadedFile[]
   updatedTemplates ReportTemplate[] @relation("TemplateUpdater")
   notices        Notice[]       @relation("NoticeAuthor")
+  escalationsSent     Escalation[] @relation("EscalationFrom")
+  escalationsReceived Escalation[] @relation("EscalationTarget")
 }
 
 model Report {
@@ -153,6 +156,14 @@ model Task {
   requiredOutcome String?
   target      String?
   kpiKey      String?
+  // Centre-based targeting: a task can be assigned to (a) an individual via
+  // assigneeId, (b) every agent of one centre (centreCountry + centreState —
+  // a centre is a state/region within a country), or (c) all centres at once
+  // (allCentres = true). Individual assignments may also carry centre fields
+  // as metadata when the admin picked them from a centre context.
+  centreCountry String?
+  centreState   String?
+  allCentres    Boolean @default(false)
   dateAssigned DateTime @default(now())
   deadline    DateTime?
   estimatedHours Float?
@@ -254,6 +265,38 @@ model KpiConfig {
   sortOrder     Int     @default(0)
 
   @@unique([department, key])
+}
+
+// Notify / escalate bar — two-way messages between staff and management.
+// Agents escalate to TEAM_LEAD / SUPERVISOR / ADMIN (always cc ADMIN);
+// management can send a notice to any agent of their choice.
+model Escalation {
+  id          String   @id @default(cuid())
+  fromId      String
+  from        User     @relation("EscalationFrom", fields: [fromId], references: [id])
+  fromName    String
+  fromRole    String
+  // TARGET_ROLE (route by role within centre) | TARGET_USER (direct) | ALL_MANAGEMENT
+  targetType  String   @default("TARGET_ROLE")
+  targetRole  String? // TEAM_LEAD | SUPERVISOR | ADMIN
+  targetUserId String?
+  targetUser  User?    @relation("EscalationTarget", fields: [targetUserId], references: [id])
+  targetName  String?
+  subject     String
+  message     String
+  severity    String   @default("NORMAL") // NORMAL | URGENT
+  // OPEN | ACKNOWLEDGED | RESOLVED
+  status      String   @default("OPEN")
+  ackById     String?
+  ackByName   String?
+  ackNote     String?
+  resolvedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([fromId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model AuditLog {

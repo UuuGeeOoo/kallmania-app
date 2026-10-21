@@ -9,6 +9,9 @@ export interface SessionUser {
   team?: string | null;
   employeeId: string | null;
   status: string;
+  phone?: string | null;
+  country?: string | null;
+  state?: string | null;
 }
 
 export interface KpiMetric {
@@ -98,6 +101,10 @@ export interface TaskDTO {
   actualHours?: number | null;
   blocker?: string | null;
   nextSteps?: string | null;
+  centreCountry?: string | null;
+  centreState?: string | null;
+  allCentres?: boolean;
+  assignees?: { userId: string; user: { id: string; fullName: string; role: string } }[];
 }
 
 export interface UploadDTO {
