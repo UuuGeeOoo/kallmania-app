@@ -203,3 +203,22 @@ Stage Summary:
 - Workspace, dev server and GitHub main all exactly match the published v8 (a8dd5b9). Feature files (api/profile, profile-view.tsx, centre fields) confirmed absent.
 - Centre-based task assignment + My Profile work is preserved ONLY on branch backup/post-v8-features-63a769b — do not merge without user approval.
 - Lesson: the platform workspace re-sync wipes .env and reverts the generated Prisma client; always re-check .env and prisma generate after any sync.
+
+---
+Task ID: 16
+Agent: main (Z.ai)
+Task: Diagnose and fix recurring platform "deployment failed" (analyze tasks/code, hosting, servers, database)
+
+Work Log:
+- Forensics on /tmp/build_fullstack_*: builds at 11:50 (v8) and 12:27 had db/custom.db present -> tar.gz produced; builds at 12:25, 12:28 and both 12:49 attempts had EMPTY db/ and no tar.gz -> packaging died at database-runtime-build.sh (set -e).
+- Reproduced: the script unconditionally ran `DATABASE_URL=file:... bun run db:push`; schema provider is postgresql (Supabase) -> Prisma P1012 "URL must start with postgresql://" -> exit 1. The missing-file check (exit 1) also fired since db:push never created the SQLite file. Platform workspace syncs had wiped untracked db/custom.db and .env (again).
+- Fixed .zscripts/database-runtime-build.sh (tracked file): reads datasource provider via awk; runs file:-URL db:push ONLY for sqlite provider; otherwise creates a valid schema-only SQLite fallback via bun:sqlite. No more P1012, no more missing-file abort.
+- Added .env self-heal to .zscripts/build.sh: restores .env from .env.local when a sync wipes it (guard tested by simulating the wipe).
+- Tests: scenario db-missing -> exit 0 + valid 12K SQLite; scenario db-present -> exit 0 + copy. Full .zscripts/build.sh end-to-end with BUILD_ID=localverify1792592000 -> 55MB tar.gz containing server.js, .env, BUILD_ID, db/custom.db, start.sh, Caddyfile, mini-services-start.sh. Payload smoke test (bun server.js :3007): GET / 200, Supabase admin login {"success":true} HTTP 200.
+- Cleanup: removed payload-smoke/, deploy-sim/, smoke server process; dev daemon restarted (GET / 200).
+- Committed 2b7317e, pushed to GitHub main (a8dd5b9..2b7317e). GH_TOKEN transient only.
+
+Stage Summary:
+- Root cause of "deployment failed": platform's db packaging step incompatible with postgres-provider schema (P1012) + sync-wiped db/custom.db. Both permanently fixed in tracked .zscripts.
+- App code unchanged (still exactly published v8 + this deploy-pipeline fix). Payload is smaller than v8's (55MB vs 119MB tar).
+- User action: republish from the platform; deploy should now succeed.
