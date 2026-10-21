@@ -9,7 +9,7 @@ import { api, ROLE_LABELS, DEPT_LABELS, type NotificationDTO, type SessionUser }
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, FileText, Upload, ListTodo, ClipboardCheck, Layers, Users, Target,
-  Bell, LogOut, Menu, ScrollText, Inbox, KeyRound, Home, FolderOpen, PanelLeftClose, PanelLeftOpen, FileCog, FileCheck2,
+  Bell, LogOut, Menu, ScrollText, Inbox, KeyRound, Home, FolderOpen, PanelLeftClose, PanelLeftOpen, FileCog, FileCheck2, Megaphone,
 } from "lucide-react";
 
 export interface NavItem {
@@ -22,6 +22,7 @@ export interface NavItem {
 export function navForRole(role: string): NavItem[] {
   const employeeNav: NavItem[] = [
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { key: "notice-board", label: "Notice Board", icon: Megaphone },
     { key: "daily-report", label: "Daily Report", icon: FileText },
     { key: "upload", label: "Upload Report", icon: Upload },
     { key: "tasks", label: "My Tasks", icon: ListTodo },
@@ -30,6 +31,7 @@ export function navForRole(role: string): NavItem[] {
   ];
   const supervisorNav: NavItem[] = [
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { key: "notice-board", label: "Notice Board", icon: Megaphone },
     { key: "review", label: "Review Reports", icon: ClipboardCheck },
     { key: "archive", label: "Reports Archive", icon: FolderOpen },
     { key: "consolidated", label: "Consolidated Report", icon: Layers },

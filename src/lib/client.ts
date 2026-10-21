@@ -136,10 +136,23 @@ export interface UserDTO {
   team?: string | null;
   employeeId?: string | null;
   phone?: string | null;
+  country?: string | null;
+  state?: string | null;
   status: string;
   createdAt: string;
   approvedAt?: string | null;
   reportCount?: number;
+}
+
+export interface NoticeDTO {
+  id: string;
+  title: string;
+  body: string;
+  pinned: boolean;
+  authorId?: string | null;
+  authorName?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ExtractedField {
@@ -178,7 +191,7 @@ export const POSITION_LABELS: Record<string, string> = {
   ADMIN: "Administrator",
 };
 
-/** Teams under the BPO division — registration & profile display */
+/** Teams under Kallmania (BPO division) — registration & profile display */
 export const TEAM_LABELS: Record<string, string> = {
   OUTBOUND: "Outbound Call Centre",
   INBOUND: "Inbound Call Centre",

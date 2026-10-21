@@ -55,3 +55,6 @@ server.log
 # runtime data (never commit)
 db/
 uploads-storage/
+
+# tool results (internal)
+tool-results/

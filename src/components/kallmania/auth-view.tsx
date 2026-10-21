@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, TEAM_LABELS, type SessionUser } from "@/lib/client";
+import { Country, State } from "country-state-city";
 import { Loader2, LogIn, UserPlus, ShieldCheck, AlertCircle, CheckCircle2, Building2, Users2, BadgeCheck } from "lucide-react";
 
-/** Teams under the BPO division — every operational role falls in under BPO */
+/** Teams under Kallmania — every operational role falls in under the Kallmania division */
 const BPO_TEAMS = [
   { value: "OUTBOUND", desc: "Outbound calls & email outreach" },
   { value: "INBOUND", desc: "Inbound call centre — receiving calls" },
@@ -16,6 +17,9 @@ const BPO_TEAMS = [
   { value: "SOCIAL", desc: "Social media & campaign team" },
   { value: "TECH", desc: "Web development & technical" },
 ];
+
+/** 250 countries, alphabetical — ISO-2 codes as values */
+const ALL_COUNTRIES = Country.getAllCountries().slice().sort((a, b) => a.name.localeCompare(b.name));
 
 const POSITIONS = [
   { value: "AGENT", label: "Agent", desc: "Day-to-day team member" },
@@ -57,7 +61,8 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [form, setForm] = useState({ email: "", password: "", fullName: "", team: "OUTBOUND", position: "AGENT", employeeId: "", phone: "" });
+  const [form, setForm] = useState({ email: "", password: "", fullName: "", team: "OUTBOUND", position: "AGENT", employeeId: "", phone: "", country: "NG", state: "" });
+  const statesOfCountry = form.country ? State.getStatesOfCountry(form.country) : [];
 
   const submit = async () => {
     setError(null);
@@ -80,6 +85,8 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
             position: form.position,
             employeeId: form.employeeId,
             phone: form.phone,
+            country: form.country || undefined,
+            state: form.state || undefined,
           }),
         });
         setSuccess(res.message || "Registration submitted — an administrator will confirm your account.");
@@ -109,7 +116,7 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
 
           <h1 className="text-3xl font-bold text-white">{mode === "login" ? "Login" : "Create your account"}</h1>
           <p className="mt-1.5 text-sm text-slate-400">
-            {mode === "login" ? "See your growth and get consulting support!" : "Choose where you fall in under the BPO division — an administrator will confirm your login and position."}
+            {mode === "login" ? "See your growth and get consulting support!" : "Choose where you fall in under Kallmania — an administrator will confirm your login and position."}
           </p>
 
           <div className="mt-7 space-y-4">
@@ -125,15 +132,15 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
                   <div className="flex items-center gap-3 rounded-xl border border-[#8b7ff5]/40 bg-[#6c5ce7]/10 px-3 py-2.5">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#6c5ce7] text-white shadow-[0_4px_14px_-2px_rgba(108,92,231,0.7)]"><Building2 className="h-4 w-4" /></span>
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-white">BPO Division</p>
-                      <p className="text-[11px] text-slate-400">All teams and roles fall in under the BPO division</p>
+                      <p className="text-sm font-semibold text-white">Kallmania</p>
+                      <p className="text-[11px] text-slate-400">All teams and roles fall in under Kallmania — SBTS Group Global</p>
                     </div>
                     <BadgeCheck className="ml-auto h-4 w-4 shrink-0 text-[#dce775]" />
                   </div>
                 </div>
                 {/* Step 2 — Team */}
                 <div className="space-y-1.5">
-                  <Label className="text-slate-300">Team * <span className="text-xs font-normal text-slate-500">— where do you fall in under BPO?</span></Label>
+                  <Label className="text-slate-300">Team * <span className="text-xs font-normal text-slate-500">— choose your team under Kallmania</span></Label>
                   <Select value={form.team} onValueChange={(v) => setForm({ ...form, team: v })}>
                     <SelectTrigger className="border-slate-600/50 bg-transparent text-slate-100"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -157,6 +164,26 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
                     </SelectContent>
                   </Select>
                   <p className="flex items-center gap-1.5 text-xs text-slate-500"><ShieldCheck className="h-3.5 w-3.5 text-[#dce775]" /> Positions are confirmed (and can be changed) by the administrator. Supervisor accounts oversee the whole division.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-300">Country</Label>
+                    <Select value={form.country || undefined} onValueChange={(v) => setForm({ ...form, country: v, state: "" })}>
+                      <SelectTrigger className="border-slate-600/50 bg-transparent text-slate-100"><SelectValue placeholder="Select country" /></SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {ALL_COUNTRIES.map((c) => <SelectItem key={c.isoCode} value={c.isoCode}>{c.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-300">State / Region</Label>
+                    <Select value={form.state || undefined} onValueChange={(v) => setForm({ ...form, state: v })} disabled={!form.country}>
+                      <SelectTrigger className="border-slate-600/50 bg-transparent text-slate-100"><SelectValue placeholder={form.country ? "Select state" : "Pick a country first"} /></SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {statesOfCountry.map((s) => <SelectItem key={s.isoCode} value={s.name}>{s.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">

@@ -9,12 +9,21 @@ import { api, fmtDate, fmtDateTime, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, type 
 import { PageHeader, EmptyState, StatusBadge, SectionCard, Field, inputCls } from "@/components/kallmania/shared";
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2, Loader2, Bell, Settings2, ScrollText, Info } from "lucide-react";
-
-// ───────────────────────── USER MANAGEMENT ─────────────────────────
+import { Country } from "country-state-city";
+import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2, Loader2, Bell, Settings2, ScrollText, Info, MapPin } from "lucide-react";
 
 const ALL_ROLES = ["AGENT_BPO", "TEAM_LEAD", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR", "ADMIN"];
 const ALL_TEAMS = ["OUTBOUND", "INBOUND", "EMAIL", "SOCIAL", "TECH"];
+
+/** ISO-2 code → country name for the Location column (built once per module load) */
+const COUNTRY_NAMES: Record<string, string> = Object.fromEntries(
+  Country.getAllCountries().map((c) => [c.isoCode, c.name])
+);
+
+function locationLabel(u: { country?: string | null; state?: string | null }): string {
+  const countryName = u.country ? COUNTRY_NAMES[u.country] || u.country : null;
+  return [u.state, countryName].filter(Boolean).join(", ");
+}
 
 export function AdminUsersView() {
   const [users, setUsers] = useState<UserDTO[]>([]);
@@ -104,7 +113,7 @@ export function AdminUsersView() {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Select defaultValue={u.team || undefined} onValueChange={(v) => changeTeam(u, v)}>
-                    <SelectTrigger className="h-8 w-40 border-slate-600/50 bg-[#15202e]/60 text-xs"><SelectValue placeholder="Team under BPO" /></SelectTrigger>
+                    <SelectTrigger className="h-8 w-40 border-slate-600/50 bg-[#15202e]/60 text-xs"><SelectValue placeholder="Team under Kallmania" /></SelectTrigger>
                     <SelectContent>{ALL_TEAMS.map((t) => <SelectItem key={t} value={t}>{TEAM_LABELS[t]}</SelectItem>)}</SelectContent>
                   </Select>
                   <Select defaultValue={u.role} onValueChange={(v) => changeRole(u.id, v, u.team || undefined)}>
@@ -135,8 +144,9 @@ export function AdminUsersView() {
               <TableRow className="border-white/10 bg-white/[0.03]">
                 <TableHead className="text-[11px] text-slate-400">Name</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Email</TableHead>
+                <TableHead className="text-[11px] text-slate-400">Location</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Role</TableHead>
-                <TableHead className="text-[11px] text-slate-400">Team under BPO</TableHead>
+                <TableHead className="text-[11px] text-slate-400">Team under Kallmania</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Status</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Registered</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Actions</TableHead>
@@ -147,6 +157,16 @@ export function AdminUsersView() {
                 <TableRow key={u.id} className="border-white/5">
                   <TableCell className="py-2.5 text-xs font-semibold text-slate-200">{u.fullName}</TableCell>
                   <TableCell className="py-2.5 text-xs text-slate-400">{u.email}</TableCell>
+                  <TableCell className="py-2.5 text-[11px] text-slate-400">
+                    {u.country || u.state ? (
+                      <span className="flex items-center gap-1.5" title={locationLabel(u)}>
+                        <MapPin className="h-3 w-3 shrink-0 text-[#8b7ff5]" />
+                        <span className="max-w-[140px] truncate">{locationLabel(u)}</span>
+                      </span>
+                    ) : (
+                      <span className="text-slate-600">—</span>
+                    )}
+                  </TableCell>
                   <TableCell className="py-2.5">
                     <Select defaultValue={u.role} onValueChange={(v) => changeRole(u.id, v, u.team || undefined)}>
                       <SelectTrigger className="h-7 w-40 border-slate-600/50 bg-[#15202e]/60 text-[11px]"><SelectValue /></SelectTrigger>

@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
     // ── REGISTRATION ──────────────────────────────────────────
     if (action === "register") {
-      const { email, password, fullName, role, department, team, position, employeeId, phone } = body;
+      const { email, password, fullName, role, department, team, position, employeeId, phone, country, state } = body;
       if (!email || !password || !fullName) return fail("Email, password and full name are required");
       if (String(password).length < 6) return fail("Password must be at least 6 characters");
 
@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
       if (existing) return fail("An account with this email already exists. Please sign in or contact the administrator.");
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(emailNorm)) return fail("Please enter a valid email address");
+      if (country && !/^[A-Z]{2}$/.test(String(country))) return fail("Invalid country selection");
       const passwordHash = await hashPassword(String(password));
       const user = await db.user.create({
         data: {
@@ -51,6 +52,8 @@ export async function POST(req: NextRequest) {
           team: resolved.team,
           employeeId: employeeId ? String(employeeId).trim() : null,
           phone: phone ? String(phone).trim() : null,
+          country: country ? String(country) : null,
+          state: state ? String(state).trim().slice(0, 80) : null,
           status: "PENDING",
         },
       });

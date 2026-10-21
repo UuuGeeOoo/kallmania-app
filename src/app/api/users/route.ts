@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
       where,
       select: {
         id: true, email: true, fullName: true, role: true, department: true, team: true,
-        employeeId: true, phone: true, status: true, createdAt: true, approvedAt: true,
+        employeeId: true, phone: true, country: true, state: true, status: true, createdAt: true, approvedAt: true,
         _count: { select: { reports: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -124,6 +124,10 @@ export async function PATCH(req: NextRequest) {
           db.auditLog.updateMany({ where: { userId }, data: { userId: null } }),
           // Tasks the user was assigned — keep the tasks, just unassign them
           db.task.updateMany({ where: { assigneeId: userId }, data: { assigneeId: null } }),
+          // Multi-assignee task links (TaskAssignee) belong solely to the user
+          db.taskAssignee.deleteMany({ where: { userId } }),
+          // Notices the user authored stay up — keep the display name, drop the link
+          db.notice.updateMany({ where: { authorId: userId }, data: { authorId: null, authorName: user.fullName } }),
           // Tasks the user created — hand ownership to the deleting admin so nothing is lost
           db.task.updateMany({ where: { createdById: userId }, data: { createdById: admin.id } }),
           db.user.delete({ where: { id: userId } }),

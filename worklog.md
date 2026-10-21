@@ -146,3 +146,26 @@ Work Log:
 Stage Summary:
 - Branding now reads only "Kallmania — SBTS Group Global" everywhere (UI, auth, report headers, Word export footer, metadata).
 - Confirmed Task 12 caused no harm to the current UI update.
+
+---
+Task ID: 13
+Agent: Main agent (Super Z)
+Task: (a) Push the codebase to GitHub (user supplied a PAT; repo UuuGeeOoo/kallmania-app); (b) rebuild the lost orange-UI features on the current codebase — Location column in User Management, "Team under Kallmania" labeling, Notice Board — and re-wire the app to Supabase so all 10 registered users reappear.
+
+Work Log:
+- GitHub sync: repo had NO remote and was silently tracking .env (Supabase credentials), db/custom.db (SQLite with user hashes) and 7 upload artifacts — all untracked (git rm --cached) and re-ignored (db/, uploads-storage/, tool-results/) BEFORE any push to the PUBLIC repo. Pushed main → github.com/UuuGeeOoo/kallmania-app (208 files, zero secrets). Later scrubbed DB password literals from 3 diagnostic scripts before committing them.
+- Root cause of the "disappeared users": the sandbox globally pre-sets DATABASE_URL=file:.../db/custom.db which overrides .env for both Prisma CLI and Next.js runtime — the current code (HEAD bf01c66 line) never contained the Supabase migration (it was part of the unsaved orange-UI session). Supabase itself was intact: 10 users, 17 reports, 4 tasks, KpiConfig 47, and it ALREADY had the lost-session columns User.country/User.state (populated for 7/10 users) plus a TaskAssignee table (5 rows).
+- Migration: schema.prisma provider sqlite→postgresql; added User.country/state; added TaskAssignee model (@@unique([taskId,userId]) to match the live constraint) + Task/User relations; added Notice model. Verified the migrate diff was purely additive (prisma migrate diff --from-url) before prisma db push (only CREATE TABLE Notice + FK/index recreation — zero data touched). prisma generate.
+- Runtime wiring: connection string moved to KALLMANIA_DATABASE_URL in .env (double-encoded password %25E6 + sslmode=require&sslaccept=accept_invalid_certs) and src/lib/db.ts now promotes KALLMANIA_DATABASE_URL → process.env.DATABASE_URL BEFORE instantiating PrismaClient (the sandbox env override defeats plain .env).
+- User Management (admin-views.tsx): new Location column after Email — MapPin icon + "State, Country" (ISO-2 → name via country-state-city, 250 countries), "—" when unset; "Team under BPO" header/placeholder renamed to "Team under Kallmania" (2 places).
+- Registration (auth-view.tsx + auth route): Country select (250 countries, defaults NG) + dependent State/Region select (37 states for Nigeria, resets on country change); auth register validates /^[A-Z]{2}$/ and persists country/state. Division card rebranded "BPO Division" → "Kallmania — all teams and roles fall in under Kallmania — SBTS Group Global"; team label "choose your team under Kallmania".
+- Notice Board (new): Notice model + /api/notices (GET any authenticated user, POST/PATCH/DELETE admin-only, 120/5000 char limits, full audit logging) + src/components/kallmania/notice-board.tsx (card list pinned-first with Pinned badge, admin composer dialog with pin checkbox, edit/pin-toggle/delete with confirm dialog, toasts) + nav item "Notice Board" (Megaphone icon) right after Dashboard for ALL roles + page.tsx route "notice-board".
+- Delete transaction (users route) extended for the new relations: taskAssignee.deleteMany + notice.updateMany (authorId nulled, authorName preserved) — prevents the next FK failure as data grows.
+- Verification: tsc clean for all touched files (only pre-existing example-file error remains); browser end-to-end as admin: login → 10 users in User Management with "Lagos, Nigeria"/"Enugu, Nigeria" locations and Team-under-Kallmania column; posted+pinned a notice via UI (card, Unpin button), API CRUD + RBAC (401 unauthenticated) + audit entries verified via curl; registered a test user from the UI with Ghana/Greater Accra → appeared as "Greater Accra, Ghana" in the admin table → deleted via the confirm dialog (toast + removed from DB, exercising the new transaction on Postgres); registration page shows Nigeria default + 37-state dropdown (screenshots in download/). Zero console/page errors. Demo notice and test user cleaned up afterwards — final state: 10 users, 0 notices.
+- Regression note: the e2e shell scripts were NOT run because they mutate data and the app now points at the production Supabase DB; live browser + curl coverage was used instead.
+
+Stage Summary:
+- The app is once again the real system: Supabase Postgres is the source of truth and all 10 registered users (ANIAH ANNE, Onah Edith, Samuel Lead, Ivy Inbound, ;lmnlmL, Ngozi, Amara, Tunde, Blessing, Egbo) are back with their 17 reports, 4 tasks and full history.
+- All three lost orange-UI features rebuilt: Location column (with full 250-country registration), "Team under Kallmania" labeling, and a complete Notice Board.
+- Code is safely on GitHub (secrets scrubbed), the lost-work failure mode is closed.
+- Key files: prisma/schema.prisma, src/lib/{db,client}.ts, src/app/api/{users,auth,notices}/route.ts, src/components/kallmania/{admin-views,auth-view,shell,notice-board}.tsx, src/app/page.tsx, .env (KALLMANIA_DATABASE_URL), .gitignore.

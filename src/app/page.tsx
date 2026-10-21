@@ -14,6 +14,7 @@ import { MyReportsView, ReviewView } from "@/components/kallmania/reports-view";
 import ReportsArchiveView from "@/components/kallmania/archive-view";
 import ConsolidatedView from "@/components/kallmania/consolidated-view";
 import { AdminUsersView, KpiConfigView, AuditView, NotificationsView, UploadsAdminView } from "@/components/kallmania/admin-views";
+import NoticeBoardView from "@/components/kallmania/notice-board";
 import { api, todayISO, type SessionUser } from "@/lib/client";
 import { Loader2 } from "lucide-react";
 
@@ -96,6 +97,8 @@ export default function Page() {
     switch (activeView) {
       case "dashboard":
         return <Dashboard user={user} onNavigate={navigate} />;
+      case "notice-board":
+        return <NoticeBoardView user={user} />;
       case "daily-report":
         if (user.role === "TEAM_LEAD") return <TeamLeadReportForm user={user} date={reportDate} />;
         if (user.role === "DEVELOPER") return <TechReportForm user={user} date={reportDate} />;
