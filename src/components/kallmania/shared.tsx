@@ -41,7 +41,7 @@ export function SectionCard({ title, subtitle, children, actions, className }: {
     <section className={cn("k-card p-5", className)}>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="k-section-title text-sm font-bold uppercase tracking-wide">▸ {title}</h3>
+          <h3 className="k-section-title text-[15px] font-bold">{title}</h3>
           {subtitle && <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>}
         </div>
         {actions}

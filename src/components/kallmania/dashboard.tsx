@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { api, fmtDate, fmtDateTime, todayISO, DEPT_LABELS, type TaskDTO } from "@/lib/client";
+import { api, fmtDate, fmtDateTime, todayISO, DEPT_LABELS, type EscalationDTO, type SessionUser, type TaskDTO } from "@/lib/client";
 import { StatCard, PageHeader, SectionCard, EmptyState, StatusBadge } from "@/components/kallmania/shared";
 import PeriodKpiPanel from "@/components/kallmania/kpi-trends";
 import { UserKpiDialog } from "@/components/kallmania/user-kpi-dialog";
+import { EscalationComposer } from "@/components/kallmania/escalation-center";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -13,6 +14,7 @@ import { Country, State } from "country-state-city";
 import {
   Users, FileCheck2, FileX2, ListTodo, CheckCircle2, AlarmClock, Ban, TrendingDown,
   Siren, PhoneCall, Mail, UploadCloud, MonitorSmartphone, Share2, Calendar, Loader2, MapPin, Globe2,
+  ArrowUpRight, Megaphone,
 } from "lucide-react";
 
 interface EmployeeDash {
@@ -53,7 +55,7 @@ interface SupervisorDash {
   pendingReportList: { id: string; ref: string; userName: string; type: string; status: string; department: string }[];
 }
 
-export default function Dashboard({ user, onNavigate }: { user: { role: string; fullName: string; department: string }; onNavigate: (v: string) => void }) {
+export default function Dashboard({ user, onNavigate }: { user: SessionUser; onNavigate: (v: string) => void }) {
   const [date, setDate] = useState(todayISO());
   const [emp, setEmp] = useState<EmployeeDash | null>(null);
   const [sup, setSup] = useState<SupervisorDash | null>(null);
@@ -142,10 +144,98 @@ function getLast7Days() {
   return out;
 }
 
-function EmployeeDashboard({ emp, user, onNavigate }: { emp: EmployeeDash; user: { role: string; department: string }; onNavigate: (v: string) => void }) {
+/** Former-model stat card: dark icon disc + bold title, huge number, divider, two sub-stats, ↗ shortcut. */
+function ClasyStatCard({
+  icon, title, value, stats, onOpen,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  value: React.ReactNode;
+  stats: { label: string; value: React.ReactNode }[];
+  onOpen?: () => void;
+}) {
+  return (
+    <div className="k-card p-5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#17171c] text-[#eda06a] ring-1 ring-white/10">
+            {icon}
+          </span>
+          <p className="truncate text-sm font-bold text-slate-100">{title}</p>
+        </div>
+        {onOpen && (
+          <button
+            onClick={onOpen}
+            title={`Open ${title}`}
+            className="k-btn-glass flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400"
+          >
+            <ArrowUpRight className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+      <p className="mt-3 text-4xl font-extrabold leading-none tracking-tight tabular-nums text-slate-100">{value}</p>
+      <div className="mt-4 flex gap-8 border-t border-white/10 pt-3">
+        {stats.map((s) => (
+          <div key={s.label} className="min-w-0">
+            <p className="truncate text-[11px] text-slate-500">{s.label}</p>
+            <p className="mt-0.5 text-sm font-bold tabular-nums text-slate-100">{s.value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Notify & Escalate bar — recent notices inline + quick composer (former-model banner). */
+function NotifyEscalateBar({ user }: { user: SessionUser }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<EscalationDTO[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api<{ escalations: EscalationDTO[] }>("/api/escalations")
+      .then(({ escalations }) => { if (!cancelled) { setItems(escalations || []); setLoaded(true); } })
+      .catch(() => { if (!cancelled) setLoaded(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const isManagement = ["TEAM_LEAD", "SUPERVISOR", "ADMIN"].includes(user.role);
+  const preview = items
+    .slice(0, 5)
+    .map((e) => `${e.subject}: ${e.message}`)
+    .join("  ·  ");
+
+  return (
+    <div className="k-card flex items-center gap-3 p-3 pr-4">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#f0a267] via-[#e8873a] to-[#d97a35] text-white shadow-[0_8px_24px_-6px_rgba(232,135,58,0.65)]">
+        <Siren className="h-4 w-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-bold text-slate-100">Notify &amp; Escalate</p>
+        <p className="truncate text-xs text-slate-500">
+          {loaded ? (preview || "No notices yet — send one with the button on the right.") : "Loading recent notices…"}
+        </p>
+      </div>
+      {items.length > 0 && (
+        <span className="shrink-0 rounded-full bg-[#e8935a]/15 px-2.5 py-1 text-[10px] font-bold text-[#c2641f] dark:text-[#f0b285]">
+          {items.length > 99 ? "99+" : items.length} recent
+        </span>
+      )}
+      <Button size="sm" onClick={() => setOpen(true)} className="k-btn-primary shrink-0 rounded-full px-4 text-xs">
+        <Megaphone className="mr-1.5 h-3.5 w-3.5" />
+        {isManagement ? "Notify agent" : "Notify / escalate"}
+      </Button>
+      <EscalationComposer user={user} open={open} setOpen={setOpen} />
+    </div>
+  );
+}
+
+function EmployeeDashboard({ emp, user, onNavigate }: { emp: EmployeeDash; user: SessionUser; onNavigate: (v: string) => void }) {
   const roleReportLabel = user.role === "DEVELOPER" ? "Technical report" : user.role === "SOCIAL_MEDIA" ? "Social media report" : "Daily report";
   return (
     <div className="space-y-5">
+      <NotifyEscalateBar user={user} />
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label={`${roleReportLabel} today`} value={emp.reportSubmittedToday ? "Submitted" : "Not yet"} tone={emp.reportSubmittedToday ? "good" : "warn"} icon={<FileCheck2 className="h-4 w-4" />} sub={emp.myReportRef || undefined} />
         <StatCard label="Open tasks" value={emp.openTasks} tone="info" icon={<ListTodo className="h-4 w-4" />} sub={`${emp.tasksCompleted} completed all-time`} />
@@ -227,10 +317,11 @@ function EmployeeDashboard({ emp, user, onNavigate }: { emp: EmployeeDash; user:
   );
 }
 
-function SupervisorDashboard({ sup, user, onNavigate }: { sup: SupervisorDash; user: { role: string; department: string }; onNavigate: (v: string) => void }) {
+function SupervisorDashboard({ sup, user, onNavigate }: { sup: SupervisorDash; user: SessionUser; onNavigate: (v: string) => void }) {
   const [kpiUser, setKpiUser] = useState<{ id: string; fullName: string; role: string } | null>(null);
   return (
     <div className="space-y-5">
+      <NotifyEscalateBar user={user} />
       {sup.centreLabel && (
         <div className="flex w-fit items-center gap-2 rounded-full border border-[#e8935a]/40 bg-[#e8935a]/10 px-3.5 py-1.5 text-xs font-semibold text-[#f0b285]">
           <MapPin className="h-3.5 w-3.5" />
@@ -238,15 +329,51 @@ function SupervisorDashboard({ sup, user, onNavigate }: { sup: SupervisorDash; u
         </div>
       )}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <StatCard label="Active employees" value={sup.totalActiveEmployees} icon={<Users className="h-4 w-4" />} sub={`${sup.expectedToReport} expected to report`} />
-        <StatCard label="Reports submitted" value={sup.reportsSubmitted} tone="good" icon={<FileCheck2 className="h-4 w-4" />} sub={`${sup.outstandingReports} outstanding`} />
-        <StatCard label="Tasks completed" value={`${sup.tasksCompleted}/${sup.tasksAssigned}`} tone="info" icon={<CheckCircle2 className="h-4 w-4" />} sub={`${sup.tasksOverdue} overdue`} />
-        <StatCard label="Open escalations" value={sup.openEscalations} tone={sup.openEscalations > 0 ? "bad" : "good"} icon={<Siren className="h-4 w-4" />} sub={`${sup.kpiShortfalls} KPI shortfalls`} />
+        <ClasyStatCard
+          icon={<Users className="h-4 w-4" />}
+          title="Agents"
+          value={sup.totalActiveEmployees}
+          stats={[
+            { label: "Expected to report", value: sup.expectedToReport },
+            { label: "Awaiting approval", value: sup.pendingUserApprovals },
+          ]}
+          onOpen={user.role === "ADMIN" ? () => onNavigate("admin-users") : undefined}
+        />
+        <ClasyStatCard
+          icon={<FileCheck2 className="h-4 w-4" />}
+          title="Reports Today"
+          value={sup.reportsSubmitted}
+          stats={[
+            { label: "Outstanding", value: sup.outstandingReports },
+            { label: "Awaiting approval", value: sup.pendingReportList.length },
+          ]}
+          onOpen={() => onNavigate("review")}
+        />
+        <ClasyStatCard
+          icon={<ListTodo className="h-4 w-4" />}
+          title="Tasks"
+          value={sup.tasksAssigned}
+          stats={[
+            { label: "Completed", value: sup.tasksCompleted },
+            { label: "Overdue", value: sup.tasksOverdue },
+          ]}
+          onOpen={() => onNavigate("team-tasks")}
+        />
+        <ClasyStatCard
+          icon={<Siren className="h-4 w-4" />}
+          title="Escalations"
+          value={sup.openEscalations}
+          stats={[
+            { label: "KPI shortfalls", value: sup.kpiShortfalls },
+            { label: "Blocked tasks", value: sup.tasksBlocked },
+          ]}
+          onOpen={() => onNavigate("notifications")}
+        />
       </div>
 
-      {/* Clasy-style trend chart + outstanding reports panel */}
-      <div className="grid gap-5 lg:grid-cols-5">
-        <SectionCard title="Report submissions" subtitle="Submitted reports over the last 14 days" className="lg:col-span-3">
+      {/* Former-model layout: Report Submissions chart + Awaiting Review panel */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <SectionCard title="Report Submissions" subtitle="Agent, technical & social media reports over time">
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={sup.trend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
@@ -270,17 +397,33 @@ function SupervisorDashboard({ sup, user, onNavigate }: { sup: SupervisorDash; u
           </div>
         </SectionCard>
 
-        <SectionCard title="Today's submissions" subtitle="Live queue" className="lg:col-span-2">
-          {sup.submittedReportList.length === 0 ? (
-            <EmptyState title="No submissions yet today" hint="Agent, technical and social media reports appear here as they arrive." />
+        <SectionCard
+          title="Awaiting Review"
+          subtitle="Reports submitted for your approval"
+          actions={
+            <button
+              onClick={() => onNavigate("review")}
+              title="Open review queue"
+              className="k-btn-glass flex h-8 w-8 items-center justify-center rounded-full text-slate-400"
+            >
+              <ArrowUpRight className="h-4 w-4" />
+            </button>
+          }
+        >
+          {sup.pendingReportList.length === 0 ? (
+            <EmptyState title="Nothing waiting for review" hint="Reports submitted for your approval will appear here." />
           ) : (
             <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-              {sup.submittedReportList.map((r) => (
-                <div key={r.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-xs">
-                  <span className="font-mono text-[#eda06a]">{r.ref}</span>
-                  <span className="min-w-0 truncate text-slate-300">{r.userName}</span>
+              {sup.pendingReportList.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => onNavigate("review")}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-xs transition hover:border-[#e8935a]/40 hover:bg-white/[0.05]"
+                >
+                  <span className="shrink-0 font-mono text-[#eda06a]">{r.ref}</span>
+                  <span className="min-w-0 flex-1 truncate text-left text-slate-300">{r.userName}</span>
                   <StatusBadge status={r.status} />
-                </div>
+                </button>
               ))}
             </div>
           )}

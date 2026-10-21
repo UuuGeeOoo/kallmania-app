@@ -257,6 +257,19 @@
   margin-left: 0;
 }
 
+/* Nav bar container — attached under the brand row (former-model format):
+   solid white pill bar in light theme, subtle glass rail in dark */
+.k-nav-bar {
+  border: 1px solid var(--k-navbar-border, rgba(255, 255, 255, 0.08));
+  background: var(--k-navbar-bg, rgba(255, 255, 255, 0.035));
+  box-shadow: var(--k-navbar-shadow, none);
+}
+html:not(.dark) .k-nav-bar {
+  --k-navbar-bg: #ffffff;
+  --k-navbar-border: rgba(28, 25, 23, 0.1);
+  --k-navbar-shadow: 0 1px 3px rgba(28, 25, 23, 0.05);
+}
+
 /* Nav pill — Clasy: solid warm-orange active pill with dark text */
 .k-nav-item {
   position: relative;

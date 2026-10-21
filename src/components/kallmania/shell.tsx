@@ -4,14 +4,13 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { api, ROLE_LABELS, DEPT_LABELS, type SessionUser } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
 import {
-  LayoutDashboard, FileText, Upload, ListTodo, ClipboardCheck, Layers, Users, Target,
-  Bell, LogOut, Menu, ScrollText, KeyRound, FolderOpen, FileCog, FileCheck2, Megaphone,
-  UserCircle2, Siren, Sun, Moon,
+  FileText, Upload, ListTodo, ClipboardCheck, Layers, Users, Target,
+  Bell, LogOut, ScrollText, KeyRound, FolderOpen, FileCog, FileCheck2, Megaphone,
+  UserCircle2, Siren, Sun, Moon, ChevronDown, Home, LayoutGrid,
 } from "lucide-react";
 import { EscalationComposer } from "@/components/kallmania/escalation-center";
 
@@ -24,9 +23,9 @@ export interface NavItem {
 
 export function navForRole(role: string): NavItem[] {
   const employeeNav: NavItem[] = [
-    { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { key: "dashboard", label: "Dashboard", icon: Home },
     { key: "notice-board", label: "Notice Board", icon: Megaphone },
-    { key: "daily-report", label: "Daily Report", icon: FileText },
+    { key: "daily-report", label: "My Daily Report", icon: FileText },
     { key: "upload", label: "Upload Report", icon: Upload },
     { key: "tasks", label: "My Tasks", icon: ListTodo },
     { key: "my-reports", label: "My Reports", icon: FileCheck2 },
@@ -38,7 +37,7 @@ export function navForRole(role: string): NavItem[] {
     employeeNav.splice(5, 0, { key: "team-tasks", label: "Tasks & Assignments", icon: ClipboardCheck });
   }
   const supervisorNav: NavItem[] = [
-    { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { key: "dashboard", label: "Dashboard", icon: Home },
     { key: "notice-board", label: "Notice Board", icon: Megaphone },
     { key: "review", label: "Review Reports", icon: ClipboardCheck },
     { key: "archive", label: "Reports Archive", icon: FolderOpen },
@@ -59,6 +58,46 @@ export function navForRole(role: string): NavItem[] {
   if (role === "ADMIN") return adminNav;
   if (role === "SUPERVISOR") return supervisorNav;
   return employeeNav;
+}
+
+/**
+ * Former-model nav format: the reports (and the rest) are arranged under
+ * headings — "Reports", "Team", "Configuration" — with flat items between.
+ * Display-only grouping; navForRole above stays the permission source of truth.
+ */
+type NavGroup = { kind: "flat"; item: NavItem } | { kind: "group"; label: string; items: NavItem[] };
+
+function pickNav(nav: NavItem[], key: string): NavItem {
+  const item = nav.find((n) => n.key === key);
+  if (!item) throw new Error(`nav item missing: ${key}`);
+  return item;
+}
+
+export function navGroupsForRole(role: string, nav: NavItem[]): NavGroup[] {
+  const has = (k: string) => nav.some((n) => n.key === k);
+  const pickAll = (keys: string[]) => keys.filter(has).map((k) => pickNav(nav, k));
+  const groups: NavGroup[] = [];
+
+  if (role === "ADMIN" || role === "SUPERVISOR") {
+    const reports = pickAll(["review", "archive", "consolidated"]);
+    if (reports.length) groups.push({ kind: "group", label: "Reports", items: reports });
+    const team = pickAll(role === "ADMIN" ? ["admin-users", "uploads-admin"] : ["uploads-admin"]);
+    if (team.length) groups.push({ kind: "group", label: "Team", items: team });
+    if (has("team-tasks")) groups.push({ kind: "flat", item: pickNav(nav, "team-tasks") });
+    const config = pickAll(role === "ADMIN" ? ["kpi-config", "tl-template", "audit"] : ["kpi-config", "tl-template"]);
+    if (config.length) groups.push({ kind: "group", label: "Configuration", items: config });
+    if (has("supervisor-report")) groups.push({ kind: "flat", item: pickNav(nav, "supervisor-report") });
+    if (has("notice-board")) groups.push({ kind: "flat", item: pickNav(nav, "notice-board") });
+    return groups;
+  }
+
+  const reports = pickAll(["my-reports", "upload"]);
+  if (reports.length) groups.push({ kind: "group", label: "Reports", items: reports });
+  if (has("tasks")) groups.push({ kind: "flat", item: pickNav(nav, "tasks") });
+  if (role === "TEAM_LEAD" && has("team-tasks")) groups.push({ kind: "flat", item: pickNav(nav, "team-tasks") });
+  if (has("daily-report")) groups.push({ kind: "flat", item: pickNav(nav, "daily-report") });
+  if (has("notice-board")) groups.push({ kind: "flat", item: pickNav(nav, "notice-board") });
+  return groups;
 }
 
 function ThemeToggle() {
@@ -85,10 +124,7 @@ function BrandMark() {
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#f0a267] via-[#e8873a] to-[#d97a35] font-black text-[#1a120b] shadow-[0_8px_24px_-6px_rgba(232,135,58,0.65),inset_0_1px_0_rgba(255,255,255,0.4)]">
         K
       </div>
-      <div className="min-w-0">
-        <p className="truncate text-base font-bold leading-none text-white">Kallmania</p>
-        <p className="mt-0.5 truncate text-[10px] uppercase tracking-wider text-slate-500">SBTS Group Global</p>
-      </div>
+      <p className="truncate text-base font-bold leading-none text-white">Kallmania</p>
     </div>
   );
 }
@@ -104,14 +140,19 @@ export default function Shell({
   onLogout: () => void;
 }) {
   const nav = navForRole(user.role);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const groups = navGroupsForRole(user.role, nav);
   const [escalateOpen, setEscalateOpen] = useState(false);
 
   const handleNavigate = (v: string) => {
     if (v === "__logout__") { onLogout(); return; }
     onNavigate(v);
-    setMobileOpen(false);
   };
+
+  const pillCls = (active: boolean) =>
+    cn(
+      "k-nav-item flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-semibold",
+      active ? "k-nav-active" : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200",
+    );
 
   const IconCluster = (
     <div className="flex items-center gap-2">
@@ -137,25 +178,25 @@ export default function Shell({
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-1.5 pr-3 backdrop-blur transition hover:bg-white/10" title={user.fullName}>
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-[#5b4636] to-[#3a2c21] text-[10px] font-bold text-[#f0b285] ring-1 ring-white/15">
-              {user.fullName.split(" ").map((w) => w[0]).slice(0, 2).join("")}
-            </span>
-            <span className="hidden max-w-[120px] truncate text-xs font-medium text-slate-200 sm:block">{user.fullName}</span>
+          <button
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#5b4636] to-[#3a2c21] text-[11px] font-bold text-[#f0b285] ring-1 ring-white/15 transition hover:opacity-90"
+            title={user.fullName}
+          >
+            {user.fullName.split(" ").map((w) => w[0]).slice(0, 2).join("")}
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="border-white/10 bg-[#17171c]/95 text-slate-200 backdrop-blur-xl">
+        <DropdownMenuContent align="end" className="min-w-56">
           <DropdownMenuLabel>
             <p className="text-xs font-semibold">{user.fullName}</p>
-            <p className="mt-0.5 text-[10px] font-normal text-slate-400">{user.email}</p>
-            <p className="mt-1 text-[10px] font-normal text-[#eda06a]">{ROLE_LABELS[user.role]} · {DEPT_LABELS[user.department]}</p>
+            <p className="mt-0.5 text-[10px] font-normal text-slate-500">{user.email}</p>
+            <p className="mt-1 text-[10px] font-normal text-[#c2641f] dark:text-[#eda06a]">{ROLE_LABELS[user.role]} · {DEPT_LABELS[user.department]}</p>
           </DropdownMenuLabel>
-          <DropdownMenuSeparator className="bg-white/10" />
-          <DropdownMenuItem onSelect={() => handleNavigate("profile")} className="focus:bg-white/10">
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => handleNavigate("profile")}>
             <UserCircle2 className="mr-2 h-4 w-4" /> My profile
           </DropdownMenuItem>
           <ChangePasswordItem />
-          <DropdownMenuItem onClick={onLogout} className="text-rose-300 focus:text-rose-300">
+          <DropdownMenuItem onClick={onLogout} className="text-rose-500 focus:text-rose-500 dark:text-rose-300 dark:focus:text-rose-300">
             <LogOut className="mr-2 h-4 w-4" /> Sign out
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -163,30 +204,80 @@ export default function Shell({
     </div>
   );
 
-  const PillNav = ({ onPick }: { onPick?: (v: string) => void }) => (
-    <nav className="flex flex-1 items-center gap-1 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      {nav.map((item) => {
-        const Icon = item.icon;
-        const active = view === item.key;
-        return (
-          <button
-            key={item.key}
-            onClick={() => (onPick ? onPick(item.key) : handleNavigate(item.key))}
-            className={cn(
-              "k-nav-item flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-semibold",
-              active ? "k-nav-active" : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200",
-            )}
-          >
-            <Icon className={cn("h-4 w-4", active ? "text-[#1a120b]" : "text-slate-500")} />
-            <span className="whitespace-nowrap">{item.label}</span>
-            {item.key === "notifications" && unread > 0 && (
-              <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-bold", active ? "bg-[#1a120b] text-[#f0b285]" : "bg-[#e8833a] text-white")}>
-                {unread > 99 ? "99+" : unread}
-              </span>
-            )}
-          </button>
-        );
-      })}
+  // Horizontal nav bar — attached under the brand row, always visible
+  // (no pop-out menu); groups open inline dropdown panels.
+  const NavBar = (
+    <nav className="k-nav-bar flex min-w-0 items-center gap-1 overflow-x-auto rounded-2xl p-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* Brand icon attached to the dashboard */}
+      <button
+        onClick={() => handleNavigate("dashboard")}
+        className="flex shrink-0 items-center gap-2 rounded-full px-3 py-2 transition hover:bg-white/[0.06]"
+        title="Dashboard Overview"
+      >
+        <LayoutGrid className="h-4 w-4 text-[#c2641f] dark:text-[#eda06a]" />
+        <span className="whitespace-nowrap text-[13px] font-bold text-slate-200">Dashboard Overview</span>
+      </button>
+      {/* Home pill */}
+      <button onClick={() => handleNavigate("dashboard")} className={pillCls(view === "dashboard")}>
+        <Home className={cn("h-4 w-4", view === "dashboard" ? "text-[#1a120b]" : "text-slate-500")} />
+        <span className="whitespace-nowrap">Home</span>
+      </button>
+      {/* Grouped + flat items */}
+      {groups.map((g) =>
+        g.kind === "flat" ? (
+          (() => {
+            const Icon = g.item.icon;
+            const active = view === g.item.key;
+            return (
+              <button key={g.item.key} onClick={() => handleNavigate(g.item.key)} className={pillCls(active)}>
+                <Icon className={cn("h-4 w-4", active ? "text-[#1a120b]" : "text-slate-500")} />
+                <span className="whitespace-nowrap">{g.item.label}</span>
+                {g.item.key === "notifications" && unread > 0 && (
+                  <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-bold", active ? "bg-[#1a120b] text-[#f0b285]" : "bg-[#e8833a] text-white")}>
+                    {unread > 99 ? "99+" : unread}
+                  </span>
+                )}
+              </button>
+            );
+          })()
+        ) : (
+          (() => {
+            const groupActive = g.items.some((i) => i.key === view);
+            return (
+              <DropdownMenu key={g.label}>
+                <DropdownMenuTrigger asChild>
+                  <button className={cn(pillCls(groupActive), groupActive && "text-[#c2641f] dark:text-[#eda06a]")}>
+                    <span className="whitespace-nowrap">{g.label}</span>
+                    <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-56">
+                  <DropdownMenuLabel className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                    {g.label}
+                  </DropdownMenuLabel>
+                  {g.items.map((item) => {
+                    const Icon = item.icon;
+                    const active = view === item.key;
+                    return (
+                      <DropdownMenuItem
+                        key={item.key}
+                        onSelect={() => handleNavigate(item.key)}
+                        className={cn(
+                          "gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium",
+                          active && "bg-[#e8935a]/15 font-semibold text-[#c2641f] dark:text-[#f0b285]",
+                        )}
+                      >
+                        <Icon className={cn("h-4 w-4", active ? "text-[#c2641f] dark:text-[#eda06a]" : "text-slate-500")} />
+                        <span>{item.label}</span>
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            );
+          })()
+        ),
+      )}
     </nav>
   );
 
@@ -198,56 +289,13 @@ export default function Shell({
       {/* ── Clasy top chrome ── */}
       <header className="k-glass-chrome sticky top-0 z-40 border-b border-white/[0.06]">
         <div className="mx-auto flex h-14 w-full max-w-[1600px] items-center justify-between gap-3 px-3 sm:px-5">
-          <div className="flex min-w-0 items-center gap-3">
-            {/* Mobile hamburger */}
-            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-9 w-9 text-slate-300 hover:bg-white/10 lg:hidden" title="Open menu">
-                  <Menu className="h-5 w-5" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="left" className="w-72 border-0 bg-[#131316]/95 p-0 [&>button]:text-slate-300">
-                <div className="flex h-full flex-col">
-                  <div className="px-4 py-5"><BrandMark /></div>
-                  <div className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
-                    {nav.map((item) => {
-                      const Icon = item.icon;
-                      const active = view === item.key;
-                      return (
-                        <button
-                          key={item.key}
-                          onClick={() => handleNavigate(item.key)}
-                          className={cn(
-                            "flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium",
-                            active ? "k-nav-active" : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200",
-                          )}
-                        >
-                          <Icon className="h-[18px] w-[18px]" />
-                          <span className="truncate">{item.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="border-t border-white/[0.07] p-3">
-                    <p className="px-1 text-xs font-semibold text-slate-200">{user.fullName}</p>
-                    <p className="px-1 text-[10px] text-slate-500">{ROLE_LABELS[user.role]}</p>
-                    <Button variant="ghost" size="sm" className="mt-2 w-full justify-start text-rose-300 hover:bg-white/10" onClick={onLogout}>
-                      <LogOut className="mr-2 h-4 w-4" /> Sign out
-                    </Button>
-                  </div>
-                </div>
-              </SheetContent>
-            </Sheet>
-            <button onClick={() => handleNavigate("dashboard")} className="min-w-0" title="Home">
-              <BrandMark />
-            </button>
-          </div>
+          <button onClick={() => handleNavigate("dashboard")} className="min-w-0" title="Home">
+            <BrandMark />
+          </button>
           {IconCluster}
         </div>
-        {/* Horizontal pill nav — desktop */}
-        <div className="mx-auto hidden w-full max-w-[1600px] items-center gap-3 px-5 pb-2.5 lg:flex">
-          <PillNav />
-        </div>
+        {/* Attached horizontal nav bar — every role, every screen size */}
+        <div className="mx-auto w-full max-w-[1600px] px-3 pb-2.5 sm:px-5">{NavBar}</div>
       </header>
 
       <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 sm:px-6">{children}</main>
@@ -267,7 +315,7 @@ function ChangePasswordItem() {
   const [err, setErr] = useState<string | null>(null);
   return (
     <>
-      <DropdownMenuItem onSelect={(e) => { e.preventDefault(); setOpen(true); }} className="focus:bg-white/10">
+      <DropdownMenuItem onSelect={(e) => { e.preventDefault(); setOpen(true); }}>
         <KeyRound className="mr-2 h-4 w-4" /> Change password
       </DropdownMenuItem>
       {open && (

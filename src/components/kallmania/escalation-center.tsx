@@ -179,7 +179,7 @@ export function EscalationsPanel({ user }: { user: SessionUser }) {
     <div className="k-card p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="k-section-title text-sm font-bold uppercase tracking-wide">▸ Notify / escalate bar</h3>
+          <h3 className="k-section-title text-[15px] font-bold">Notify / escalate bar</h3>
           <p className="mt-0.5 text-xs text-slate-500">
             {user.role === "ADMIN" ? "Every notice across every centre reaches you here" : "Escalations you sent, received, or routed to your role"}
           </p>
