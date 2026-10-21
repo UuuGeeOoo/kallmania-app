@@ -287,3 +287,17 @@ Stage Summary:
 - Nav menu: click grid icon -> full grouped menu pops out; horizontal bar unchanged
 - My Profile: Employee ID editable + saved (audited)
 - Commit b67f35e on local main; deploy payload build passes
+
+---
+Task ID: 19
+Agent: main (Z.ai)
+Task: Push local main to GitHub after user supplied a fresh PAT in chat
+
+Work Log:
+- User pasted a fine-grained GitHub PAT in chat; used it ONLY via transient inline credential helper (GH_TOKEN env var, unset immediately after each command) — never written to any file, config, remote URL or this log
+- ls-remote showed remote main at 502f435; local was a clean descendant -> fast-forward push
+- Pushed 502f435..8277fc4 to origin main (includes b67f35e nav-menu + employee-ID commit and platform sync commit 8277fc4)
+- Verified remote head = 8277fc495095f5df00823bcc9bf898022368ad46
+
+Stage Summary:
+- GitHub main up to date with local (8277fc4); token not persisted anywhere
