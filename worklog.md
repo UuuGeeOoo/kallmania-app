@@ -267,3 +267,23 @@ Work Log:
 Stage Summary:
 - The UI now matches the former model's format exactly: attached white nav bar with Dashboard Overview grid icon + Home pill and Reports/Team/Configuration heading groups (dropdown panels, no pop-out hamburger nav anywhere), Notify & Escalate banner with quick "Notify agent" composer on every dashboard, former-model big stat cards with sub-stats and ↗ shortcuts, Report Submissions + Awaiting Review under plain bold headings — with the current light/dark Clasy palette preserved untouched.
 - Key files: src/components/kallmania/{shell,dashboard,shared,escalation-center}.tsx, src/app/globals.css.
+
+---
+Task ID: 18
+Agent: main (Z.ai)
+Task: Nav menu pops out from the Dashboard Overview grid icon + Employee ID self-editable in My Profile (user request: "the icon in the dashboard overview is supposed to bring out the navigation bar when clicked and there is no navigation bar/menu. also for the My profile, also add the Employee id to what can be changed too")
+
+Work Log:
+- Located nav in src/components/kallmania/shell.tsx (attached horizontal bar, groups via navGroupsForRole) and profile in profile-view.tsx + /api/profile PATCH (employeeId was admin-only)
+- shell.tsx: grid icon next to "Dashboard Overview" now toggles a pop-out nav menu (k-card panel, absolute under the bar) listing every role page under headings — Overview / Reports / Team / Configuration / Workspace; chevron affordance, aria-expanded, closes on outside click (fixed z-30 backdrop under header z-40), Escape, and on any navigation; notifications badge carried over
+- Light theme untouched: menu reuses token-driven k-card + existing html:not(.dark) utility remaps (verified visually in both themes)
+- /api/profile PATCH: accepts employeeId (trim, max 40 chars, clearable -> null), audit changes include "employee ID"; before-select extended
+- profile-view.tsx: Employee ID input (placeholder e.g. KLM-00231) in Personal details, PATCH body + dirty check + post-save reset; Account card note updated (employee ID no longer admin-only)
+- Browser-verified via agent-browser: menu open/close (outside click + Escape), item navigation, dark + light screenshots (download/nav-menu-dark.png, nav-menu-light.png, profile-employee-id.png); API-verified employeeId set/clear/persist as admin
+- bun run build clean; full .zscripts/build.sh platform packaging exit=0 (59M payload)
+- Committed b67f35e; GitHub push NOT done this session (PAT not available in env — was always transient); platform deploy build verified locally instead
+
+Stage Summary:
+- Nav menu: click grid icon -> full grouped menu pops out; horizontal bar unchanged
+- My Profile: Employee ID editable + saved (audited)
+- Commit b67f35e on local main; deploy payload build passes
