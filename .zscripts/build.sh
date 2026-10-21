@@ -24,6 +24,14 @@ echo "📁 Next.js 项目路径: $NEXTJS_PROJECT_DIR"
 # 切换到 Next.js 项目目录
 cd "$NEXTJS_PROJECT_DIR" || exit 1
 
+# 自愈：平台工作区同步曾多次抹掉 .env（云端 DATABASE_URL 的唯一来源）。
+# .env 必须随 standalone 产物打包（server.js 运行时自动加载同目录 .env）。
+# 若缺失且存在 .env.local 备份，则自动恢复，避免产物以空 SQLite 回退启动。
+if [ ! -f ".env" ] && [ -f ".env.local" ]; then
+    echo "🛟  .env 缺失（疑似被工作区同步抹除），已从 .env.local 自动恢复"
+    cp .env.local .env
+fi
+
 # 设置环境变量
 export NEXT_TELEMETRY_DISABLED=1
 
