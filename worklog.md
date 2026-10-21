@@ -222,3 +222,28 @@ Stage Summary:
 - Root cause of "deployment failed": platform's db packaging step incompatible with postgres-provider schema (P1012) + sync-wiped db/custom.db. Both permanently fixed in tracked .zscripts.
 - App code unchanged (still exactly published v8 + this deploy-pipeline fix). Payload is smaller than v8's (55MB vs 119MB tar).
 - User action: republish from the platform; deploy should now succeed.
+
+---
+Task ID: 17
+Agent: main (Z.ai)
+Task: Re-implement the full requested feature batch on top of the fixed deploy pipeline
+
+Work Log:
+- Cherry-picked backup/post-v8-features-63a769b (centre-based task assignment + My Profile) — the original "ruined" deploy was actually the platform db-packaging P1012 bug (fixed in Task 16), not the feature code.
+- Schema: Task.centreCountry/centreState/allCentres, User.city, new Escalation model — pushed to Supabase via prisma db push.
+- Extracted shared KPI aggregation into src/lib/kpi-summary.ts (period day/week/month/YEAR + cumulativeKpiRows); /api/kpi/summary now supports yearly + admin country/state drill-down + supervisor centre scoping (user.country/state).
+- New /api/users/[id]/kpi per-staff drill-down (centre-scoped access: admin any, supervisor/TL same centre, self).
+- New /api/escalations: role-routed notify/escalate (agents → TL/supervisor/admin, admins see all; management → any agent), ack/resolve workflow, notifications.
+- /api/dashboard: supervisor centre scoping, admin country/state params, centreAgents panel data, 14-day trend series.
+- /api/tasks: multi-assignee (assigneeIds[]) with centre validation, team-lead assignment rights, centre-scoped GET.
+- /api/kpi-config: supervisors can manage KPI configuration (all departments); audited.
+- /api/users GET: supervisors/TLs centre-scoped staff lists.
+- UI: Clasy shell (top pill nav + icon cluster), Clasy palette (near-black + orange) with full light/dark via next-themes + light utility remaps; dashboard rework (trend area chart, centre agents grid, admin country/state selectors); kpi-trends yearly + selectors; UserKpiDialog in User Management (click a name); EscalationsPanel + composer in shell + notifications; tasks multi-select assignment UI + Inbound/Outbound departments; registration country→state→city cascade; profile city editing.
+- Web Development and Technical Team Report: exact docx replica (staff info, 9 KPI rows, 7 task rows, challenges, escalations, supervisor comments, Confidential footer) wired as the DEVELOPER daily report into the TECH pipeline (metricsSummary mapped for dashboards).
+- Verified with agent-browser: admin login, Clasy dark + light themes, country/state selectors, user KPI dialog (Daily/Weekly/Monthly/Yearly), multi-agent task creation (2 assignees confirmed via API), escalation send + OPEN status in feed, registration location cascade. No runtime console errors.
+- Deploy verification: full .zscripts/build.sh run → 59MB tar.gz; payload smoke test: GET / 200, Supabase login 200, /api/escalations 200 (data present), /api/kpi/summary?period=year 200.
+- Committed d1fa5e0 (foundation) + 502f435 (feature batch); pushed to GitHub main. GH_TOKEN transient only.
+
+Stage Summary:
+- All requested updates re-implemented and verified; deploy pipeline confirmed working with the new schema (59MB payload, all APIs green).
+- User action: publish from the platform — should succeed; then hard-refresh the app to see the Clasy UI (dark default, sun icon toggles light).
