@@ -110,3 +110,24 @@ Stage Summary:
 - Slide-in rail icons now align perfectly both expanded (icon+label) and collapsed (dead-center on the rail), with a smooth animated transition.
 - KPI Configuration gains the Inbound Call Centre department: same catalogue/targets as outbound, but nothing is ever required — all 29 metrics optional, each editable (targets) and deletable, new metrics addable; the policy is enforced server-side, and every change flows straight into the inbound (and outbound) agent daily-report forms.
 - Key files: src/app/globals.css, src/components/kallmania/{shell,admin-views,report-forms}.tsx, src/app/api/{bootstrap,kpi-config}/route.ts, src/lib/client.ts.
+
+---
+Task ID: 12
+Agent: Main agent (Super Z)
+Task: Fix admin User Management delete button (demo accounts could not be deleted).
+
+Work Log:
+- Diagnosis: PATCH /api/users had a "delete" action but it failed in the field for two reasons. (1) Hard delete hit Prisma FK violations — User has 7 child relations (Report owner, Report reviewer, Task assignee, Task creator, Notification, AuditLog, UploadedFile, ReportTemplate updater) but only owned reports were guarded; every demo account had Notification/AuditLog rows → P2003 → 500 → api() throws → act() had no catch → silent failure with zero UI feedback. (2) Users WITH reports were only soft-suspended and the returned message was discarded, so the row stayed in the list.
+- Live DB audit confirmed every non-admin user was FK-blocked (e.g. inbound.agent.e2e: notifs=1 audits=7; lm;lknh: reports=3 files=1).
+- API (src/app/api/users/route.ts): delete case rewritten — db.$transaction purges owned reports, nulls reviewer/template links, deletes notifications + uploaded-file rows, nulls audit-log links (trail preserved, actorName kept), unassigns tasks, reassigns created tasks to the deleting admin, then deletes the user; physical upload files unlinked best-effort; audit entry records counts. GET now includes reportCount (via _count) for the confirm dialog.
+- UI (src/components/kallmania/admin-views.tsx): Delete button opens a confirmation dialog (states the email, report count, and what happens to tasks); act() now catches errors and shows a destructive toast, success shows a confirmation toast; nothing fails silently anymore.
+- src/lib/client.ts: UserDTO.reportCount added.
+- Browser-verified as admin: deleted inbound.agent.e2e, social.lead.e2e, lm;lknh via the dialog — all three removed, toast confirmations, zero console errors; dialog correctly showed "together with 3 submitted reports" for lm;lknh.
+- Post-delete DB integrity: users 8→5, reports 16→12, files 4→3 (disk purged 8→7), 0 orphan reviews/tasks, 22 audit rows preserved with severed links, tasks kept (2).
+- Regression: e2e-glass-flows.sh re-run — identical PASS/FAIL before (git stash) and after (pop) my diff: 3 pre-existing data-accumulation failures (metricsSummary/reach aggregates polluted by repeated same-day runs), zero delta from this change.
+- tsc: no errors in touched files.
+
+Stage Summary:
+- Admin delete now works end-to-end: confirm dialog → transactional purge of the account and all dependent records (reports included, tasks preserved/reassigned, audit trail kept) → toast confirmation; failures would surface as visible toasts.
+- Demo accounts (inbound.agent.e2e, social.lead.e2e, lm;lknh) removed from the live DB; the 5 real team accounts remain.
+- Key files: src/app/api/users/route.ts, src/components/kallmania/admin-views.tsx, src/lib/client.ts.

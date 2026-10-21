@@ -1,9 +1,13 @@
 import { NextRequest } from "next/server";
+import { unlink } from "fs/promises";
+import path from "path";
 import { db } from "@/lib/db";
 import { requireUser, requireAdmin, isSupervisorLike } from "@/lib/auth";
 import { handle, ok, fail } from "@/lib/api-utils";
 import { audit, notify } from "@/lib/notify";
 import { hashPassword } from "@/lib/auth";
+
+const STORAGE_DIR = process.env.UPLOAD_STORAGE_DIR || "/home/z/my-project/uploads-storage";
 
 /** List users — admins see all; supervisors see their department staff. */
 export async function GET(req: NextRequest) {
@@ -21,10 +25,11 @@ export async function GET(req: NextRequest) {
       select: {
         id: true, email: true, fullName: true, role: true, department: true, team: true,
         employeeId: true, phone: true, status: true, createdAt: true, approvedAt: true,
+        _count: { select: { reports: true } },
       },
       orderBy: { createdAt: "desc" },
     });
-    return ok({ users });
+    return ok({ users: users.map(({ _count, ...u }) => ({ ...u, reportCount: _count.reports })) });
   });
 }
 
@@ -100,15 +105,33 @@ export async function PATCH(req: NextRequest) {
       case "delete": {
         if (user.role === "ADMIN") return fail("Cannot delete an administrator account");
         const reportCount = await db.report.count({ where: { userId } });
-        if (reportCount > 0) {
-          // Preserve report history — suspend instead of hard delete
-          await db.user.update({ where: { id: userId }, data: { status: "SUSPENDED" } });
-          await audit({ userId: admin.id, actorName: admin.fullName, action: "SOFT_DELETE_USER", entity: "User", entityId: userId, details: `${user.email} has ${reportCount} reports — suspended to preserve history` });
-          return ok({ success: true, softDeleted: true, message: "User has report history — account suspended to preserve records." });
-        }
-        await db.user.delete({ where: { id: userId } });
-        await audit({ userId: admin.id, actorName: admin.fullName, action: "DELETE_USER", entity: "User", entityId: userId, details: `Deleted ${user.email}` });
-        return ok({ success: true });
+        const userFiles = await db.uploadedFile.findMany({ where: { userId }, select: { storedName: true } });
+        // Permanently remove the account and every record tied to it — atomically.
+        // Foreign-key children are cleared/re-pointed first so the delete can never fail
+        // with a constraint violation (the old silent-failure bug).
+        await db.$transaction([
+          // Reports owned by the user
+          db.report.deleteMany({ where: { userId } }),
+          // Reports the user reviewed/approved — keep the reports, drop the reviewer link
+          db.report.updateMany({ where: { reviewedById: userId }, data: { reviewedById: null } }),
+          // Report templates the user last updated — keep templates, drop the link
+          db.reportTemplate.updateMany({ where: { updatedById: userId }, data: { updatedById: null } }),
+          // Notifications belong solely to the user
+          db.notification.deleteMany({ where: { userId } }),
+          // Uploaded-file records registered by the user
+          db.uploadedFile.deleteMany({ where: { userId } }),
+          // Audit trail stays readable (actorName preserved), link to deleted account severed
+          db.auditLog.updateMany({ where: { userId }, data: { userId: null } }),
+          // Tasks the user was assigned — keep the tasks, just unassign them
+          db.task.updateMany({ where: { assigneeId: userId }, data: { assigneeId: null } }),
+          // Tasks the user created — hand ownership to the deleting admin so nothing is lost
+          db.task.updateMany({ where: { createdById: userId }, data: { createdById: admin.id } }),
+          db.user.delete({ where: { id: userId } }),
+        ]);
+        // Best-effort cleanup of the user's physical upload files (DB rows are already gone)
+        await Promise.all(userFiles.map((f) => unlink(path.join(STORAGE_DIR, f.storedName)).catch(() => {})));
+        await audit({ userId: admin.id, actorName: admin.fullName, action: "DELETE_USER", entity: "User", entityId: userId, details: `Permanently deleted ${user.email} — ${reportCount} report(s) removed, ${userFiles.length} upload(s) purged` });
+        return ok({ success: true, deleted: true, message: `${user.fullName} was permanently deleted.` });
       }
       default:
         return fail("Unknown action");

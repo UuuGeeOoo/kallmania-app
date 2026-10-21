@@ -139,6 +139,7 @@ export interface UserDTO {
   status: string;
   createdAt: string;
   approvedAt?: string | null;
+  reportCount?: number;
 }
 
 export interface ExtractedField {

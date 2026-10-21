@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, fmtDate, fmtDateTime, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, type UserDTO, type NotificationDTO } from "@/lib/client";
 import { PageHeader, EmptyState, StatusBadge, SectionCard, Field, inputCls } from "@/components/kallmania/shared";
+import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2, Loader2, Bell, Settings2, ScrollText, Info } from "lucide-react";
 
@@ -20,8 +21,10 @@ export function AdminUsersView() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("ALL");
   const [resetUser, setResetUser] = useState<UserDTO | null>(null);
+  const [deleteUser, setDeleteUser] = useState<UserDTO | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const load = async () => {
     setLoading(true);
@@ -34,11 +37,15 @@ export function AdminUsersView() {
   };
   useEffect(() => { load(); }, []);
 
-  const act = async (userId: string, action: string, extra?: Record<string, unknown>) => {
+  const act = async (userId: string, action: string, extra?: Record<string, unknown>): Promise<Record<string, unknown> | undefined> => {
     setBusy(userId + action);
     try {
-      await api("/api/users", { method: "PATCH", body: JSON.stringify({ userId, action, ...extra }) });
+      const res = await api<Record<string, unknown>>("/api/users", { method: "PATCH", body: JSON.stringify({ userId, action, ...extra }) });
       await load();
+      return res;
+    } catch (e) {
+      toast({ title: "Action failed", description: e instanceof Error ? e.message : "Unexpected error — please try again", variant: "destructive" });
+      return undefined;
     } finally {
       setBusy(null);
     }
@@ -164,7 +171,7 @@ export function AdminUsersView() {
                       {u.status === "APPROVED" && <Button size="icon" variant="ghost" className="h-7 w-7 text-amber-400" title="Suspend" onClick={() => act(u.id, "suspend")}><PauseCircle className="h-3.5 w-3.5" /></Button>}
                       {u.status === "SUSPENDED" && <Button size="icon" variant="ghost" className="h-7 w-7 text-emerald-400" title="Reactivate" onClick={() => act(u.id, "reactivate")}><PlayCircle className="h-3.5 w-3.5" /></Button>}
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-[#8b7ff5]" title="Reset password" onClick={() => { setResetUser(u); setNewPassword(""); }}><KeyRound className="h-3.5 w-3.5" /></Button>
-                      {u.role !== "ADMIN" && <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-rose-300" title="Delete" onClick={() => act(u.id, "delete")}><Trash2 className="h-3.5 w-3.5" /></Button>}
+                      {u.role !== "ADMIN" && <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-rose-300" title="Delete" onClick={() => setDeleteUser(u)}><Trash2 className="h-3.5 w-3.5" /></Button>}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -173,6 +180,39 @@ export function AdminUsersView() {
           </Table>
         </div>
       )}
+
+      <Dialog open={!!deleteUser} onOpenChange={(v) => !v && setDeleteUser(null)}>
+        <DialogContent className="border-white/10 bg-[#1b2a3b] text-slate-100 sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-white">Delete account — {deleteUser?.fullName}</DialogTitle>
+            <DialogDescription className="text-slate-400">This action is permanent and cannot be undone.</DialogDescription>
+          </DialogHeader>
+          <p className="text-xs leading-relaxed text-slate-400">
+            <span className="font-semibold text-rose-300">{deleteUser?.email}</span> will be permanently removed
+            {(deleteUser?.reportCount ?? 0) > 0 && (
+              <> together with <span className="font-semibold text-amber-300">{deleteUser?.reportCount} submitted report{deleteUser?.reportCount === 1 ? "" : "s"}</span></>
+            )}
+            . Tasks they created are kept and reassigned to you; tasks assigned to them become unassigned.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" className="border-slate-600 text-slate-200" onClick={() => setDeleteUser(null)}>Cancel</Button>
+            <Button
+              disabled={busy === deleteUser?.id + "delete"}
+              className="bg-rose-600 hover:bg-rose-500"
+              onClick={async () => {
+                if (!deleteUser) return;
+                const res = await act(deleteUser.id, "delete");
+                if (res) {
+                  toast({ title: "Account deleted", description: (res.message as string) || `${deleteUser.fullName} was permanently deleted.` });
+                  setDeleteUser(null);
+                }
+              }}
+            >
+              {busy === deleteUser?.id + "delete" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1 h-3.5 w-3.5" />} Delete permanently
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!resetUser} onOpenChange={(v) => !v && setResetUser(null)}>
         <DialogContent className="border-white/10 bg-[#1b2a3b] text-slate-100 sm:max-w-sm">
