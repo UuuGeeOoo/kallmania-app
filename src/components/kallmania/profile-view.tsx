@@ -36,7 +36,7 @@ export default function ProfileView({ user }: { user: SessionUser }) {
   const [saving, setSaving] = useState(false);
   const [savingPw, setSavingPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ fullName: "", phone: "", country: "", state: "", city: "" });
+  const [form, setForm] = useState({ fullName: "", employeeId: "", phone: "", country: "", state: "", city: "" });
   const [pw, setPw] = useState({ currentPassword: "", newPassword: "", confirm: "" });
 
   const statesOfCountry = form.country ? State.getStatesOfCountry(form.country) : [];
@@ -51,7 +51,7 @@ export default function ProfileView({ user }: { user: SessionUser }) {
       try {
         const { profile } = await api<{ profile: ProfileDTO }>("/api/profile");
         setProfile(profile);
-        setForm({ fullName: profile.fullName, phone: profile.phone || "", country: profile.country || "", state: profile.state || "", city: profile.city || "" });
+        setForm({ fullName: profile.fullName, employeeId: profile.employeeId || "", phone: profile.phone || "", country: profile.country || "", state: profile.state || "", city: profile.city || "" });
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -65,10 +65,10 @@ export default function ProfileView({ user }: { user: SessionUser }) {
     try {
       const { profile: updated, message } = await api<{ profile: ProfileDTO; message: string }>("/api/profile", {
         method: "PATCH",
-        body: JSON.stringify({ fullName: form.fullName, phone: form.phone, country: form.country, state: form.state, city: form.city }),
+        body: JSON.stringify({ fullName: form.fullName, employeeId: form.employeeId, phone: form.phone, country: form.country, state: form.state, city: form.city }),
       });
       setProfile(updated);
-      setForm({ fullName: updated.fullName, phone: updated.phone || "", country: updated.country || "", state: updated.state || "", city: updated.city || "" });
+      setForm({ fullName: updated.fullName, employeeId: updated.employeeId || "", phone: updated.phone || "", country: updated.country || "", state: updated.state || "", city: updated.city || "" });
       toast({ title: "Profile saved", description: message });
     } catch (e) {
       const msg = (e as Error).message;
@@ -102,7 +102,7 @@ export default function ProfileView({ user }: { user: SessionUser }) {
 
   const dirty =
     profile &&
-    (form.fullName !== profile.fullName || form.phone !== (profile.phone || "") || form.country !== (profile.country || "") || form.state !== (profile.state || "") || form.city !== (profile.city || ""));
+    (form.fullName !== profile.fullName || form.employeeId !== (profile.employeeId || "") || form.phone !== (profile.phone || "") || form.country !== (profile.country || "") || form.state !== (profile.state || "") || form.city !== (profile.city || ""));
 
   if (loading) {
     return <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
@@ -139,15 +139,18 @@ export default function ProfileView({ user }: { user: SessionUser }) {
           </dl>
           <p className="mt-4 flex items-start gap-1.5 rounded-md border border-white/5 bg-white/[0.03] p-2.5 text-[11px] leading-relaxed text-slate-400">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
-            To correct your role, department, team, employee ID or email, contact an administrator — these fields drive reports and permissions.
+            To correct your role, department, team or email, contact an administrator — these fields drive reports and permissions.
           </p>
         </SectionCard>
 
         {/* Editable details */}
-        <SectionCard title="Personal details" subtitle="Keep your name and contact information up to date" className="lg:col-span-2">
+        <SectionCard title="Personal details" subtitle="Keep your name, employee ID and contact information up to date" className="lg:col-span-2">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Full name" required>
               <Input className={inputCls} value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
+            </Field>
+            <Field label="Employee ID" hint="Your staff identifier, shown on reports">
+              <Input className={inputCls} value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })} placeholder="e.g. KLM-00231" />
             </Field>
             <Field label="Phone number">
               <Input className={inputCls} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="e.g. +234 801 234 5678" />

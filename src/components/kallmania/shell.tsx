@@ -142,11 +142,21 @@ export default function Shell({
   const nav = navForRole(user.role);
   const groups = navGroupsForRole(user.role, nav);
   const [escalateOpen, setEscalateOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const handleNavigate = (v: string) => {
+    setMenuOpen(false);
     if (v === "__logout__") { onLogout(); return; }
     onNavigate(v);
   };
+
+  // Escape closes the pop-out navigation menu
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
 
   const pillCls = (active: boolean) =>
     cn(
@@ -204,18 +214,85 @@ export default function Shell({
     </div>
   );
 
-  // Horizontal nav bar — attached under the brand row, always visible
-  // (no pop-out menu); groups open inline dropdown panels.
+  // Pop-out navigation menu — opens from the grid icon next to "Dashboard
+  // Overview". Every page of the user's role, arranged under headings
+  // (Overview / Reports / Team / Configuration / Workspace) to match the
+  // former-model format. The attached horizontal bar above stays as-is.
+  const groupedKeys = new Set(groups.filter((g) => g.kind === "group").flatMap((g) => g.items.map((i) => i.key)));
+  const overviewKeys = ["dashboard", "notifications", "profile"];
+  const overviewItems = nav.filter((n) => overviewKeys.includes(n.key));
+  const workspaceItems = nav.filter((n) => !groupedKeys.has(n.key) && !overviewKeys.includes(n.key));
+  const menuSections: { label: string; items: NavItem[] }[] = [
+    ...(overviewItems.length ? [{ label: "Overview", items: overviewItems }] : []),
+    ...groups.filter((g) => g.kind === "group").map((g) => ({ label: g.label, items: g.items })),
+    ...(workspaceItems.length ? [{ label: "Workspace", items: workspaceItems }] : []),
+  ];
+
+  const NavMenuPanel = menuOpen ? (
+    <>
+      {/* Invisible click-catcher below the header (sits under it, z-30 < z-40) */}
+      <div className="fixed inset-0 z-30" aria-hidden onClick={() => setMenuOpen(false)} />
+      <div
+        role="menu"
+        aria-label="Navigation menu"
+        className="k-card absolute inset-x-3 top-full z-40 mt-1.5 max-h-[calc(100vh-9rem)] overflow-y-auto p-4 sm:inset-x-5 sm:p-5"
+      >
+        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
+          {menuSections.map((s) => (
+            <div key={s.label} className="min-w-0">
+              <p className="mb-1.5 px-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">{s.label}</p>
+              <div className="space-y-0.5">
+                {s.items.map((item) => {
+                  const Icon = item.icon;
+                  const active = view === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      role="menuitem"
+                      onClick={() => handleNavigate(item.key)}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-medium transition",
+                        active
+                          ? "bg-[#e8935a]/15 font-semibold text-[#c2641f] dark:text-[#f0b285]"
+                          : "text-slate-300 hover:bg-white/[0.06] hover:text-slate-100",
+                      )}
+                    >
+                      <Icon className={cn("h-4 w-4 shrink-0", active ? "text-[#c2641f] dark:text-[#eda06a]" : "text-slate-500")} />
+                      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                      {item.key === "notifications" && unread > 0 && (
+                        <span className="rounded-full bg-[#e8833a] px-1.5 py-0.5 text-[9px] font-bold text-white">
+                          {unread > 99 ? "99+" : unread}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  ) : null;
+
+  // Horizontal nav bar — attached under the brand row, always visible;
+  // the grid icon pops the full navigation menu out below it.
   const NavBar = (
     <nav className="k-nav-bar flex min-w-0 items-center gap-1 overflow-x-auto rounded-2xl p-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      {/* Brand icon attached to the dashboard */}
+      {/* Menu icon attached to the dashboard — click brings out the nav menu */}
       <button
-        onClick={() => handleNavigate("dashboard")}
-        className="flex shrink-0 items-center gap-2 rounded-full px-3 py-2 transition hover:bg-white/[0.06]"
-        title="Dashboard Overview"
+        onClick={() => setMenuOpen((o) => !o)}
+        aria-expanded={menuOpen}
+        aria-haspopup="menu"
+        className={cn(
+          "flex shrink-0 items-center gap-2 rounded-full px-3 py-2 transition hover:bg-white/[0.06]",
+          menuOpen && "bg-white/[0.06]",
+        )}
+        title={menuOpen ? "Close navigation menu" : "Open navigation menu"}
       >
         <LayoutGrid className="h-4 w-4 text-[#c2641f] dark:text-[#eda06a]" />
         <span className="whitespace-nowrap text-[13px] font-bold text-slate-200">Dashboard Overview</span>
+        <ChevronDown className={cn("h-3.5 w-3.5 text-slate-500 transition-transform duration-200", menuOpen && "rotate-180")} />
       </button>
       {/* Home pill */}
       <button onClick={() => handleNavigate("dashboard")} className={pillCls(view === "dashboard")}>
@@ -295,7 +372,10 @@ export default function Shell({
           {IconCluster}
         </div>
         {/* Attached horizontal nav bar — every role, every screen size */}
-        <div className="mx-auto w-full max-w-[1600px] px-3 pb-2.5 sm:px-5">{NavBar}</div>
+        <div className="relative mx-auto w-full max-w-[1600px] px-3 pb-2.5 sm:px-5">
+          {NavBar}
+          {NavMenuPanel}
+        </div>
       </header>
 
       <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 sm:px-6">{children}</main>
