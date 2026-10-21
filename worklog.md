@@ -184,3 +184,22 @@ Work Log:
 Stage Summary:
 - Deploy blocker removed: the repo is self-consistent again (package.json and bun.lock in sync at HEAD and on GitHub), so frozen-lockfile installs and production builds succeed.
 - Key files: bun.lock (commit only). Lesson: every dependency change must include the regenerated lockfile in the same commit.
+
+---
+Task ID: 15
+Agent: main (Z.ai)
+Task: Roll back everything after the published v8 baseline per user request ("undo every update you have made from my last prompt")
+
+Work Log:
+- Diagnosed state: HEAD was 63a769b (centre-based task assignment + My Profile feature) on top of 5bfee30 (platform sync). Published v8 baseline = a8dd5b9.
+- Created safety branch backup/post-v8-features-63a769b at 63a769b (salvageable if user ever wants pieces).
+- git reset --hard a8dd5b9; restored user-uploaded upload/pasted_image_1792581415967.png (tracked in 5bfee30, dropped by reset).
+- Restored .env from .env.local (790 bytes, Supabase KALLMANIA_DATABASE_URL) — .env had been wiped again by the 12:27 platform workspace sync.
+- Regenerated Prisma client against the v8 postgres schema.
+- Restarted dev daemon; verification: GET / -> 200, POST /api/auth login (admin) -> {"success":true} HTTP 200.
+- Force-pushed GitHub main back to a8dd5b9 (was 63a769b): "+ 63a769b...a8dd5b9 a8dd5b9 -> main (forced update)"; verified ls-remote shows a8dd5b9. GH_TOKEN used transiently, never persisted.
+
+Stage Summary:
+- Workspace, dev server and GitHub main all exactly match the published v8 (a8dd5b9). Feature files (api/profile, profile-view.tsx, centre fields) confirmed absent.
+- Centre-based task assignment + My Profile work is preserved ONLY on branch backup/post-v8-features-63a769b — do not merge without user approval.
+- Lesson: the platform workspace re-sync wipes .env and reverts the generated Prisma client; always re-check .env and prisma generate after any sync.
