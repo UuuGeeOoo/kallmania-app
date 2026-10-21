@@ -2,12 +2,12 @@
 // TEMPLATE CONFIG — Field mapping derived from the attached master templates:
 //   1) "Daily Report Call Centre.docx"  (BPO Call Center Agents — Outbound Calls)
 //   2) "Daily_Report_Supervisor.docx"   (BPO Supervisor)
-// SBTS Group Global — ICBM BPO Division
+// SBTS Group Global
 // The original headings, field order, targets and terminology are preserved.
 // Extensions (e.g. detailed email metrics) are appended under EMAIL_EXTENSION.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const COMPANY_HEADER = "SBTS Group Global — ICBM BPO Division";
+export const COMPANY_HEADER = "SBTS Group Global";
 export const AGENT_TEMPLATE_TITLE = "DAILY REPORT — BPO CALL CENTER AGENTS (OUTBOUND CALLS)";
 export const SUPERVISOR_TEMPLATE_TITLE = "DAILY REPORT — BPO SUPERVISOR";
 

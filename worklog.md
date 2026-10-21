@@ -131,3 +131,18 @@ Stage Summary:
 - Admin delete now works end-to-end: confirm dialog → transactional purge of the account and all dependent records (reports included, tasks preserved/reassigned, audit trail kept) → toast confirmation; failures would surface as visible toasts.
 - Demo accounts (inbound.agent.e2e, social.lead.e2e, lm;lknh) removed from the live DB; the 5 real team accounts remain.
 - Key files: src/app/api/users/route.ts, src/components/kallmania/admin-views.tsx, src/lib/client.ts.
+
+---
+Task ID: 12b
+Agent: Main agent (Super Z)
+Task: Verify current UI untouched by Task 12 + remove leftover "ICBM BPO Division" branding (user spotted it in the post-delete screenshot).
+
+Work Log:
+- Verified the screenshot was live current UI (post-delete toast + 5 remaining users). Root visual culprit: footer still read "Kallmania · SBTS Group Global — ICBM BPO Division".
+- git audit: auto-commit 7a9f2d6 contains exactly the 3 Task 12 files (users route, admin-views, client.ts) + db/screenshot — zero design/theme/shell changes; stash A/B cycle restored byte-identical.
+- ICBM purge (9 occurrences): layout.tsx metadata, shell.tsx footer → "Kallmania · SBTS Group Global", dept-report-forms.tsx header, auth-view.tsx brand caption + register division card ("BPO Division"), report-forms.tsx placeholder, word-export.ts docx footer, template-config.ts COMPANY_HEADER + comment.
+- grep src/ = zero ICBM references remain; tsc clean for touched files; browser-verified dashboard renders in current dark design, zero errors (download/current-ui-footer-verified.png).
+
+Stage Summary:
+- Branding now reads only "Kallmania — SBTS Group Global" everywhere (UI, auth, report headers, Word export footer, metadata).
+- Confirmed Task 12 caused no harm to the current UI update.

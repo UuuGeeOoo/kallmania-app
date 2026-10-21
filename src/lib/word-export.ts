@@ -488,7 +488,7 @@ export async function buildSocialDocx(report: {
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 240 },
-      children: [new TextRun({ text: "SBTS Group Global — ICBM BPO Division", fontSize: 20, color: "6B7280" })],
+      children: [new TextRun({ text: "SBTS Group Global", fontSize: 20, color: "6B7280" })],
     }),
 
     // ▸ STAFF INFORMATION

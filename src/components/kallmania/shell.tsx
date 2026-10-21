@@ -242,7 +242,7 @@ export default function Shell({
         </header>
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">{children}</main>
         <footer className="mt-auto border-t border-white/[0.06] px-6 py-3 text-center text-[11px] text-slate-600">
-          Kallmania · SBTS Group Global — ICBM BPO Division
+          Kallmania · SBTS Group Global
         </footer>
       </div>
     </div>

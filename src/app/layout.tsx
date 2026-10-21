@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Kallmania — SBTS Group Task Management & Reporting",
   description:
-    "Multi-team task management, KPI tracking & intelligent report consolidation for SBTS Group Global — ICBM BPO Division.",
+    "Multi-team task management, KPI tracking & intelligent report consolidation for SBTS Group Global.",
   keywords: ["Kallmania", "SBTS Group", "BPO", "task management", "KPI", "reporting"],
   authors: [{ name: "SBTS Group" }],
   openGraph: {

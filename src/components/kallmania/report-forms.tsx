@@ -191,7 +191,7 @@ export function AttendanceBlock({
         <Input readOnly disabled className={inputCls} value={user.fullName} />
       </Field>
       <Field label={isSupervisor ? "Team Name" : "Agent ID"}>
-        <Input className={inputCls} value={isSupervisor ? values.teamName || "" : user.employeeId || ""} onChange={(e) => isSupervisor && onChange({ teamName: e.target.value } as never)} placeholder={isSupervisor ? "e.g. ICBM Outbound Team A" : "Auto from profile"} />
+        <Input className={inputCls} value={isSupervisor ? values.teamName || "" : user.employeeId || ""} onChange={(e) => isSupervisor && onChange({ teamName: e.target.value } as never)} placeholder={isSupervisor ? "e.g. Outbound Team A" : "Auto from profile"} />
       </Field>
     </div>
   );

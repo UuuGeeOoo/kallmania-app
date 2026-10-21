@@ -43,7 +43,7 @@ function BrandArt() {
       {/* brand caption */}
       <div className="absolute bottom-8 left-8 right-8">
         <p className="text-2xl font-bold text-white">Kallmania</p>
-        <p className="mt-1 text-sm text-slate-400">SBTS Group Global — ICBM BPO Division</p>
+        <p className="mt-1 text-sm text-slate-400">SBTS Group Global</p>
         <p className="mt-3 text-xs leading-relaxed text-slate-500">
           Multi-team task management, KPI tracking & intelligent report consolidation.
         </p>
@@ -125,7 +125,7 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
                   <div className="flex items-center gap-3 rounded-xl border border-[#8b7ff5]/40 bg-[#6c5ce7]/10 px-3 py-2.5">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#6c5ce7] text-white shadow-[0_4px_14px_-2px_rgba(108,92,231,0.7)]"><Building2 className="h-4 w-4" /></span>
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-white">BPO — ICBM Division</p>
+                      <p className="text-sm font-semibold text-white">BPO Division</p>
                       <p className="text-[11px] text-slate-400">All teams and roles fall in under the BPO division</p>
                     </div>
                     <BadgeCheck className="ml-auto h-4 w-4 shrink-0 text-[#dce775]" />

@@ -367,7 +367,7 @@ export function SocialReportForm({ user, date }: { user: SessionUser; date: stri
       <div className="k-card px-6 py-5 text-center">
         <p className="text-base font-bold text-white">SBTS Group Global — Social Media Team Daily Report</p>
         <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-[#b3a5ff]">Daily Report — Social Media Management &amp; Content Creation Team</p>
-        <p className="mt-1 text-[11px] text-slate-500">SBTS Group Global — ICBM BPO Division</p>
+        <p className="mt-1 text-[11px] text-slate-500">SBTS Group Global</p>
       </div>
 
       {state.ref && state.status !== "DRAFT" && (
