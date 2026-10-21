@@ -169,3 +169,18 @@ Stage Summary:
 - All three lost orange-UI features rebuilt: Location column (with full 250-country registration), "Team under Kallmania" labeling, and a complete Notice Board.
 - Code is safely on GitHub (secrets scrubbed), the lost-work failure mode is closed.
 - Key files: prisma/schema.prisma, src/lib/{db,client}.ts, src/app/api/{users,auth,notices}/route.ts, src/components/kallmania/{admin-views,auth-view,shell,notice-board}.tsx, src/app/page.tsx, .env (KALLMANIA_DATABASE_URL), .gitignore.
+
+---
+Task ID: 14
+Agent: Main agent (Super Z)
+Task: Diagnose and fix the deployment failure ("why is there a problem deploying the code").
+
+Work Log:
+- Diagnosis: commit 6b45b7a (Task 13) added country-state-city to package.json but the regenerated bun.lock was never committed (git status: only " M bun.lock"). The committed repo therefore had package.json requiring a dependency the lockfile did not know -> any deployment running bun install --frozen-lockfile fails at the install step before the build starts. Confirmed: git show HEAD:bun.lock had 0 occurrences of country-state-city vs 2 on disk.
+- Not a blocker: the tsc messages (examples/, skills/, fontSize IRunOptions, etc.) are pre-existing and irrelevant to deploy because next.config.ts sets typescript.ignoreBuildErrors=true; a local production build had already completed (BUILD_ID 11:06).
+- Fix: committed the updated bun.lock (c9adfe4 "fix(deploy): commit bun.lock with country-state-city dependency") and pushed to GitHub main (6b45b7a..c9adfe4) using the user's PAT via a transient inline credential helper (token never written to disk, remote URL, or logs).
+- Verification: bun install --frozen-lockfile --dry-run -> clean (13ms); npm run build (next build + standalone copy) -> completed, all routes (static + 20 API routes) compiled; app health check GET / and /api/auth -> 200; git tree clean.
+
+Stage Summary:
+- Deploy blocker removed: the repo is self-consistent again (package.json and bun.lock in sync at HEAD and on GitHub), so frozen-lockfile installs and production builds succeed.
+- Key files: bun.lock (commit only). Lesson: every dependency change must include the regenerated lockfile in the same commit.
