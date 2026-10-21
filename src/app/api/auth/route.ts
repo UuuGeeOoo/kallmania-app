@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
     // ── REGISTRATION ──────────────────────────────────────────
     if (action === "register") {
-      const { email, password, fullName, role, department, team, position, employeeId, phone, country, state } = body;
+      const { email, password, fullName, role, department, team, position, employeeId, phone, country, state, city } = body;
       if (!email || !password || !fullName) return fail("Email, password and full name are required");
       if (String(password).length < 6) return fail("Password must be at least 6 characters");
 
@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
           phone: phone ? String(phone).trim() : null,
           country: country ? String(country) : null,
           state: state ? String(state).trim().slice(0, 80) : null,
+          city: city ? String(city).trim().slice(0, 80) : null,
           status: "PENDING",
         },
       });

@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { api, fmtDate, fmtDateTime, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, type UserDTO, type NotificationDTO } from "@/lib/client";
+import { api, fmtDate, fmtDateTime, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, type UserDTO, type NotificationDTO, type SessionUser } from "@/lib/client";
 import { PageHeader, EmptyState, StatusBadge, SectionCard, Field, inputCls } from "@/components/kallmania/shared";
+import { UserKpiDialog } from "@/components/kallmania/user-kpi-dialog";
+import { EscalationsPanel } from "@/components/kallmania/escalation-center";
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Country } from "country-state-city";
@@ -31,6 +33,7 @@ export function AdminUsersView() {
   const [filter, setFilter] = useState("ALL");
   const [resetUser, setResetUser] = useState<UserDTO | null>(null);
   const [deleteUser, setDeleteUser] = useState<UserDTO | null>(null);
+  const [kpiUser, setKpiUser] = useState<UserDTO | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const { toast } = useToast();
@@ -155,7 +158,15 @@ export function AdminUsersView() {
             <TableBody>
               {visible.map((u) => (
                 <TableRow key={u.id} className="border-white/5">
-                  <TableCell className="py-2.5 text-xs font-semibold text-slate-200">{u.fullName}</TableCell>
+                  <TableCell className="py-2.5">
+                    <button
+                      onClick={() => setKpiUser(u)}
+                      title="View KPI performance"
+                      className="text-xs font-semibold text-slate-200 underline-offset-2 transition hover:text-[#eda06a] hover:underline"
+                    >
+                      {u.fullName}
+                    </button>
+                  </TableCell>
                   <TableCell className="py-2.5 text-xs text-slate-400">{u.email}</TableCell>
                   <TableCell className="py-2.5 text-[11px] text-slate-400">
                     {u.country || u.state ? (
@@ -200,6 +211,8 @@ export function AdminUsersView() {
           </Table>
         </div>
       )}
+
+      <UserKpiDialog user={kpiUser || { id: "", fullName: "", role: "" }} open={!!kpiUser} setOpen={(v) => !v && setKpiUser(null)} />
 
       <Dialog open={!!deleteUser} onOpenChange={(v) => !v && setDeleteUser(null)}>
         <DialogContent className="border-white/10 bg-[#1b2a3b] text-slate-100 sm:max-w-sm">
@@ -449,7 +462,7 @@ export function AuditView() {
 
 // ───────────────────────── NOTIFICATIONS ─────────────────────────
 
-export function NotificationsView({ user, onNavigate }: { user: { id: string }; onNavigate: (view: string, data?: string) => void }) {
+export function NotificationsView({ user, onNavigate }: { user: { id: string; role: string; fullName: string; email: string; department: string; team?: string | null; employeeId?: string | null; status: string }; onNavigate: (view: string, data?: string) => void }) {
   const [items, setItems] = useState<NotificationDTO[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -488,6 +501,9 @@ export function NotificationsView({ user, onNavigate }: { user: { id: string }; 
           <Button variant="outline" size="sm" className="border-slate-600 text-slate-300 hover:bg-white/10" onClick={markAll}>Mark all read</Button>
         }
       />
+      <div className="mb-5">
+        <EscalationsPanel user={user as SessionUser} />
+      </div>
       {loading ? (
         <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
       ) : items.length === 0 ? (

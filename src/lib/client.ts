@@ -186,7 +186,7 @@ export const ROLE_LABELS: Record<string, string> = {
   ADMIN: "Administrator",
   SUPERVISOR: "Supervisor",
   TEAM_LEAD: "Team Lead",
-  AGENT_BPO: "BPO Call Centre Agent",
+  AGENT_BPO: "Call Centre Agent",
   DEVELOPER: "Web Development & Technical",
   SOCIAL_MEDIA: "Social Media & Campaign",
 };
@@ -208,12 +208,42 @@ export const TEAM_LABELS: Record<string, string> = {
 };
 
 export const DEPT_LABELS: Record<string, string> = {
-  BPO: "BPO Division",
+  BPO: "Outbound Call Centre",
   INBOUND: "Inbound Call Centre",
+  OUTBOUND: "Outbound Call Centre",
   WEB_DEV: "Web Development & Technical",
   SOCIAL_MEDIA: "Social Media & Campaign",
   MANAGEMENT: "Management & Supervision",
 };
+
+/** Task & assignment departments — the call centre is split into Inbound / Outbound */
+export const TASK_DEPTS: { value: string; label: string }[] = [
+  { value: "INBOUND", label: "Inbound Call Centre" },
+  { value: "OUTBOUND", label: "Outbound Call Centre" },
+  { value: "WEB_DEV", label: "Web Development & Technical" },
+  { value: "SOCIAL_MEDIA", label: "Social Media & Campaign" },
+];
+
+export interface EscalationDTO {
+  id: string;
+  fromId: string;
+  fromName: string;
+  fromRole: string;
+  targetType: string;
+  targetRole?: string | null;
+  targetUserId?: string | null;
+  targetName?: string | null;
+  subject: string;
+  message: string;
+  severity: string;
+  status: string;
+  ackByName?: string | null;
+  ackNote?: string | null;
+  resolvedAt?: string | null;
+  createdAt: string;
+  from?: { id: string; fullName: string; role: string; country?: string | null; state?: string | null };
+  targetUser?: { id: string; fullName: string; role: string } | null;
+}
 
 export const REPORT_TYPE_LABELS: Record<string, string> = {
   AGENT_BPO: "BPO Agent Daily Report",

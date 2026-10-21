@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { requireUser, requireAdmin, isSupervisorLike } from "@/lib/auth";
+import { requireUser, requireAdmin, AuthError } from "@/lib/auth";
 import { handle, ok, fail } from "@/lib/api-utils";
+import { audit } from "@/lib/notify";
 import { AGENT_KPI_DEFS, TECH_SUMMARY_METRICS, SOCIAL_SUMMARY_METRICS } from "@/lib/template-config";
 
 export async function GET() {
@@ -19,7 +20,12 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   return handle(async () => {
-    await requireAdmin();
+    const me = await requireUser();
+    // KPI configuration is manageable by administrators AND supervisors —
+    // supervisors manage the KPI targets for every department of their centre.
+    if (me.role !== "ADMIN" && me.role !== "SUPERVISOR") {
+      throw new AuthError("KPI configuration access required", 403);
+    }
     const body = await req.json();
     const { department, key, label, category, unit, defaultTarget, mandatory, active, direction } = body;
     if (!department || !key || !label) return fail("department, key and label are required");
@@ -45,17 +51,22 @@ export async function POST(req: NextRequest) {
         direction: direction || "HIGHER_BETTER",
       },
     });
+    await audit({ userId: me.id, actorName: me.fullName, action: "UPSERT_KPI_CONFIG", entity: "KpiConfig", entityId: config.id, details: `${department}/${key} target=${config.defaultTarget ?? "none"}` });
     return ok({ config }, 201);
   });
 }
 
 export async function DELETE(req: NextRequest) {
   return handle(async () => {
-    await requireAdmin();
+    const me = await requireUser();
+    if (me.role !== "ADMIN" && me.role !== "SUPERVISOR") {
+      throw new AuthError("KPI configuration access required", 403);
+    }
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return fail("id is required");
     await db.kpiConfig.delete({ where: { id } });
+    await audit({ userId: me.id, actorName: me.fullName, action: "DELETE_KPI_CONFIG", entity: "KpiConfig", entityId: id });
     return ok({ success: true });
   });
 }

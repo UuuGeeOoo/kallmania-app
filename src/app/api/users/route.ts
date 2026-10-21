@@ -9,17 +9,24 @@ import { hashPassword } from "@/lib/auth";
 
 const STORAGE_DIR = process.env.UPLOAD_STORAGE_DIR || "/home/z/my-project/uploads-storage";
 
-/** List users — admins see all; supervisors see their department staff. */
+/** List users — admins see all; supervisors see the staff of their centre (state). */
 export async function GET(req: NextRequest) {
   return handle(async () => {
     const me = await requireUser();
-    if (!isSupervisorLike(me)) return fail("Supervisor access required", 403);
+    const isManager = isSupervisorLike(me) || me.role === "TEAM_LEAD";
+    if (!isManager) return fail("Supervisor access required", 403);
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
-    // Supervisors/Admins oversee all departments; dept filter only for non-management supervisors
-    if (me.role === "SUPERVISOR" && me.department !== "MANAGEMENT") where.department = me.department;
+    if (me.role === "SUPERVISOR") {
+      // State supervisors only see the staff registered in their centre.
+      if (me.country && me.state) where.AND = [{ country: me.country }, { state: me.state }];
+    } else if (me.role === "TEAM_LEAD") {
+      // Team leads see the agents of their centre.
+      if (me.country && me.state) where.AND = [{ country: me.country }, { state: me.state }];
+      where.role = { in: ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA"] };
+    }
     const users = await db.user.findMany({
       where,
       select: {

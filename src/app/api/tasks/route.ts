@@ -25,6 +25,19 @@ function visibilityFor(me: { id: string; country: string | null; state: string |
   return or;
 }
 
+/** Manager centre scope: supervisors & team leads only manage their own centre. */
+function centreScopeFor(me: { id: string; role: string; country: string | null; state: string | null }): Record<string, unknown>[] | null {
+  if (me.role === "ADMIN") return null; // administrators see every centre
+  if (!me.country || !me.state) return null;
+  return [
+    { createdById: me.id },
+    { allCentres: true },
+    { centreCountry: me.country, centreState: me.state },
+    { assignee: { country: me.country, state: me.state } },
+    { assignees: { some: { user: { country: me.country, state: me.state } } } },
+  ];
+}
+
 /** GET /api/tasks?mine=1&date=YYYY-MM-DD&department=BPO&status=BLOCKED */
 export async function GET(req: NextRequest) {
   return handle(async () => {
@@ -34,16 +47,24 @@ export async function GET(req: NextRequest) {
     const department = searchParams.get("department");
     const status = searchParams.get("status");
     const assigneeId = searchParams.get("assigneeId");
+    const isManager = isSupervisorLike(me) || me.role === "TEAM_LEAD";
 
     const where: Record<string, unknown> = {};
-    if (mine || !isSupervisorLike(me)) {
+    if (mine || !isManager) {
       // Regular users see: tasks assigned to them, tasks assigned to their
       // centre, TaskAssignee rows naming them, and org-wide (all-centre) tasks.
       where.OR = visibilityFor(me);
-    } else if (assigneeId) {
-      where.OR = [{ assigneeId }, { assignees: { some: { userId: assigneeId } } }];
+    } else {
+      // Supervisors/team leads: only their centre; admins: every centre.
+      const centreScope = centreScopeFor(me);
+      if (assigneeId) {
+        const person = [{ assigneeId }, { assignees: { some: { userId: assigneeId } } }];
+        where.AND = centreScope ? [{ OR: centreScope }, { OR: person }] : [{ OR: person }];
+      } else if (centreScope) {
+        where.OR = centreScope;
+      }
     }
-    if (department && isSupervisorLike(me)) where.department = department;
+    if (department && isManager) where.department = department;
     if (status) where.status = status;
 
     const tasks = await db.task.findMany({
@@ -56,30 +77,47 @@ export async function GET(req: NextRequest) {
   });
 }
 
-/** POST — supervisors/admins create tasks (individual, whole-centre or all-centre); employees can create personal notes-to-self */
+/** POST — admins/supervisors/team-leads create tasks (single, multiple agents, whole-centre or all-centre); employees can create personal notes-to-self */
 export async function POST(req: NextRequest) {
   return handle(async () => {
     const me = await requireUser();
     const body = await req.json();
-    const { title, description, assigneeId, department, category, projectRef, priority, requiredOutcome, target, kpiKey, deadline, estimatedHours, centreCountry, centreState, allCentres } = body;
+    const { title, description, assigneeId, assigneeIds, department, category, projectRef, priority, requiredOutcome, target, kpiKey, deadline, estimatedHours, centreCountry, centreState, allCentres } = body;
     if (!title) return fail("Task title is required");
 
-    const wantsCentreScope = Boolean(allCentres) || Boolean(centreCountry || centreState);
+    const isManager = isSupervisorLike(me) || me.role === "TEAM_LEAD";
+    const wantsCentreScope = Boolean(allCentres) || Boolean(centreCountry && centreState);
     if (wantsCentreScope && !isSupervisorLike(me)) {
       return fail("Only supervisors and administrators can assign tasks to centres", 403);
     }
     if (centreState && !centreCountry) return fail("Select the country of the centre");
     if (centreCountry && !/^[A-Z]{2}$/.test(String(centreCountry))) return fail("Invalid country code");
 
-    // Resolve assignment mode: ALL_CENTRES > INDIVIDUAL > WHOLE_CENTRE
-    const mode = allCentres ? "ALL_CENTRES" : assigneeId ? "INDIVIDUAL" : centreCountry && centreState ? "WHOLE_CENTRE" : "UNASSIGNED";
+    // Unified multi-assignee list (single assigneeId kept for backwards compat)
+    const ids: string[] = [...new Set([...(Array.isArray(assigneeIds) ? assigneeIds.filter(Boolean).map(String) : []), ...(assigneeId ? [String(assigneeId)] : [])])];
+
+    // Resolve assignment mode: ALL_CENTRES > INDIVIDUAL(multi) > WHOLE_CENTRE
+    const mode = allCentres ? "ALL_CENTRES" : ids.length > 0 ? "INDIVIDUAL" : centreCountry && centreState ? "WHOLE_CENTRE" : "UNASSIGNED";
 
     let assignee: { id: string; fullName: string; department: string } | null = null;
+    const assignees: { id: string; fullName: string; department: string }[] = [];
     if (mode === "INDIVIDUAL") {
-      const found = await db.user.findUnique({ where: { id: assigneeId }, select: { id: true, fullName: true, department: true } });
-      if (!found) return fail("Assignee not found", 404);
-      if (!isSupervisorLike(me) && assigneeId !== me.id) return fail("Employees can only create tasks for themselves", 403);
-      assignee = found;
+      for (const uid of ids) {
+        const found = await db.user.findUnique({ where: { id: uid }, select: { id: true, fullName: true, department: true, country: true, state: true } });
+        if (!found) return fail("Assignee not found", 404);
+        if (!isManager) {
+          if (uid !== me.id) return fail("Employees can only create tasks for themselves", 403);
+        } else if (uid !== me.id) {
+          // Team leads & supervisors may only assign within their own centre;
+          // administrators may assign to anyone in any centre.
+          if (me.role !== "ADMIN") {
+            const sameCentre = me.country && me.state && found.country === me.country && found.state === me.state;
+            if (!sameCentre) return fail(`${found.fullName} is not in your centre (${me.state})`, 403);
+          }
+        }
+        assignees.push(found);
+      }
+      assignee = assignees[0] || null;
     }
 
     let centreAgentCount = 0;
@@ -95,7 +133,7 @@ export async function POST(req: NextRequest) {
         title: String(title).trim(),
         description: description || null,
         department: department || assignee?.department || me.department,
-        assigneeId: mode === "INDIVIDUAL" ? assigneeId : null,
+        assigneeId: mode === "INDIVIDUAL" ? (assignees[0]?.id || null) : null,
         createdById: me.id,
         category: category || null,
         projectRef: projectRef || null,
@@ -114,6 +152,30 @@ export async function POST(req: NextRequest) {
       },
       include: TASK_INCLUDE,
     });
+
+    // Individual (single or multi-agent) assignment: snapshot every chosen
+    // person into TaskAssignee rows (per-person status tracking) and notify.
+    if (mode === "INDIVIDUAL" && assignees.length > 0) {
+      await db.taskAssignee.createMany({
+        data: assignees.map((u) => ({ taskId: task.id, userId: u.id })),
+        skipDuplicates: true,
+      });
+      const due = task.deadline ? ` — due ${new Date(task.deadline).toISOString().slice(0, 10)}` : "";
+      for (const person of assignees) {
+        if (person.id === me.id) continue;
+        await notify({
+          userId: person.id,
+          type: "TASK_ASSIGNED",
+          severity: "INFO",
+          title: assignees.length > 1 ? "New task assigned to you" : "New task assigned",
+          message: `${me.fullName} assigned you: "${task.title}"${due}.`,
+          linkData: { view: "tasks", id: task.id },
+        });
+      }
+      if (assignees.length > 1) {
+        await db.taskAssignee.updateMany({ where: { taskId: task.id, userId: me.id }, data: { status: "COMPLETED" } });
+      }
+    }
 
     // Whole-centre assignment: snapshot every current agent of that centre into
     // TaskAssignee rows (per-person status tracking) and notify each of them.
@@ -177,7 +239,7 @@ export async function POST(req: NextRequest) {
     const scopeDetail =
       mode === "ALL_CENTRES" ? "assigned to ALL centres (org-wide)"
       : mode === "WHOLE_CENTRE" ? `assigned to ${centreState} centre (${centreAgentCount} agent(s))`
-      : mode === "INDIVIDUAL" ? `assigned to ${assignee?.fullName}`
+      : mode === "INDIVIDUAL" ? (assignees.length > 1 ? `assigned to ${assignees.length} agents: ${assignees.map((a) => a.fullName).join(", ")}` : `assigned to ${assignee?.fullName}`)
       : "created unassigned";
     await audit({ userId: me.id, actorName: me.fullName, action: "CREATE_TASK", entity: "Task", entityId: task.id, details: `${task.title} — ${scopeDetail}` });
     return ok({ task }, 201);

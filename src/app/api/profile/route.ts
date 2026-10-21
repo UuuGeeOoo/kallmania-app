@@ -15,6 +15,7 @@ const PUBLIC_PROFILE = {
   phone: true,
   country: true,
   state: true,
+  city: true,
   status: true,
   createdAt: true,
   approvedAt: true,
@@ -36,7 +37,7 @@ export async function PATCH(req: NextRequest) {
   return handle(async () => {
     const me = await requireUser();
     const body = await req.json();
-    const { fullName, phone, country, state, currentPassword, newPassword } = body;
+    const { fullName, phone, country, state, city, currentPassword, newPassword } = body;
 
     const data: Record<string, unknown> = {};
 
@@ -64,6 +65,11 @@ export async function PATCH(req: NextRequest) {
         if (s.length > 100) return fail("State/region name too long");
       }
       data.state = s || null;
+    }
+    if (city !== undefined) {
+      const c = String(city || "").trim();
+      if (c.length > 100) return fail("City name too long");
+      data.city = c || null;
     }
 
     let passwordChanged = false;

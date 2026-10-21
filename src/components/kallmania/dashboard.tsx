@@ -5,11 +5,14 @@ import { Button } from "@/components/ui/button";
 import { api, fmtDate, fmtDateTime, todayISO, DEPT_LABELS, type TaskDTO } from "@/lib/client";
 import { StatCard, PageHeader, SectionCard, EmptyState, StatusBadge } from "@/components/kallmania/shared";
 import PeriodKpiPanel from "@/components/kallmania/kpi-trends";
+import { UserKpiDialog } from "@/components/kallmania/user-kpi-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Country, State } from "country-state-city";
 import {
   Users, FileCheck2, FileX2, ListTodo, CheckCircle2, AlarmClock, Ban, TrendingDown,
-  Siren, PhoneCall, Mail, UploadCloud, MonitorSmartphone, Share2, Calendar, Loader2,
+  Siren, PhoneCall, Mail, UploadCloud, MonitorSmartphone, Share2, Calendar, Loader2, MapPin, Globe2,
 } from "lucide-react";
 
 interface EmployeeDash {
@@ -26,6 +29,9 @@ interface EmployeeDash {
 }
 
 interface SupervisorDash {
+  centreLabel: string | null;
+  centreAgents: { id: string; fullName: string; role: string; department: string; team: string | null; country: string | null; state: string | null }[];
+  trend: { date: string; label: string; submitted: number }[];
   totalActiveEmployees: number;
   expectedToReport: number;
   reportsSubmitted: number;
@@ -52,13 +58,22 @@ export default function Dashboard({ user, onNavigate }: { user: { role: string; 
   const [emp, setEmp] = useState<EmployeeDash | null>(null);
   const [sup, setSup] = useState<SupervisorDash | null>(null);
   const [loading, setLoading] = useState(true);
+  // Admin drill-down: select the country and the state (centre) whose KPIs to inspect
+  const [country, setCountry] = useState("");
+  const [state, setState] = useState("");
+  const allCountries = Country.getAllCountries().slice().sort((a, b) => a.name.localeCompare(b.name));
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const data = await api<{ role: string; employee?: EmployeeDash; supervisor?: SupervisorDash }>(`/api/dashboard?date=${date}`);
+        const params = new URLSearchParams({ date });
+        if (user.role === "ADMIN" && (country || state)) {
+          if (country) params.set("country", country);
+          if (state) params.set("state", state);
+        }
+        const data = await api<{ role: string; employee?: EmployeeDash; supervisor?: SupervisorDash }>(`/api/dashboard?${params}`);
         if (cancelled) return;
         setEmp(data.employee || null);
         setSup(data.supervisor || null);
@@ -67,7 +82,7 @@ export default function Dashboard({ user, onNavigate }: { user: { role: string; 
       }
     })();
     return () => { cancelled = true; };
-  }, [date, user.role]);
+  }, [date, user.role, country, state]);
 
   const isSupervisor = user.role === "SUPERVISOR" || user.role === "ADMIN";
 
@@ -77,10 +92,30 @@ export default function Dashboard({ user, onNavigate }: { user: { role: string; 
         title={`Welcome back, ${user.fullName.split(" ")[0]}`}
         subtitle={isSupervisor ? "Cross-department oversight — reports, KPIs, tasks and escalations" : DEPT_LABELS[user.department] || "Your workspace"}
         actions={
-          <Select value={date} onValueChange={setDate}>
-            <SelectTrigger className="w-44 border-white/12 bg-white/[0.055] text-xs text-slate-200 backdrop-blur"><Calendar className="mr-2 h-3.5 w-3.5" />{fmtDate(date)}</SelectTrigger>
-            <SelectContent>{getLast7Days().map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
-          </Select>
+          <div className="flex flex-wrap items-center gap-2">
+            {user.role === "ADMIN" && (
+              <>
+                <Select value={country || undefined} onValueChange={(v) => { setCountry(v === "__all__" ? "" : v); setState(""); }}>
+                  <SelectTrigger className="w-44 border-white/12 bg-white/[0.055] text-xs text-slate-200 backdrop-blur"><Globe2 className="mr-2 h-3.5 w-3.5 text-[#eda06a]" />{country ? allCountries.find((c) => c.isoCode === country)?.name : "All countries"}</SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    <SelectItem value="__all__">All countries</SelectItem>
+                    {allCountries.map((c) => <SelectItem key={c.isoCode} value={c.isoCode}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={state || undefined} onValueChange={(v) => setState(v === "__all__" ? "" : v)} disabled={!country}>
+                  <SelectTrigger className="w-40 border-white/12 bg-white/[0.055] text-xs text-slate-200 backdrop-blur"><MapPin className="mr-2 h-3.5 w-3.5 text-[#eda06a]" />{state || "All states"}</SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    <SelectItem value="__all__">All states</SelectItem>
+                    {(country ? State.getStatesOfCountry(country) : []).map((s) => <SelectItem key={s.isoCode} value={s.name}>{s.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
+            <Select value={date} onValueChange={setDate}>
+              <SelectTrigger className="w-44 border-white/12 bg-white/[0.055] text-xs text-slate-200 backdrop-blur"><Calendar className="mr-2 h-3.5 w-3.5" />{fmtDate(date)}</SelectTrigger>
+              <SelectContent>{getLast7Days().map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
         }
       />
 
@@ -193,14 +228,91 @@ function EmployeeDashboard({ emp, user, onNavigate }: { emp: EmployeeDash; user:
 }
 
 function SupervisorDashboard({ sup, user, onNavigate }: { sup: SupervisorDash; user: { role: string; department: string }; onNavigate: (v: string) => void }) {
+  const [kpiUser, setKpiUser] = useState<{ id: string; fullName: string; role: string } | null>(null);
   return (
     <div className="space-y-5">
+      {sup.centreLabel && (
+        <div className="flex w-fit items-center gap-2 rounded-full border border-[#e8935a]/40 bg-[#e8935a]/10 px-3.5 py-1.5 text-xs font-semibold text-[#f0b285]">
+          <MapPin className="h-3.5 w-3.5" />
+          {user.role === "SUPERVISOR" ? "Your centre: " : "Centre: "}{sup.centreLabel}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatCard label="Active employees" value={sup.totalActiveEmployees} icon={<Users className="h-4 w-4" />} sub={`${sup.expectedToReport} expected to report`} />
         <StatCard label="Reports submitted" value={sup.reportsSubmitted} tone="good" icon={<FileCheck2 className="h-4 w-4" />} sub={`${sup.outstandingReports} outstanding`} />
         <StatCard label="Tasks completed" value={`${sup.tasksCompleted}/${sup.tasksAssigned}`} tone="info" icon={<CheckCircle2 className="h-4 w-4" />} sub={`${sup.tasksOverdue} overdue`} />
         <StatCard label="Open escalations" value={sup.openEscalations} tone={sup.openEscalations > 0 ? "bad" : "good"} icon={<Siren className="h-4 w-4" />} sub={`${sup.kpiShortfalls} KPI shortfalls`} />
       </div>
+
+      {/* Clasy-style trend chart + outstanding reports panel */}
+      <div className="grid gap-5 lg:grid-cols-5">
+        <SectionCard title="Report submissions" subtitle="Submitted reports over the last 14 days" className="lg:col-span-3">
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={sup.trend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="kTrendFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#e8935a" stopOpacity={0.55} />
+                    <stop offset="100%" stopColor="#e8935a" stopOpacity={0.03} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="rgba(255,255,255,0.07)" vertical={false} />
+                <XAxis dataKey="label" tick={{ fill: "#9b968f", fontSize: 10 }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={18} />
+                <YAxis tick={{ fill: "#9b968f", fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{ background: "#17171c", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, fontSize: 12, color: "#f4f1ec" }}
+                  labelStyle={{ color: "#9b968f" }}
+                  cursor={{ stroke: "rgba(232,147,90,0.4)" }}
+                />
+                <Area type="monotone" dataKey="submitted" stroke="#e8935a" strokeWidth={2.5} fill="url(#kTrendFill)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Today's submissions" subtitle="Live queue" className="lg:col-span-2">
+          {sup.submittedReportList.length === 0 ? (
+            <EmptyState title="No submissions yet today" hint="Agent, technical and social media reports appear here as they arrive." />
+          ) : (
+            <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+              {sup.submittedReportList.map((r) => (
+                <div key={r.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-xs">
+                  <span className="font-mono text-[#eda06a]">{r.ref}</span>
+                  <span className="min-w-0 truncate text-slate-300">{r.userName}</span>
+                  <StatusBadge status={r.status} />
+                </div>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
+      {/* Centre agents — click any agent to inspect their KPI performance */}
+      {sup.centreAgents.length > 0 && (
+        <SectionCard
+          title="Centre agents"
+          subtitle="Everyone registered in this centre — click a person to see their KPI performance (daily, weekly, monthly, yearly)"
+        >
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {sup.centreAgents.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => setKpiUser({ id: a.id, fullName: a.fullName, role: a.role })}
+                className="group flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 text-left transition hover:border-[#e8935a]/40 hover:bg-white/[0.05]"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#5b4636] to-[#3a2c21] text-[11px] font-bold text-[#f0b285] ring-1 ring-white/15">
+                  {a.fullName.split(" ").map((w) => w[0]).slice(0, 2).join("")}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-semibold text-slate-200">{a.fullName}</span>
+                  <span className="block truncate text-[10px] text-slate-500">{DEPT_LABELS[a.department]?.split(" & ")[0] || a.department}{a.team ? ` · ${a.team}` : ""}</span>
+                </span>
+                <span className="shrink-0 rounded-full border border-white/10 px-2 py-0.5 text-[9px] font-semibold text-slate-500 group-hover:border-[#e8935a]/40 group-hover:text-[#f0b285]">KPI</span>
+              </button>
+            ))}
+          </div>
+        </SectionCard>
+      )}
 
       {sup.pendingUserApprovals > 0 && (
         <button onClick={() => onNavigate("admin-users")} className="k-card flex w-full items-center gap-3 border-amber-500/40 p-4 text-left">
@@ -300,26 +412,10 @@ function SupervisorDashboard({ sup, user, onNavigate }: { sup: SupervisorDash; u
         </SectionCard>
       </div>
 
-      {/* Multi-period cumulative performance (day / week / month) */}
+      {/* Multi-period cumulative performance (day / week / month / year) */}
       <PeriodKpiPanel role={user.role} />
 
-      {/* Submitted reports quick list */}
-      <SectionCard title="Today's submissions" actions={<Button size="sm" variant="outline" className="border-slate-600 text-slate-200 hover:bg-white/10" onClick={() => onNavigate("review")}>Open review queue</Button>}>
-        {sup.submittedReportList.length === 0 ? (
-          <EmptyState title="No submissions yet today" hint="Agent, technical and social media reports appear here as they arrive." />
-        ) : (
-          <div className="space-y-2">
-            {sup.submittedReportList.map((r) => (
-              <div key={r.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-xs">
-                <span className="font-mono text-[#b3a5ff]">{r.ref}</span>
-                <span className="text-slate-300">{r.userName}</span>
-                <span className="text-slate-500">{DEPT_LABELS[r.department]?.split(" & ")[0] || r.department}</span>
-                <StatusBadge status={r.status} />
-              </div>
-            ))}
-          </div>
-        )}
-      </SectionCard>
+      <UserKpiDialog user={kpiUser || { id: "", fullName: "", role: "" }} open={!!kpiUser} setOpen={(v) => !v && setKpiUser(null)} />
     </div>
   );
 }

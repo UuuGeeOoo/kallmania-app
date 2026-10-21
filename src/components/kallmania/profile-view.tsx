@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { api, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, fmtDate, type SessionUser } from "@/lib/client";
 import { PageHeader, SectionCard, Field, inputCls, StatusBadge } from "@/components/kallmania/shared";
 import { useToast } from "@/hooks/use-toast";
-import { Country, State } from "country-state-city";
+import { Country, State, City } from "country-state-city";
 import { Loader2, Save, UserCircle2, KeyRound, Info } from "lucide-react";
 
 const ALL_COUNTRIES = Country.getAllCountries().slice().sort((a, b) => a.name.localeCompare(b.name));
@@ -23,6 +23,7 @@ interface ProfileDTO {
   phone: string | null;
   country: string | null;
   state: string | null;
+  city: string | null;
   status: string;
   createdAt: string;
   approvedAt: string | null;
@@ -35,17 +36,22 @@ export default function ProfileView({ user }: { user: SessionUser }) {
   const [saving, setSaving] = useState(false);
   const [savingPw, setSavingPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ fullName: "", phone: "", country: "", state: "" });
+  const [form, setForm] = useState({ fullName: "", phone: "", country: "", state: "", city: "" });
   const [pw, setPw] = useState({ currentPassword: "", newPassword: "", confirm: "" });
 
   const statesOfCountry = form.country ? State.getStatesOfCountry(form.country) : [];
+  const citiesOfState = (() => {
+    if (!form.country || !form.state) return [];
+    const iso = statesOfCountry.find((s) => s.name === form.state)?.isoCode;
+    return iso ? City.getCitiesOfState(form.country, iso).slice(0, 400) : [];
+  })();
 
   useEffect(() => {
     (async () => {
       try {
         const { profile } = await api<{ profile: ProfileDTO }>("/api/profile");
         setProfile(profile);
-        setForm({ fullName: profile.fullName, phone: profile.phone || "", country: profile.country || "", state: profile.state || "" });
+        setForm({ fullName: profile.fullName, phone: profile.phone || "", country: profile.country || "", state: profile.state || "", city: profile.city || "" });
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -59,10 +65,10 @@ export default function ProfileView({ user }: { user: SessionUser }) {
     try {
       const { profile: updated, message } = await api<{ profile: ProfileDTO; message: string }>("/api/profile", {
         method: "PATCH",
-        body: JSON.stringify({ fullName: form.fullName, phone: form.phone, country: form.country, state: form.state }),
+        body: JSON.stringify({ fullName: form.fullName, phone: form.phone, country: form.country, state: form.state, city: form.city }),
       });
       setProfile(updated);
-      setForm({ fullName: updated.fullName, phone: updated.phone || "", country: updated.country || "", state: updated.state || "" });
+      setForm({ fullName: updated.fullName, phone: updated.phone || "", country: updated.country || "", state: updated.state || "", city: updated.city || "" });
       toast({ title: "Profile saved", description: message });
     } catch (e) {
       const msg = (e as Error).message;
@@ -96,7 +102,7 @@ export default function ProfileView({ user }: { user: SessionUser }) {
 
   const dirty =
     profile &&
-    (form.fullName !== profile.fullName || form.phone !== (profile.phone || "") || form.country !== (profile.country || "") || form.state !== (profile.state || ""));
+    (form.fullName !== profile.fullName || form.phone !== (profile.phone || "") || form.country !== (profile.country || "") || form.state !== (profile.state || "") || form.city !== (profile.city || ""));
 
   if (loading) {
     return <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
@@ -155,10 +161,18 @@ export default function ProfileView({ user }: { user: SessionUser }) {
               </Select>
             </Field>
             <Field label="State / region" hint={form.country ? undefined : "Pick a country first"}>
-              <Select value={form.state || undefined} onValueChange={(v) => setForm({ ...form, state: v })} disabled={!form.country}>
+              <Select value={form.state || undefined} onValueChange={(v) => setForm({ ...form, state: v, city: "" })} disabled={!form.country}>
                 <SelectTrigger className={inputCls}><SelectValue placeholder={form.country ? "Select state / region" : "Pick a country first"} /></SelectTrigger>
                 <SelectContent className="max-h-64">
                   {statesOfCountry.map((s) => <SelectItem key={s.isoCode} value={s.name}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="City" hint={form.state ? undefined : "Pick a state first (optional)"}>
+              <Select value={form.city || undefined} onValueChange={(v) => setForm({ ...form, city: v })} disabled={!form.state}>
+                <SelectTrigger className={inputCls}><SelectValue placeholder={form.state ? "Select city (optional)" : "Pick a state first"} /></SelectTrigger>
+                <SelectContent className="max-h-64">
+                  {citiesOfState.map((c) => <SelectItem key={c.name} value={c.name}>{c.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </Field>

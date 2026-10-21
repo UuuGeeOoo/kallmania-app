@@ -5,7 +5,8 @@ import AuthView from "@/components/kallmania/auth-view";
 import Shell, { navForRole } from "@/components/kallmania/shell";
 import Dashboard from "@/components/kallmania/dashboard";
 import AgentBpoReportForm from "@/components/kallmania/report-forms";
-import { TechReportForm, SocialReportForm } from "@/components/kallmania/dept-report-forms";
+import { SocialReportForm } from "@/components/kallmania/dept-report-forms";
+import WebTeamReportForm from "@/components/kallmania/web-team-report";
 import SupervisorReportForm from "@/components/kallmania/supervisor-form";
 import TeamLeadReportForm, { TeamLeadTemplateEditor } from "@/components/kallmania/team-lead-form";
 import UploadView from "@/components/kallmania/upload-view";
@@ -102,7 +103,7 @@ export default function Page() {
         return <NoticeBoardView user={user} />;
       case "daily-report":
         if (user.role === "TEAM_LEAD") return <TeamLeadReportForm user={user} date={reportDate} />;
-        if (user.role === "DEVELOPER") return <TechReportForm user={user} date={reportDate} />;
+        if (user.role === "DEVELOPER") return <WebTeamReportForm user={user} date={reportDate} />;
         if (user.role === "SOCIAL_MEDIA") return <SocialReportForm user={user} date={reportDate} />;
         return <AgentBpoReportForm user={user} date={reportDate} onDone={refreshUnread} variant={user.team === "INBOUND" ? "inbound" : "outbound"} />;
       case "supervisor-report":

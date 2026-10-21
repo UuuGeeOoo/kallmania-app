@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, TEAM_LABELS, type SessionUser } from "@/lib/client";
-import { Country, State } from "country-state-city";
+import { Country, State, City } from "country-state-city";
 import { Loader2, LogIn, UserPlus, ShieldCheck, AlertCircle, CheckCircle2, Building2, Users2, BadgeCheck } from "lucide-react";
 
 /** Teams under Kallmania — every operational role falls in under the Kallmania division */
@@ -61,8 +61,13 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [form, setForm] = useState({ email: "", password: "", fullName: "", team: "OUTBOUND", position: "AGENT", employeeId: "", phone: "", country: "NG", state: "" });
+  const [form, setForm] = useState({ email: "", password: "", fullName: "", team: "OUTBOUND", position: "AGENT", employeeId: "", phone: "", country: "NG", state: "", city: "" });
   const statesOfCountry = form.country ? State.getStatesOfCountry(form.country) : [];
+  const citiesOfState = (() => {
+    if (!form.country || !form.state) return [];
+    const iso = statesOfCountry.find((s) => s.name === form.state)?.isoCode;
+    return iso ? City.getCitiesOfState(form.country, iso).slice(0, 400) : [];
+  })();
 
   const submit = async () => {
     setError(null);
@@ -87,6 +92,7 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
             phone: form.phone,
             country: form.country || undefined,
             state: form.state || undefined,
+            city: form.city || undefined,
           }),
         });
         setSuccess(res.message || "Registration submitted — an administrator will confirm your account.");
@@ -165,10 +171,10 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
                   </Select>
                   <p className="flex items-center gap-1.5 text-xs text-slate-500"><ShieldCheck className="h-3.5 w-3.5 text-[#dce775]" /> Positions are confirmed (and can be changed) by the administrator. Supervisor accounts oversee the whole division.</p>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   <div className="space-y-1.5">
                     <Label className="text-slate-300">Country</Label>
-                    <Select value={form.country || undefined} onValueChange={(v) => setForm({ ...form, country: v, state: "" })}>
+                    <Select value={form.country || undefined} onValueChange={(v) => setForm({ ...form, country: v, state: "", city: "" })}>
                       <SelectTrigger className="border-slate-600/50 bg-transparent text-slate-100"><SelectValue placeholder="Select country" /></SelectTrigger>
                       <SelectContent className="max-h-64">
                         {ALL_COUNTRIES.map((c) => <SelectItem key={c.isoCode} value={c.isoCode}>{c.name}</SelectItem>)}
@@ -177,10 +183,19 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-slate-300">State / Region</Label>
-                    <Select value={form.state || undefined} onValueChange={(v) => setForm({ ...form, state: v })} disabled={!form.country}>
+                    <Select value={form.state || undefined} onValueChange={(v) => setForm({ ...form, state: v, city: "" })} disabled={!form.country}>
                       <SelectTrigger className="border-slate-600/50 bg-transparent text-slate-100"><SelectValue placeholder={form.country ? "Select state" : "Pick a country first"} /></SelectTrigger>
                       <SelectContent className="max-h-64">
                         {statesOfCountry.map((s) => <SelectItem key={s.isoCode} value={s.name}>{s.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-300">City <span className="text-[10px] font-normal text-slate-500">(optional)</span></Label>
+                    <Select value={form.city || undefined} onValueChange={(v) => setForm({ ...form, city: v })} disabled={!form.state || citiesOfState.length === 0}>
+                      <SelectTrigger className="border-slate-600/50 bg-transparent text-slate-100"><SelectValue placeholder={form.state ? (citiesOfState.length ? "Select city" : "Type your city") : "Pick a state first"} /></SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {citiesOfState.map((c) => <SelectItem key={c.name} value={c.name}>{c.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>

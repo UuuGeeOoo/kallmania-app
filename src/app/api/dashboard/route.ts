@@ -65,22 +65,45 @@ export async function GET(req: NextRequest) {
     }
 
     // ── Supervisor / Admin dashboard ──
-    // Supervisors/Admins oversee all departments (their own dept is MANAGEMENT)
-    const whereDept = me.role === "SUPERVISOR" && me.department !== "MANAGEMENT" ? { department: me.department } : {};
+    // Supervisors are scoped to their own centre (their country+state).
+    // Administrators see every centre, and may drill down via ?country=&state=.
+    const country = searchParams.get("country");
+    const state = searchParams.get("state");
+    const centreUserFilter: Record<string, unknown> =
+      me.role === "SUPERVISOR"
+        ? (me.country && me.state ? { country: me.country, state: me.state } : {})
+        : (country || state ? { ...(country ? { country } : {}), ...(state ? { state } : {}) } : {});
     const staff = await db.user.findMany({
-      where: { status: "APPROVED", role: { in: ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR"] }, ...whereDept },
+      where: { status: "APPROVED", role: { in: ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR"] }, ...centreUserFilter },
       select: { id: true, fullName: true, role: true, department: true, employeeId: true },
     });
     const staffIds = staff.map((s) => s.id);
 
     const reportsToday = await db.report.findMany({
-      where: { reportDate: { gte: dayStart, lte: dayEnd }, ...whereDept, type: { not: "SUPERVISOR" } },
+      where: { reportDate: { gte: dayStart, lte: dayEnd }, type: { not: "SUPERVISOR" }, ...(Object.keys(centreUserFilter).length ? { user: centreUserFilter } : {}) },
       include: { user: { select: { id: true, fullName: true, role: true, department: true, employeeId: true } } },
     });
     const submittedReports = reportsToday.filter((r) => ["SUBMITTED", "APPROVED"].includes(r.status));
     const pendingReports = reportsToday.filter((r) => r.status === "DRAFT" || r.status === "REJECTED");
 
-    const tasksAll = await db.task.findMany({ where: { ...whereDept, dateAssigned: { lte: dayEnd } } });
+    // Tasks: supervisors/team scope to their centre; admins may drill down by centre.
+    let taskWhere: Record<string, unknown> = {};
+    if (me.role === "SUPERVISOR" && me.country && me.state) {
+      taskWhere.OR = [
+        { createdById: me.id },
+        { allCentres: true },
+        { centreCountry: me.country, centreState: me.state },
+        { assignee: { country: me.country, state: me.state } },
+        { assignees: { some: { user: { country: me.country, state: me.state } } } },
+      ];
+    } else if (country || state) {
+      const cf: Record<string, unknown> = { ...(country ? { country } : {}), ...(state ? { state } : {}) };
+      taskWhere.OR = [
+        { assignee: cf },
+        { assignees: { some: { user: cf } } },
+      ];
+    }
+    const tasksAll = await db.task.findMany({ where: { ...taskWhere, dateAssigned: { lte: dayEnd } } });
     const tasksAssigned = tasksAll.length;
     const tasksCompleted = tasksAll.filter((t) => t.status === "COMPLETED").length;
     const tasksOverdue = tasksAll.filter((t) => t.deadline && new Date(t.deadline) < dayStart && !["COMPLETED"].includes(t.status)).length;
@@ -138,10 +161,45 @@ export async function GET(req: NextRequest) {
 
     const pendingUsers = await db.user.count({ where: { status: "PENDING" } });
 
+    // 14-day submission trend for the Clasy area chart
+    const trendStart = new Date(dayStart.getTime() - 13 * 86_400_000);
+    const trendReports = await db.report.findMany({
+      where: { reportDate: { gte: trendStart, lte: dayEnd }, type: { not: "SUPERVISOR" }, status: { in: ["SUBMITTED", "APPROVED"] }, ...(Object.keys(centreUserFilter).length ? { user: centreUserFilter } : {}) },
+      select: { reportDate: true },
+    });
+    const trend: { date: string; label: string; submitted: number }[] = [];
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(trendStart.getTime() + i * 86_400_000);
+      const iso = d.toISOString().slice(0, 10);
+      trend.push({
+        date: iso,
+        label: d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }),
+        submitted: trendReports.filter((r) => new Date(r.reportDate).toISOString().slice(0, 10) === iso).length,
+      });
+    }
+
+    // Centre context for the UI (supervisors see their own centre; admins see the selection)
+    const centreLabel = me.role === "SUPERVISOR"
+      ? [me.state, me.country].filter(Boolean).join(", ")
+      : [state, country].filter(Boolean).join(", ");
+
+    // Staff of the selected centre for the drill-down panel (admins) / own centre (supervisors)
+    const centreAgents = me.role === "ADMIN" || me.role === "SUPERVISOR"
+      ? await db.user.findMany({
+          where: { status: "APPROVED", role: { in: ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA", "TEAM_LEAD"] }, ...(Object.keys(centreUserFilter).length ? centreUserFilter : {}) },
+          select: { id: true, fullName: true, role: true, department: true, team: true, country: true, state: true },
+          orderBy: { fullName: "asc" },
+          take: 200,
+        })
+      : [];
+
     return ok({
       role: me.role,
       date,
       supervisor: {
+        centreLabel,
+        centreAgents,
+        trend,
         totalActiveEmployees: staff.length,
         expectedToReport: staff.filter((s) => s.role !== "SUPERVISOR").length,
         reportsSubmitted: submittedReports.length,

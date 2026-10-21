@@ -5,12 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { api, ROLE_LABELS, DEPT_LABELS, type NotificationDTO, type SessionUser } from "@/lib/client";
+import { api, ROLE_LABELS, DEPT_LABELS, type SessionUser } from "@/lib/client";
 import { cn } from "@/lib/utils";
+import { useTheme } from "next-themes";
 import {
   LayoutDashboard, FileText, Upload, ListTodo, ClipboardCheck, Layers, Users, Target,
-  Bell, LogOut, Menu, ScrollText, Inbox, KeyRound, Home, FolderOpen, PanelLeftClose, PanelLeftOpen, FileCog, FileCheck2, Megaphone, UserCircle2,
+  Bell, LogOut, Menu, ScrollText, KeyRound, FolderOpen, FileCog, FileCheck2, Megaphone,
+  UserCircle2, Siren, Sun, Moon,
 } from "lucide-react";
+import { EscalationComposer } from "@/components/kallmania/escalation-center";
 
 export interface NavItem {
   key: string;
@@ -30,6 +33,10 @@ export function navForRole(role: string): NavItem[] {
     { key: "notifications", label: "Notifications", icon: Bell },
     { key: "profile", label: "My Profile", icon: UserCircle2 },
   ];
+  // Team leads assign & monitor the tasks of the agents in their centre
+  if (role === "TEAM_LEAD") {
+    employeeNav.splice(5, 0, { key: "team-tasks", label: "Tasks & Assignments", icon: ClipboardCheck });
+  }
   const supervisorNav: NavItem[] = [
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { key: "notice-board", label: "Notice Board", icon: Megaphone },
@@ -40,115 +47,47 @@ export function navForRole(role: string): NavItem[] {
     { key: "team-tasks", label: "Tasks & Assignments", icon: ListTodo },
     { key: "uploads-admin", label: "Uploaded Files", icon: Upload },
     { key: "tl-template", label: "TL Report Template", icon: FileCog },
+    { key: "kpi-config", label: "KPI Configuration", icon: Target },
     { key: "notifications", label: "Notifications", icon: Bell },
     { key: "profile", label: "My Profile", icon: UserCircle2 },
   ];
   const adminNav: NavItem[] = [
-    ...supervisorNav.filter((n) => n.key !== "notifications"),
+    ...supervisorNav,
     { key: "admin-users", label: "User Management", icon: Users },
-    { key: "kpi-config", label: "KPI Configuration", icon: Target },
     { key: "audit", label: "Audit Trail", icon: ScrollText },
-    { key: "notifications", label: "Notifications", icon: Bell },
   ];
   if (role === "ADMIN") return adminNav;
   if (role === "SUPERVISOR") return supervisorNav;
   return employeeNav;
 }
 
-function SidebarBody({
-  user, nav, view, onNavigate, unread, expanded, onToggleExpand, isMobile, onLogout,
-}: {
-  user: SessionUser;
-  nav: NavItem[];
-  view: string;
-  onNavigate: (v: string) => void;
-  unread: number;
-  expanded: boolean;
-  onToggleExpand?: () => void;
-  isMobile?: boolean;
-  onLogout: () => void;
-}) {
+function ThemeToggle() {
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const isDark = resolvedTheme !== "light";
   return (
-    <div className={cn("k-glass-chrome flex h-full flex-col border-r border-white/[0.07]", !expanded && "k-rail-collapsed")}>
-      {/* Brand row */}
-      <div className={cn("flex items-center px-4 py-5", !expanded && "justify-center px-2")}>
-        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#8b7ff5] via-[#6c5ce7] to-[#5b4bd4] font-black text-white shadow-[0_8px_24px_-6px_rgba(108,92,231,0.65),inset_0_1px_0_rgba(255,255,255,0.35)]">
-          K
-          <span className="absolute inset-0 rounded-xl ring-1 ring-white/25" />
-        </div>
-        <div className={cn("k-rail-label min-w-0", !expanded && "k-collapsed-hide")}>
-          <p className="truncate text-sm font-bold leading-none text-white">Kallmania</p>
-          <p className="mt-1 truncate text-[10px] uppercase tracking-wider text-slate-500">SBTS Group</p>
-        </div>
-        {onToggleExpand && expanded && (
-          <button
-            onClick={onToggleExpand}
-            title="Slide sidebar out"
-            className="ml-auto hidden h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 transition hover:bg-white/10 hover:text-slate-200 lg:flex"
-          >
-            <PanelLeftClose className="h-4 w-4" />
-          </button>
-        )}
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-9 w-9 rounded-full border border-white/10 bg-white/[0.05] text-slate-300 hover:bg-white/10 hover:text-[#eda06a]"
+      title={isDark ? "Switch to light theme" : "Switch to dark theme"}
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+    >
+      {mounted ? (isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />) : <Sun className="h-4 w-4" />}
+    </Button>
+  );
+}
+
+function BrandMark() {
+  return (
+    <div className="flex items-center gap-2.5">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#f0a267] via-[#e8873a] to-[#d97a35] font-black text-[#1a120b] shadow-[0_8px_24px_-6px_rgba(232,135,58,0.65),inset_0_1px_0_rgba(255,255,255,0.4)]">
+        K
       </div>
-
-      {/* Nav */}
-      <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden px-3 py-2">
-        {nav.map((item) => {
-          const Icon = item.icon;
-          const active = view === item.key;
-          return (
-            <button
-              key={item.key}
-              onClick={() => { onNavigate(item.key); if (isMobile) onToggleExpand?.(); }}
-              title={expanded ? undefined : item.label}
-              className={cn(
-                "k-nav-item group relative flex w-full items-center rounded-xl py-2.5 text-sm font-medium",
-                active ? "k-nav-active" : "text-slate-400 hover:bg-white/[0.055] hover:text-slate-200",
-                expanded ? "px-3" : "justify-center px-0",
-              )}
-            >
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                <Icon className={cn("h-[18px] w-[18px]", active ? "text-[#c4bbff]" : "text-slate-500 group-hover:text-slate-300")} />
-              </span>
-              <span className={cn("k-rail-label truncate text-left", !expanded && "k-collapsed-hide")}>{item.label}</span>
-              {item.key === "notifications" && unread > 0 && (
-                <span className={cn(
-                  "rounded-full bg-[#e8833a] px-1.5 py-0.5 text-[10px] font-bold text-white shadow-[0_0_10px_rgba(232,131,58,0.6)]",
-                  !expanded && "absolute right-2 top-1.5 px-1",
-                )}>
-                  {unread > 99 ? "99+" : unread}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </nav>
-
-      {/* User block */}
-      <div className="border-t border-white/[0.07] p-3">
-        <div className={cn("flex items-center", !expanded && "justify-center")}>
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#31456b] to-[#22334e] text-xs font-bold text-[#b3a5ff] ring-1 ring-white/15">
-            {user.fullName.split(" ").map((w) => w[0]).slice(0, 2).join("")}
-          </div>
-          <div className={cn("k-rail-label min-w-0", !expanded && "k-collapsed-hide")}>
-            <p className="truncate text-xs font-semibold text-slate-200">{user.fullName}</p>
-            <p className="truncate text-[10px] text-slate-500">{ROLE_LABELS[user.role]}</p>
-          </div>
-          {expanded && (
-            <Button variant="ghost" size="icon" onClick={onLogout} title="Sign out" className="h-8 w-8 shrink-0 text-slate-400 hover:bg-white/10 hover:text-rose-300">
-              <LogOut className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
-        {!expanded && (
-          <button
-            onClick={onToggleExpand}
-            title="Slide sidebar in"
-            className="mx-auto mt-3 hidden h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 transition hover:bg-white/10 hover:text-slate-200 lg:flex"
-          >
-            <PanelLeftOpen className="h-4 w-4" />
-          </button>
-        )}
+      <div className="min-w-0">
+        <p className="truncate text-base font-bold leading-none text-white">Kallmania</p>
+        <p className="mt-0.5 truncate text-[10px] uppercase tracking-wider text-slate-500">SBTS Group Global</p>
       </div>
     </div>
   );
@@ -166,19 +105,7 @@ export default function Shell({
 }) {
   const nav = navForRole(user.role);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [expanded, setExpanded] = useState(true);
-
-  // Restore sidebar state
-  useEffect(() => {
-    const saved = window.localStorage.getItem("kallmania.sidebar");
-    if (saved === "collapsed") setExpanded(false);
-  }, []);
-  const toggleExpand = () => {
-    setExpanded((prev) => {
-      window.localStorage.setItem("kallmania.sidebar", prev ? "collapsed" : "expanded");
-      return !prev;
-    });
-  };
+  const [escalateOpen, setEscalateOpen] = useState(false);
 
   const handleNavigate = (v: string) => {
     if (v === "__logout__") { onLogout(); return; }
@@ -186,69 +113,149 @@ export default function Shell({
     setMobileOpen(false);
   };
 
+  const IconCluster = (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={() => setEscalateOpen(true)}
+        title="Notify / escalate"
+        className="h-9 w-9 rounded-full border border-white/10 bg-white/[0.05] text-[#eda06a] hover:bg-white/10"
+      >
+        <Siren className="h-4 w-4" />
+      </Button>
+      <ThemeToggle />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="relative h-9 w-9 rounded-full border border-white/10 bg-white/[0.05] text-slate-300 hover:bg-white/10 hover:text-slate-100"
+        onClick={() => handleNavigate("notifications")}
+        title="Notifications"
+      >
+        <Bell className="h-4 w-4" />
+        {unread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#e8833a] px-1 text-[9px] font-bold text-white">{unread > 9 ? "9+" : unread}</span>}
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-1.5 pr-3 backdrop-blur transition hover:bg-white/10" title={user.fullName}>
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-[#5b4636] to-[#3a2c21] text-[10px] font-bold text-[#f0b285] ring-1 ring-white/15">
+              {user.fullName.split(" ").map((w) => w[0]).slice(0, 2).join("")}
+            </span>
+            <span className="hidden max-w-[120px] truncate text-xs font-medium text-slate-200 sm:block">{user.fullName}</span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="border-white/10 bg-[#17171c]/95 text-slate-200 backdrop-blur-xl">
+          <DropdownMenuLabel>
+            <p className="text-xs font-semibold">{user.fullName}</p>
+            <p className="mt-0.5 text-[10px] font-normal text-slate-400">{user.email}</p>
+            <p className="mt-1 text-[10px] font-normal text-[#eda06a]">{ROLE_LABELS[user.role]} · {DEPT_LABELS[user.department]}</p>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator className="bg-white/10" />
+          <DropdownMenuItem onSelect={() => handleNavigate("profile")} className="focus:bg-white/10">
+            <UserCircle2 className="mr-2 h-4 w-4" /> My profile
+          </DropdownMenuItem>
+          <ChangePasswordItem />
+          <DropdownMenuItem onClick={onLogout} className="text-rose-300 focus:text-rose-300">
+            <LogOut className="mr-2 h-4 w-4" /> Sign out
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+
+  const PillNav = ({ onPick }: { onPick?: (v: string) => void }) => (
+    <nav className="flex flex-1 items-center gap-1 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {nav.map((item) => {
+        const Icon = item.icon;
+        const active = view === item.key;
+        return (
+          <button
+            key={item.key}
+            onClick={() => (onPick ? onPick(item.key) : handleNavigate(item.key))}
+            className={cn(
+              "k-nav-item flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-semibold",
+              active ? "k-nav-active" : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200",
+            )}
+          >
+            <Icon className={cn("h-4 w-4", active ? "text-[#1a120b]" : "text-slate-500")} />
+            <span className="whitespace-nowrap">{item.label}</span>
+            {item.key === "notifications" && unread > 0 && (
+              <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-bold", active ? "bg-[#1a120b] text-[#f0b285]" : "bg-[#e8833a] text-white")}>
+                {unread > 99 ? "99+" : unread}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </nav>
+  );
+
   return (
-    <div className="relative flex min-h-screen">
-      {/* Liquid glass aurora background */}
+    <div className="relative flex min-h-screen flex-col">
+      {/* Aurora background */}
       <div className="k-aurora" aria-hidden />
 
-      {/* Desktop sidebar — slides in and out */}
-      <aside className={cn("k-sidebar-anim sticky top-0 hidden h-screen shrink-0 lg:block", expanded ? "w-64" : "w-[76px]")}>
-        <SidebarBody user={user} nav={nav} view={view} onNavigate={handleNavigate} unread={unread} expanded={expanded} onToggleExpand={toggleExpand} onLogout={onLogout} />
-      </aside>
-
-      {/* Mobile sidebar — slides in over content */}
-      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-9 w-9 text-slate-300 hover:bg-white/10 lg:hidden" title="Open menu">
-            <Menu className="h-5 w-5" />
-          </Button>
-        </SheetTrigger>
-        <SheetContent side="left" className="w-72 border-0 bg-transparent p-0 [&>button]:text-slate-300">
-          <SidebarBody user={user} nav={nav} view={view} onNavigate={handleNavigate} unread={unread} expanded onToggleExpand={() => setMobileOpen(false)} isMobile onLogout={onLogout} />
-        </SheetContent>
-      </Sheet>
-
-      {/* Main column */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="k-glass-chrome sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b border-white/[0.07] px-4 sm:px-6">
-          <div className="flex min-w-0 items-center gap-2">
-            <Home className="h-4 w-4 shrink-0 text-slate-500" />
-            <span className="truncate text-sm font-semibold text-slate-200">{nav.find((n) => n.key === view)?.label || "Kallmania"}</span>
+      {/* ── Clasy top chrome ── */}
+      <header className="k-glass-chrome sticky top-0 z-40 border-b border-white/[0.06]">
+        <div className="mx-auto flex h-14 w-full max-w-[1600px] items-center justify-between gap-3 px-3 sm:px-5">
+          <div className="flex min-w-0 items-center gap-3">
+            {/* Mobile hamburger */}
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-9 w-9 text-slate-300 hover:bg-white/10 lg:hidden" title="Open menu">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-72 border-0 bg-[#131316]/95 p-0 [&>button]:text-slate-300">
+                <div className="flex h-full flex-col">
+                  <div className="px-4 py-5"><BrandMark /></div>
+                  <div className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
+                    {nav.map((item) => {
+                      const Icon = item.icon;
+                      const active = view === item.key;
+                      return (
+                        <button
+                          key={item.key}
+                          onClick={() => handleNavigate(item.key)}
+                          className={cn(
+                            "flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium",
+                            active ? "k-nav-active" : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200",
+                          )}
+                        >
+                          <Icon className="h-[18px] w-[18px]" />
+                          <span className="truncate">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="border-t border-white/[0.07] p-3">
+                    <p className="px-1 text-xs font-semibold text-slate-200">{user.fullName}</p>
+                    <p className="px-1 text-[10px] text-slate-500">{ROLE_LABELS[user.role]}</p>
+                    <Button variant="ghost" size="sm" className="mt-2 w-full justify-start text-rose-300 hover:bg-white/10" onClick={onLogout}>
+                      <LogOut className="mr-2 h-4 w-4" /> Sign out
+                    </Button>
+                  </div>
+                </div>
+              </SheetContent>
+            </Sheet>
+            <button onClick={() => handleNavigate("dashboard")} className="min-w-0" title="Home">
+              <BrandMark />
+            </button>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="relative h-9 w-9 text-slate-400 hover:bg-white/10 hover:text-slate-100" onClick={() => handleNavigate("notifications")} title="Notifications">
-              <Bell className="h-4.5 w-4.5" />
-              {unread > 0 && <span className="absolute right-1 top-1 flex h-2.5 w-2.5 items-center justify-center rounded-full bg-[#e8833a] text-[8px] font-bold text-white">{unread > 9 ? "9+" : unread}</span>}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/[0.055] px-2 pr-3 backdrop-blur transition hover:bg-white/10">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-[#31456b] to-[#22334e] text-[10px] font-bold text-[#b3a5ff] ring-1 ring-white/15">
-                    {user.fullName.split(" ").map((w) => w[0]).slice(0, 2).join("")}
-                  </span>
-                  <span className="hidden max-w-[120px] truncate text-xs font-medium text-slate-200 sm:block">{user.fullName}</span>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="border-white/10 bg-[#16233a]/95 text-slate-200 backdrop-blur-xl">
-                <DropdownMenuLabel>
-                  <p className="text-xs font-semibold">{user.fullName}</p>
-                  <p className="mt-0.5 text-[10px] font-normal text-slate-400">{user.email}</p>
-                  <p className="mt-1 text-[10px] font-normal text-[#8b7ff5]">{ROLE_LABELS[user.role]} · {DEPT_LABELS[user.department]}</p>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-white/10" />
-                <ChangePasswordItem />
-                <DropdownMenuItem onClick={onLogout} className="text-rose-300 focus:text-rose-300">
-                  <LogOut className="mr-2 h-4 w-4" /> Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </header>
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">{children}</main>
-        <footer className="mt-auto border-t border-white/[0.06] px-6 py-3 text-center text-[11px] text-slate-600">
-          Kallmania · SBTS Group Global
-        </footer>
-      </div>
+          {IconCluster}
+        </div>
+        {/* Horizontal pill nav — desktop */}
+        <div className="mx-auto hidden w-full max-w-[1600px] items-center gap-3 px-5 pb-2.5 lg:flex">
+          <PillNav />
+        </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-6 sm:px-6">{children}</main>
+      <footer className="mt-auto border-t border-white/[0.06] px-6 py-3 text-center text-[11px] text-slate-600">
+        Kallmania · SBTS Group Global
+      </footer>
+
+      <EscalationComposer user={user} open={escalateOpen} setOpen={setEscalateOpen} />
     </div>
   );
 }

@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, fmtDate, DEPT_LABELS, todayISO } from "@/lib/client";
 import { SectionCard, EmptyState } from "@/components/kallmania/shared";
-import { CalendarRange, Loader2, TrendingUp } from "lucide-react";
+import { Country, State } from "country-state-city";
+import { CalendarRange, Globe2, Loader2, MapPin, TrendingUp } from "lucide-react";
 
-type Period = "day" | "week" | "month";
+type Period = "day" | "week" | "month" | "year";
 
 interface CumRow {
   key: string;
@@ -56,6 +58,7 @@ function PeriodToggle({ period, onChange }: { period: Period; onChange: (p: Peri
     { key: "day", label: "Daily" },
     { key: "week", label: "Weekly" },
     { key: "month", label: "Monthly" },
+    { key: "year", label: "Yearly" },
   ];
   return (
     <div className="flex overflow-hidden rounded-lg border border-white/10">
@@ -63,7 +66,7 @@ function PeriodToggle({ period, onChange }: { period: Period; onChange: (p: Peri
         <button
           key={o.key}
           onClick={() => onChange(o.key)}
-          className={`px-3 py-1.5 text-xs font-semibold transition-colors ${period === o.key ? "bg-[#6c5ce7] text-white" : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-slate-200"}`}
+          className={`px-3 py-1.5 text-xs font-semibold transition-colors ${period === o.key ? "bg-[#e8935a] text-[#1a120b]" : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-slate-200"}`}
         >
           {o.label}
         </button>
@@ -87,13 +90,23 @@ export default function PeriodKpiPanel({ role, userRole }: { role: string; userR
   const [date, setDate] = useState(todayISO());
   const [data, setData] = useState<KpiSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  // Admin centre drill-down: choose the country + state whose KPIs to inspect
+  const [country, setCountry] = useState("");
+  const [state, setState] = useState("");
+  const isAdmin = effectiveRole === "ADMIN";
+  const allCountries = Country.getAllCountries().slice().sort((a, b) => a.name.localeCompare(b.name));
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const d = await api<KpiSummary>(`/api/kpi/summary?period=${period}&date=${date}`);
+        const params = new URLSearchParams({ period, date });
+        if (isAdmin && (country || state)) {
+          if (country) params.set("country", country);
+          if (state) params.set("state", state);
+        }
+        const d = await api<KpiSummary>(`/api/kpi/summary?${params}`);
         if (!cancelled) setData(d);
       } catch {
         if (!cancelled) setData(null);
@@ -102,7 +115,7 @@ export default function PeriodKpiPanel({ role, userRole }: { role: string; userR
       }
     })();
     return () => { cancelled = true; };
-  }, [period, date, effectiveRole]);
+  }, [period, date, effectiveRole, isAdmin, country, state]);
 
   const coreRows = data?.rows.filter((r) => r.category !== "EMAIL_EXTENSION") ?? [];
   const emailRows = data?.rows.filter((r) => r.category === "EMAIL_EXTENSION" && r.actual !== null) ?? [];
@@ -112,7 +125,9 @@ export default function PeriodKpiPanel({ role, userRole }: { role: string; userR
       ? `Cumulative performance for ${fmtDate(date)}`
       : period === "week"
         ? `Cumulative Mon–Sun week containing ${fmtDate(date)}`
-        : `Cumulative totals for ${fmtDate(date)} (whole month)`;
+        : period === "year"
+          ? `Cumulative totals for the whole year of ${fmtDate(date)}`
+          : `Cumulative totals for ${fmtDate(date)} (whole month)`;
 
   return (
     <SectionCard
@@ -120,6 +135,24 @@ export default function PeriodKpiPanel({ role, userRole }: { role: string; userR
       subtitle={subtitle}
       actions={
         <div className="flex flex-wrap items-center gap-2">
+          {isAdmin && (
+            <>
+              <Select value={country || undefined} onValueChange={(v) => { setCountry(v === "__all__" ? "" : v); setState(""); }}>
+                <SelectTrigger className="h-8 w-40 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><Globe2 className="mr-2 h-3.5 w-3.5 text-[#eda06a]" />{country ? allCountries.find((c) => c.isoCode === country)?.name : "All countries"}</SelectTrigger>
+                <SelectContent className="max-h-64">
+                  <SelectItem value="__all__">All countries</SelectItem>
+                  {allCountries.map((c) => <SelectItem key={c.isoCode} value={c.isoCode}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={state || undefined} onValueChange={(v) => setState(v === "__all__" ? "" : v)} disabled={!country}>
+                <SelectTrigger className="h-8 w-36 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><MapPin className="mr-2 h-3.5 w-3.5 text-[#eda06a]" />{state || "All states"}</SelectTrigger>
+                <SelectContent className="max-h-64">
+                  <SelectItem value="__all__">All states</SelectItem>
+                  {(country ? State.getStatesOfCountry(country) : []).map((s) => <SelectItem key={s.isoCode} value={s.name}>{s.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </>
+          )}
           <PeriodToggle period={period} onChange={setPeriod} />
           <Input
             type="date"

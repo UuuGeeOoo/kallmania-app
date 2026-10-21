@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { api, fmtDate, todayISO, type TaskDTO, type SessionUser, type UserDTO } from "@/lib/client";
+import { api, fmtDate, todayISO, TASK_DEPTS, type TaskDTO, type SessionUser, type UserDTO } from "@/lib/client";
 import { SectionCard, PageHeader, EmptyState, StatusBadge, Field, inputCls } from "@/components/kallmania/shared";
 import { Country } from "country-state-city";
 import { Plus, Loader2, Trash2, Pencil, ListTodo, Globe2, Building2, Users2 } from "lucide-react";
@@ -38,7 +38,8 @@ const STATUS_COLORS_TASK: Record<string, string> = {
 function categoriesFor(dept: string): string[] {
   if (dept === "WEB_DEV") return TECH_CATEGORIES;
   if (dept === "SOCIAL_MEDIA") return SOCIAL_CATEGORIES;
-  if (dept === "BPO") return BPO_CATEGORIES;
+  // Inbound / Outbound / legacy BPO — call centre categories
+  if (dept === "BPO" || dept === "INBOUND" || dept === "OUTBOUND") return [...BPO_CATEGORIES, "Inbound Call Handling", "Customer Enquiry Resolution"];
   return [...BPO_CATEGORIES, ...TECH_CATEGORIES, ...SOCIAL_CATEGORIES];
 }
 
@@ -57,7 +58,9 @@ function scopeLabel(t: TaskDTO): string {
 
 function TaskDialog({ user, task, onSaved, open, setOpen }: { user: SessionUser; task: TaskDTO | null; onSaved: () => void; open: boolean; setOpen: (v: boolean) => void }) {
   const isManager = user.role === "SUPERVISOR" || user.role === "ADMIN";
+  const canAssign = isManager || user.role === "TEAM_LEAD"; // team leads assign tasks within their centre
   const [staff, setStaff] = useState<UserDTO[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -86,7 +89,8 @@ function TaskDialog({ user, task, onSaved, open, setOpen }: { user: SessionUser;
 
   useEffect(() => {
     if (open) {
-      if (isManager) api<{ users: UserDTO[] }>("/api/users").then(({ users }) => setStaff(users.filter((u) => ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR"].includes(u.role)))).catch(() => {});
+      if (canAssign) api<{ users: UserDTO[] }>("/api/users").then(({ users }) => setStaff(users.filter((u) => ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR"].includes(u.role)))).catch(() => {});
+      setSelectedIds([]);
       if (task) {
         const preAll = task.allCentres ? ASSIGN_ALL_CENTRES : "";
         const preCentre = !task.allCentres && task.centreState && !task.assigneeId ? ASSIGN_WHOLE_CENTRE : "";
@@ -106,19 +110,22 @@ function TaskDialog({ user, task, onSaved, open, setOpen }: { user: SessionUser;
   const save = async () => {
     setSaving(true); setError(null);
     try {
-      // Map the assign-to sentinel values onto the API payload. Centre fields
-      // are only a broadcast scope for "Entire centre" — individual picks stay
-      // visible to that person only.
+      // Map the assign-to selection onto the API payload. Centre fields
+      // are only a broadcast scope for "Entire centre" — individual picks
+      // stay visible to those people only.
       const payload: Record<string, unknown> = { ...form };
       delete payload.country;
       const wholeCentre = form.assigneeId === ASSIGN_WHOLE_CENTRE;
+      const allCentres = form.assigneeId === ASSIGN_ALL_CENTRES;
       payload.centreCountry = wholeCentre ? form.country : null;
       payload.centreState = wholeCentre ? form.centreState : null;
-      payload.allCentres = form.assigneeId === ASSIGN_ALL_CENTRES;
-      if (form.assigneeId === ASSIGN_ALL_CENTRES) {
-        payload.assigneeId = null; payload.centreCountry = null; payload.centreState = null;
-      } else if (wholeCentre) {
+      payload.allCentres = allCentres;
+      if (allCentres || wholeCentre) {
         payload.assigneeId = null;
+      } else if (!task && canAssign) {
+        // Create mode: multi-select individual assignment (single or multiple agents)
+        payload.assigneeIds = selectedIds;
+        payload.assigneeId = selectedIds[0] || null;
       }
       if (task) {
         await api("/api/tasks", { method: "PATCH", body: JSON.stringify({ id: task.id, ...payload }) });
@@ -167,33 +174,79 @@ function TaskDialog({ user, task, onSaved, open, setOpen }: { user: SessionUser;
               </Field>
             </>
           )}
-          <Field label={isManager && form.centreState ? `Assign to — agents in ${form.centreState} centre` : "Assign to"}>
-            {isManager ? (
+          <Field label={form.centreState ? `Assign to — agents in ${form.centreState} centre` : canAssign && !isManager ? "Assign to — agents in your centre" : "Assign to"}>
+            {!canAssign ? (
+              <Input readOnly disabled className={inputCls} value="Me" />
+            ) : task ? (
+              /* Edit mode — keep the original single-assignee select */
               <Select value={form.assigneeId || undefined} onValueChange={(v) => setForm({ ...form, assigneeId: v })}>
                 <SelectTrigger className={inputCls}><SelectValue placeholder="Select who / where" /></SelectTrigger>
                 <SelectContent className="max-h-64">
-                  <SelectItem value={ASSIGN_ALL_CENTRES} className="font-semibold text-emerald-300">
-                    <span className="inline-flex items-center gap-2"><Globe2 className="h-3.5 w-3.5" />All centres — everyone</span>
-                  </SelectItem>
-                  {form.centreState && (
-                    <SelectItem value={ASSIGN_WHOLE_CENTRE} className="font-semibold text-sky-300">
-                      <span className="inline-flex items-center gap-2"><Building2 className="h-3.5 w-3.5" />Entire {form.centreState} centre ({centreAgents.length})</span>
-                    </SelectItem>
+                  {isManager && (
+                    <>
+                      <SelectItem value={ASSIGN_ALL_CENTRES} className="font-semibold text-emerald-300">
+                        <span className="inline-flex items-center gap-2"><Globe2 className="h-3.5 w-3.5" />All centres — everyone</span>
+                      </SelectItem>
+                      {form.centreState && (
+                        <SelectItem value={ASSIGN_WHOLE_CENTRE} className="font-semibold text-sky-300">
+                          <span className="inline-flex items-center gap-2"><Building2 className="h-3.5 w-3.5" />Entire {form.centreState} centre</span>
+                        </SelectItem>
+                      )}
+                    </>
                   )}
                   {centreAgents.map((u) => <SelectItem key={u.id} value={u.id}>{u.fullName} — {u.role.replace(/_/g, " ")}</SelectItem>)}
                 </SelectContent>
               </Select>
             ) : (
-              <Input readOnly disabled className={inputCls} value="Me" />
+              /* Create mode — single OR multiple agents via checkbox list */
+              <div className="max-h-44 space-y-1.5 overflow-y-auto rounded-lg border border-white/10 bg-white/[0.02] p-2">
+                {isManager && (
+                  <div className="flex flex-wrap gap-1.5 border-b border-white/10 pb-2">
+                    <button type="button" onClick={() => setForm({ ...form, assigneeId: form.assigneeId === ASSIGN_ALL_CENTRES ? "" : ASSIGN_ALL_CENTRES })} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${form.assigneeId === ASSIGN_ALL_CENTRES ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-300" : "border-white/10 text-slate-400 hover:bg-white/5"}`}>
+                      <Globe2 className="mr-1 inline h-3 w-3" />All centres
+                    </button>
+                    {form.centreState && (
+                      <button type="button" onClick={() => setForm({ ...form, assigneeId: form.assigneeId === ASSIGN_WHOLE_CENTRE ? "" : ASSIGN_WHOLE_CENTRE })} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${form.assigneeId === ASSIGN_WHOLE_CENTRE ? "border-sky-400/50 bg-sky-500/15 text-sky-300" : "border-white/10 text-slate-400 hover:bg-white/5"}`}>
+                        <Building2 className="mr-1 inline h-3 w-3" />Entire {form.centreState} centre ({centreAgents.length})
+                      </button>
+                    )}
+                    <button type="button" onClick={() => { setForm({ ...form, assigneeId: "" }); setSelectedIds([]); }} className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-slate-500 hover:bg-white/5">Clear</button>
+                  </div>
+                )}
+                {form.assigneeId === ASSIGN_ALL_CENTRES || form.assigneeId === ASSIGN_WHOLE_CENTRE ? (
+                  <p className="px-1 py-1 text-[11px] text-slate-500">
+                    Broadcast scope selected — {form.assigneeId === ASSIGN_ALL_CENTRES ? "everyone in every centre" : `every agent in the ${form.centreState} centre`} will be assigned automatically.
+                  </p>
+                ) : centreAgents.length === 0 ? (
+                  <p className="px-1 py-1 text-[11px] text-slate-500">{isManager && !form.centreState ? "Pick a centre above to list its agents." : "No agents found in your centre yet."}</p>
+                ) : (
+                  centreAgents.map((u) => {
+                    const checked = selectedIds.includes(u.id);
+                    return (
+                      <label key={u.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-xs text-slate-300 transition hover:bg-white/5">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setSelectedIds((prev) => (checked ? prev.filter((id) => id !== u.id) : [...prev, u.id]))}
+                          className="h-3.5 w-3.5 rounded border-white/20 bg-white/10 accent-[#e8935a]"
+                        />
+                        <span className="truncate font-medium">{u.fullName}</span>
+                        <span className="ml-auto shrink-0 text-[10px] text-slate-500">{u.role.replace(/_/g, " ").toLowerCase()}</span>
+                      </label>
+                    );
+                  })
+                )}
+                {selectedIds.length > 0 && form.assigneeId === "" && (
+                  <p className="px-1 pt-1 text-[10px] font-semibold text-[#eda06a]">{selectedIds.length} agent{selectedIds.length === 1 ? "" : "s"} selected</p>
+                )}
+              </div>
             )}
           </Field>
           <Field label="Department">
-            <Select value={form.department} onValueChange={(v) => setForm({ ...form, department: v, category: "" })} disabled={!isManager}>
+            <Select value={form.department} onValueChange={(v) => setForm({ ...form, department: v, category: "" })} disabled={!canAssign}>
               <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="BPO">BPO</SelectItem>
-                <SelectItem value="WEB_DEV">Web Dev</SelectItem>
-                <SelectItem value="SOCIAL_MEDIA">Social Media</SelectItem>
+                {TASK_DEPTS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </Field>
@@ -273,9 +326,7 @@ export default function TasksView({ user, managerMode = false }: { user: Session
                 <SelectTrigger className="w-40 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">All departments</SelectItem>
-                  <SelectItem value="BPO">BPO</SelectItem>
-                  <SelectItem value="WEB_DEV">Web Dev</SelectItem>
-                  <SelectItem value="SOCIAL_MEDIA">Social Media</SelectItem>
+                  {TASK_DEPTS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             )}
@@ -336,6 +387,14 @@ export default function TasksView({ user, managerMode = false }: { user: Session
                 <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-white/5 pt-3">
                   <div className="min-w-64 flex-1"><Field label="What is blocking this task?"><Input className={inputCls} defaultValue={t.blocker || ""} placeholder="e.g. waiting on API credentials" onBlur={(e) => updateStatus(t.id, "BLOCKED", { blocker: e.target.value })} /></Field></div>
                   <div className="w-32"><Field label="Next steps"><Input className={inputCls} defaultValue={t.nextSteps || ""} onBlur={(e) => api("/api/tasks", { method: "PATCH", body: JSON.stringify({ id: t.id, nextSteps: e.target.value }) })} /></Field></div>
+                </div>
+              )}
+              {(t.assignees?.length ?? 0) > 1 && (
+                <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-white/5 pt-3">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Assigned to {t.assignees!.length} agents:</span>
+                  {t.assignees!.map((a) => (
+                    <span key={a.userId} className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[10px] text-slate-300">{a.user.fullName}</span>
+                  ))}
                 </div>
               )}
             </div>
