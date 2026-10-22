@@ -318,3 +318,25 @@ Work Log:
 Stage Summary:
 - PENDING: prisma db push against Supabase (needs URL from user) — new KpiConfig columns; API falls back gracefully until then
 - PENDING: restore .env/.env.local with KALLMANIA_DATABASE_URL
+
+---
+Task ID: 22
+Agent: main (Z.ai)
+Task: Restore Supabase access with user-supplied connection string + finish the per-centre KPI work (db push, verify admin cross-centre config + light-theme escalate bar)
+
+Work Log:
+- User re-supplied the Supabase URL after the workspace sync wiped .env/.env.local. Worklog flagged the password contains a literal "%E6" -> must be double-encoded as %25E6 in the URL; the as-sent single-encoded form would decode to a wrong password
+- Sandbox has no IPv6 -> direct host db.heybhtesxvhuktuhvfyd.supabase.co:5432 unreachable (P1001). Session pooler aws-0-eu-west-1.pooler.supabase.com:5432 with user postgres.heybhtesxvhuktuhvfyd + %25E6 password + sslmode=require&sslaccept=accept_invalid_certs WORKS (scripts/test-db-restored.js forms A-D)
+- Restored .env + .env.local (gitignored, chmod 600) with KALLMANIA_DATABASE_URL (pooler form), AUTH_SECRET, UPLOAD_STORAGE_DIR; verified app-style connection (db.ts promotion path) -> users=5
+- Ran the PENDING migration: prisma db push --accept-data-loss (47 KpiConfig rows, 0 dupes on department+key, constraint safe) -> centreCountry/centreState + unique [department,key,centreCountry,centreState] now live in Supabase
+- BUG FOUND while verifying: POST /api/kpi-config centre-scoped save silently corrupted the GLOBAL row — upsert create branch was missing required department+key, so Prisma threw, the legacy catch ran findFirst({department,key}) and updated the global row (reproduced: my first test turned global totalCallsMade 30->55). Root cause of silence: until this session the DB was unmigrated so every POST took the legacy path and the bug never surfaced
+- FIX (commit 5328530): create: { department, key, ...values, sortOrder: 100, centreCountry, centreState }
+- Restored global target=30 via the API. E2E verify (scripts/verify-kpi-centres.js + agent-browser as admin): centre override CREATE (new row NG/Enugu target=55) -> merged centre view (target=55, isOverride=true, globalTarget=30) -> global view untouched -> UI edit-on-blur persists -> CENTRE OVERRIDE badge -> UI Reset deletes override -> centre falls back to global. DB left clean (global=30, 0 overrides)
+- Light theme Notify/Escalate verified readable in browser: bar title/preview/badge on k-card (text-slate-100 remapped to near-black in light via globals.css) + composer dialog on bg-popover (Task 21 fix holding); KPI config page verified in both themes (screenshots download/kpi-centre-override-{dark,light}.png, escalate-bar-light-fixed.png, escalate-composer-light.png)
+- bun run build clean; .zscripts/build.sh packaging exit 0 (59M). Committed 5328530, pushed 3b45a2b..5328530 to GitHub main (PAT transient, unset after)
+
+Stage Summary:
+- Supabase access fully restored via session pooler; .env self-heal pair (.env.local backup) back in place
+- Schema migration applied: per-centre KPI columns live; latent upsert data-corruption bug found and fixed before the user ever hit it
+- Admin can pick any centre in KPI Configuration and save per-centre overrides (verified UI+API both themes); light-theme escalate texts confirmed visible
+- Remote main = 5328530
