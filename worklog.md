@@ -381,3 +381,7 @@ Work Log:
 Stage Summary:
 - Per-team template configuration already exists (TL Report Template nav page AND KPI Configuration bottom section, admin+supervisor); the user was seeing an old cached deployment. Deployment refreshed via rebuild + Complete.
 - Evidence screenshots saved in download/ for the user to compare after the preview updates.
+
+Task 24 addendum — "Update it to Git and Supabase":
+- Git: platform auto-sync committed the task-24 artifacts (worklog, scripts/inspect-report-templates.js, 4 evidence screenshots, user uploads) as c04da68 and pushed; origin/main = local HEAD = c04da68 — nothing left to push.
+- Supabase: `prisma db push` against the session pooler reports "The database is already in sync with the Prisma schema" (no schema change in task 24 — template customizations are ReportTemplate rows, 0 custom rows present).
