@@ -365,3 +365,19 @@ Stage Summary:
 - Changing the reporting date never deletes typed entries anymore — only the date changes; clean date switches still load that day's saved report
 - Team leads assign tasks only to their own team members in their centre; supervisors keep whole-centre reach; enforced server-side and reflected in the picker
 - GitHub main = Supabase state = deploy payload (656ae7b)
+
+---
+Task ID: 24
+Agent: main (Z.ai)
+Task: "Administrator can't configure the different teams' team-lead report templates — it is only showing a single template unlike the team options in the KPI Configuration" (screenshots attached)
+
+Work Log:
+- Root-caused from the screenshots: the user's page showed the OLD pre-task-23 editor verbatim — singular title "Team Lead Report Template", description "Changes apply immediately to the Team Lead report form", no team picker, name "General (fallback) — Team Lead Daily Report Template". That exact UI only exists in commit 0b24668; the current code (656ae7b) has none of those strings. => The preview was serving a STALE deployment, not missing the feature.
+- Verified the current build end-to-end instead of re-coding: API login as admin -> GET /api/report-template for all 5 keys returns distinct names/sections (TL_OUTBOUND 9, TL_INBOUND 10 w/ shift handover, TL_SOCIAL 9, TL_TECH 9, TEAM_LEAD 9); PUT+DELETE round-trip clean; scripts/inspect-report-templates.js shows 0 custom rows in Supabase (all shipped defaults, isCustom=false).
+- Browser-verified as admin (agent-browser): Configuration -> TL Report Template page shows heading "Team Lead Report Templates" + team picker (Outbound/Inbound/Social Media/Web & Technical/General fallback); selecting "Social Media Team — Team Lead" swaps identity to "DAILY REPORT — SOCIAL MEDIA TEAM LEAD"; same editor embedded at the bottom of KPI Configuration under the centre selector. Screenshots (dark+light): download/tl-template-page-{dark,light}.png, download/kpi-embedded-template-picker-{dark,light}.png. Zero console/page errors.
+- Stale-deploy fix: stopped dev server, bun run build clean, .zscripts/build.sh packaging exit 0 (118M payload), dev daemon restarted (GET / 200). Called Complete to re-finalize deployment so the preview picks up 656ae7b. No code changes were needed; no new commit (working tree only gained worklog + inspection script + screenshots).
+- Supabase: no schema change involved (template customizations are ReportTemplate rows); prisma state already in sync.
+
+Stage Summary:
+- Per-team template configuration already exists (TL Report Template nav page AND KPI Configuration bottom section, admin+supervisor); the user was seeing an old cached deployment. Deployment refreshed via rebuild + Complete.
+- Evidence screenshots saved in download/ for the user to compare after the preview updates.
