@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
             department, key, centreCountry: scope.centreCountry, centreState: scope.centreState,
           },
         },
-        create: { ...values, sortOrder: 100, centreCountry: scope.centreCountry, centreState: scope.centreState },
+        create: { department, key, ...values, sortOrder: 100, centreCountry: scope.centreCountry, centreState: scope.centreState },
         update: values,
       });
     } catch {
