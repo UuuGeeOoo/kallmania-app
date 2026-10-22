@@ -263,8 +263,12 @@ model KpiConfig {
   mandatory     Boolean @default(false)
   active        Boolean @default(true)
   sortOrder     Int     @default(0)
+  // Centre scope: "ALL"/"ALL" = global default for the department;
+  // ("NG","Lagos") etc. = centre-specific configuration that overrides the default.
+  centreCountry String  @default("ALL")
+  centreState   String  @default("ALL")
 
-  @@unique([department, key])
+  @@unique([department, key, centreCountry, centreState])
 }
 
 // Notify / escalate bar — two-way messages between staff and management.

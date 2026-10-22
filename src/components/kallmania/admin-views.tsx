@@ -268,25 +268,41 @@ export function AdminUsersView() {
 interface KpiConfigDTO {
   id: string; department: string; key: string; label: string; category: string;
   unit: string; direction: string; defaultTarget: number | null; mandatory: boolean; active: boolean;
+  centreCountry: string; centreState: string;
+  isOverride: boolean; globalTarget: number | null;
 }
 
-export function KpiConfigView() {
+interface CentreDTO { country: string; state: string; agents: number }
+
+export function KpiConfigView({ user }: { user: SessionUser }) {
+  const isAdmin = user.role === "ADMIN";
+  const isSupervisor = user.role === "SUPERVISOR";
   const [configs, setConfigs] = useState<KpiConfigDTO[]>([]);
+  const [centres, setCentres] = useState<CentreDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [deptFilter, setDeptFilter] = useState("BPO");
+  // Selected scope: ALL/ALL = global defaults (administrator only);
+  // otherwise a specific centre (country + state) the administrator picked,
+  // or the supervisor's own centre.
+  const [centreCountry, setCentreCountry] = useState(isSupervisor ? user.country || "" : "ALL");
+  const [centreState, setCentreState] = useState(isSupervisor ? user.state || "" : "ALL");
   const [form, setForm] = useState({ key: "", label: "", defaultTarget: "", mandatory: false, unit: "count" });
   const [saving, setSaving] = useState(false);
+
+  const centreSelected = centreCountry !== "ALL" && centreCountry !== "" && centreState !== "ALL" && centreState !== "";
 
   const load = async () => {
     setLoading(true);
     try {
-      const { configs } = await api<{ configs: KpiConfigDTO[] }>("/api/kpi-config");
+      const qs = centreSelected ? `?centreCountry=${encodeURIComponent(centreCountry)}&centreState=${encodeURIComponent(centreState)}` : "";
+      const { configs, centres } = await api<{ configs: KpiConfigDTO[]; centres?: CentreDTO[] }>(`/api/kpi-config${qs}`);
       setConfigs(configs);
+      if (centres) setCentres(centres);
     } finally {
       setLoading(false);
     }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [centreCountry, centreState]);
 
   const add = async () => {
     if (!form.key || !form.label) return;
@@ -294,7 +310,11 @@ export function KpiConfigView() {
     try {
       await api("/api/kpi-config", {
         method: "POST",
-        body: JSON.stringify({ department: deptFilter, key: form.key.trim().replace(/\s+/g, "_").toLowerCase(), label: form.label, defaultTarget: form.defaultTarget, unit: form.unit, mandatory: isInbound ? false : form.mandatory, category: "CUSTOM" }),
+        body: JSON.stringify({
+          department: deptFilter, key: form.key.trim().replace(/\s+/g, "_").toLowerCase(), label: form.label,
+          defaultTarget: form.defaultTarget, unit: form.unit, mandatory: isInbound ? false : form.mandatory, category: "CUSTOM",
+          centreCountry: centreSelected ? centreCountry : undefined, centreState: centreSelected ? centreState : undefined,
+        }),
       });
       setForm({ key: "", label: "", defaultTarget: "", mandatory: false, unit: "count" });
       load();
@@ -311,7 +331,11 @@ export function KpiConfigView() {
   const toggleTarget = async (c: KpiConfigDTO, target: string) => {
     await api("/api/kpi-config", {
       method: "POST",
-      body: JSON.stringify({ department: c.department, key: c.key, label: c.label, category: c.category, unit: c.unit, defaultTarget: target, mandatory: c.mandatory, active: c.active }),
+      body: JSON.stringify({
+        department: c.department, key: c.key, label: c.label, category: c.category, unit: c.unit,
+        defaultTarget: target, mandatory: c.mandatory, active: c.active,
+        centreCountry: centreSelected ? centreCountry : undefined, centreState: centreSelected ? centreState : undefined,
+      }),
     });
     load();
   };
@@ -319,12 +343,18 @@ export function KpiConfigView() {
   const visible = configs.filter((c) => c.department === deptFilter);
   const isInbound = deptFilter === "INBOUND";
   // Only the outbound BPO template locks its three core template rows — Inbound rows are all editable/deletable.
-  const isProtected = (c: KpiConfigDTO) => deptFilter === "BPO" && ["totalCallsMade", "totalMailsSent", "callsConnected"].includes(c.key);
+  const isProtected = (c: KpiConfigDTO) => !centreSelected && deptFilter === "BPO" && ["totalCallsMade", "totalMailsSent", "callsConnected"].includes(c.key);
+
+  const centreLabel = centreSelected
+    ? `${COUNTRY_NAMES[centreCountry] || centreCountry} — ${centreState}`
+    : "All centres (default)";
 
   return (
     <div>
-      <PageHeader title="KPI Configuration" subtitle="Configure targets, mandatory fields and metric catalogues per department" />
-      <div className="mb-4">
+      <PageHeader title="KPI Configuration" subtitle="Pick a centre and configure the KPI targets for its teams — or edit the global defaults" />
+
+      {/* Scope selector — administrators choose any centre; supervisors are pinned to theirs */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <Select value={deptFilter} onValueChange={setDeptFilter}>
           <SelectTrigger className="w-56 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -334,17 +364,53 @@ export function KpiConfigView() {
             <SelectItem value="SOCIAL_MEDIA">Social Media</SelectItem>
           </SelectContent>
         </Select>
-        {isInbound && (
-          <p className="mt-2 flex items-center gap-1.5 text-[11px] text-[#b3a5ff]">
-            <Info className="h-3.5 w-3.5" /> Inbound Call Centre uses the same metrics as the outbound template — but nothing is required: every metric is optional, and each one can be edited or deleted.
-          </p>
+        {isAdmin ? (
+          <Select
+            value={centreSelected ? `${centreCountry}|${centreState}` : "ALL"}
+            onValueChange={(v) => {
+              if (v === "ALL") { setCentreCountry("ALL"); setCentreState("ALL"); return; }
+              const [cc, cs] = v.split("|");
+              setCentreCountry(cc); setCentreState(cs);
+            }}
+          >
+            <SelectTrigger className="w-72 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200">
+              <MapPin className="mr-1 h-3.5 w-3.5 text-[#eda06a]" />
+              <SelectValue placeholder="Choose centre" />
+            </SelectTrigger>
+            <SelectContent className="max-h-72">
+              <SelectItem value="ALL">All centres — global defaults</SelectItem>
+              {centres.map((c) => (
+                <SelectItem key={`${c.country}|${c.state}`} value={`${c.country}|${c.state}`}>
+                  {COUNTRY_NAMES[c.country] || c.country} — {c.state} ({c.agents} staff)
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1.5 text-[11px] font-semibold text-slate-300">
+            <MapPin className="h-3.5 w-3.5 text-[#eda06a]" />
+            {centreSelected ? `Your centre — ${centreLabel}` : "No centre location set on your account"}
+          </span>
         )}
       </div>
+      {isSupervisor && !centreSelected && (
+        <p className="mb-4 flex items-center gap-1.5 text-[11px] text-amber-400">
+          <Info className="h-3.5 w-3.5" /> Your account has no country/state, so no centre can be resolved. Ask an administrator to set your location.
+        </p>
+      )}
+      {isInbound && (
+        <p className="mb-4 flex items-center gap-1.5 text-[11px] text-[#b3a5ff]">
+          <Info className="h-3.5 w-3.5" /> Inbound Call Centre uses the same metrics as the outbound template — but nothing is required: every metric is optional, and each one can be edited or deleted.
+        </p>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
       ) : (
-        <SectionCard title={`Metrics — ${DEPT_LABELS[deptFilter]}`} subtitle="Edit the default target for any metric. Blank target = no fixed target.">
+        <SectionCard
+          title={`Metrics — ${DEPT_LABELS[deptFilter]} · ${centreLabel}`}
+          subtitle={centreSelected ? "Values you edit here apply to this centre only and override the global defaults." : "Edit the default target for any metric. Blank target = no fixed target."}
+        >
           <div className="overflow-x-auto rounded-lg border border-white/10">
             <Table>
               <TableHeader>
@@ -353,7 +419,7 @@ export function KpiConfigView() {
                   <TableHead className="text-[11px] text-slate-400">Key</TableHead>
                   <TableHead className="text-[11px] text-slate-400">Category</TableHead>
                   <TableHead className="text-[11px] text-slate-400">Unit</TableHead>
-                  <TableHead className="text-[11px] text-slate-400">Default target</TableHead>
+                  <TableHead className="text-[11px] text-slate-400">{centreSelected ? "Target for this centre" : "Default target"}</TableHead>
                   <TableHead className="text-[11px] text-slate-400">Mandatory</TableHead>
                   <TableHead className="text-[11px] text-slate-400"></TableHead>
                 </TableRow>
@@ -361,7 +427,14 @@ export function KpiConfigView() {
               <TableBody>
                 {visible.map((c) => (
                   <TableRow key={c.id} className="border-white/5">
-                    <TableCell className="py-2 text-xs font-medium text-slate-200">{c.label}</TableCell>
+                    <TableCell className="py-2 text-xs font-medium text-slate-200">
+                      {c.label}
+                      {centreSelected && (
+                        <span className={cnBadge(c.isOverride)}>
+                          {c.isOverride ? "centre override" : "global default"}
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell className="py-2 font-mono text-[10px] text-slate-500">{c.key}</TableCell>
                     <TableCell className="py-2 text-[10px] uppercase text-slate-500">{c.category.replace(/_/g, " ")}</TableCell>
                     <TableCell className="py-2 text-xs text-slate-400">{c.unit}</TableCell>
@@ -371,12 +444,22 @@ export function KpiConfigView() {
                         className="h-7 w-20 border-slate-600/50 bg-[#15202e]/60 text-xs tabular-nums text-slate-100"
                         onBlur={(e) => { if (e.target.value !== (c.defaultTarget !== null ? String(c.defaultTarget) : "")) toggleTarget(c, e.target.value); }}
                       />
+                      {centreSelected && c.isOverride && (
+                        <p className="mt-0.5 text-[9px] text-slate-500">global: {c.globalTarget !== null ? c.globalTarget : "—"}</p>
+                      )}
                     </TableCell>
                     <TableCell className="py-2 text-xs">{isInbound || !c.mandatory ? <span className="text-slate-500">optional</span> : <span className="text-rose-300">required</span>}</TableCell>
                     <TableCell className="py-2">
-                      {!isProtected(c) && (
-                        <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-500 hover:text-rose-300" onClick={() => remove(c.id)} title="Remove"><Trash2 className="h-3.5 w-3.5" /></Button>
-                      )}
+                      <div className="flex items-center gap-1">
+                        {centreSelected && c.isOverride && (
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-[10px] text-slate-400 hover:text-amber-300" title="Remove this centre override and fall back to the global default" onClick={() => remove(c.id)}>
+                            Reset
+                          </Button>
+                        )}
+                        {!isProtected(c) && (
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-500 hover:text-rose-300" onClick={() => remove(c.id)} title="Remove"><Trash2 className="h-3.5 w-3.5" /></Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -404,13 +487,20 @@ export function KpiConfigView() {
               </Select>
             </Field>
             <Button disabled={saving || !form.label} onClick={add} className="bg-[#6c5ce7] hover:bg-[#5b4bd4]">
-              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Settings2 className="mr-2 h-4 w-4" />} Add metric
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Settings2 className="mr-2 h-4 w-4" />}
+              {centreSelected ? "Add for this centre" : "Add metric"}
             </Button>
           </div>
         </SectionCard>
       )}
     </div>
   );
+}
+
+function cnBadge(isOverride: boolean) {
+  return isOverride
+    ? "ml-2 rounded bg-[#e8935a]/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#c2641f] dark:text-[#f0b285]"
+    : "ml-2 rounded bg-white/[0.06] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-500";
 }
 
 // ───────────────────────── AUDIT TRAIL ─────────────────────────

@@ -73,7 +73,7 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="border-white/10 bg-[#17171c] text-slate-100 sm:max-w-md">
+      <DialogContent className="border-white/10 bg-popover text-popover-foreground text-slate-100 sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-white">
             <Siren className="h-4.5 w-4.5 text-[#e8935a]" />

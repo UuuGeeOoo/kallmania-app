@@ -116,7 +116,7 @@ export function ReportDetailDialog({ report, open, onClose }: { report: ReportDT
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto border-white/10 bg-[#131f30]/95 text-slate-100 backdrop-blur-2xl sm:max-w-3xl">
+      <DialogContent className="max-h-[85vh] overflow-y-auto border-white/10 bg-popover/95 text-popover-foreground text-slate-100 backdrop-blur-2xl sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-3 text-white">
             <span className="font-mono text-[#b3a5ff]">{report.ref}</span>
@@ -365,7 +365,7 @@ export function ReviewView({ user, focusReportId }: { user: SessionUser; focusRe
       )}
 
       <Dialog open={!!selected} onOpenChange={(v) => !v && setSelected(null)}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto border-white/10 bg-[#131f30]/95 text-slate-100 backdrop-blur-2xl sm:max-w-3xl">
+        <DialogContent className="max-h-[85vh] overflow-y-auto border-white/10 bg-popover/95 text-popover-foreground text-slate-100 backdrop-blur-2xl sm:max-w-3xl">
           <DialogHeader><DialogTitle className="flex items-center gap-3 text-white">{selected?.ref} <StatusBadge status={selected?.status || ""} /></DialogTitle></DialogHeader>
           {selected && (
             <div className="space-y-4">

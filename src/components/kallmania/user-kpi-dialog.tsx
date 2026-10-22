@@ -79,7 +79,7 @@ export function UserKpiDialog({ user: staff, open, setOpen }: { user: UserDTO | 
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto border-white/10 bg-[#17171c] text-slate-100 sm:max-w-2xl">
+      <DialogContent className="max-h-[88vh] overflow-y-auto border-white/10 bg-popover text-popover-foreground text-slate-100 sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2 text-white">
             <Target className="h-4.5 w-4.5 text-[#e8935a]" />

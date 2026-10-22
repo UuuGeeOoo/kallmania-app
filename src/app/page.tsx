@@ -129,7 +129,7 @@ export default function Page() {
       case "admin-users":
         return <AdminUsersView />;
       case "kpi-config":
-        return <KpiConfigView />;
+        return <KpiConfigView user={user} />;
       case "audit":
         return <AuditView />;
       case "notifications":
