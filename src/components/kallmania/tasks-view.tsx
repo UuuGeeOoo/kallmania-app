@@ -58,7 +58,8 @@ function scopeLabel(t: TaskDTO): string {
 
 function TaskDialog({ user, task, onSaved, open, setOpen }: { user: SessionUser; task: TaskDTO | null; onSaved: () => void; open: boolean; setOpen: (v: boolean) => void }) {
   const isManager = user.role === "SUPERVISOR" || user.role === "ADMIN";
-  const canAssign = isManager || user.role === "TEAM_LEAD"; // team leads assign tasks within their centre
+  const isTeamLead = user.role === "TEAM_LEAD";
+  const canAssign = isManager || isTeamLead; // team leads assign tasks within their centre, to their own team only
   const [staff, setStaff] = useState<UserDTO[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -89,7 +90,11 @@ function TaskDialog({ user, task, onSaved, open, setOpen }: { user: SessionUser;
 
   useEffect(() => {
     if (open) {
-      if (canAssign) api<{ users: UserDTO[] }>("/api/users").then(({ users }) => setStaff(users.filter((u) => ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR"].includes(u.role)))).catch(() => {});
+      if (canAssign) api<{ users: UserDTO[] }>("/api/users").then(({ users }) => setStaff(users.filter((u) => [
+        "AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR"].includes(u.role)
+        // Team leads only ever see their OWN team members — supervisors see the whole centre.
+        && (!isTeamLead || (u.team && u.team === user.team)),
+      ))).catch(() => {});
       setSelectedIds([]);
       if (task) {
         const preAll = task.allCentres ? ASSIGN_ALL_CENTRES : "";
@@ -174,7 +179,7 @@ function TaskDialog({ user, task, onSaved, open, setOpen }: { user: SessionUser;
               </Field>
             </>
           )}
-          <Field label={form.centreState ? `Assign to — agents in ${form.centreState} centre` : canAssign && !isManager ? "Assign to — agents in your centre" : "Assign to"}>
+          <Field label={isTeamLead ? `Assign to — ${user.team || "your"} team members` : form.centreState ? `Assign to — agents in ${form.centreState} centre` : canAssign && !isManager ? "Assign to — agents in your centre" : "Assign to"}>
             {!canAssign ? (
               <Input readOnly disabled className={inputCls} value="Me" />
             ) : task ? (

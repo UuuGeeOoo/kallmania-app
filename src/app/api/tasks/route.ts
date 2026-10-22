@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
     const assignees: { id: string; fullName: string; department: string }[] = [];
     if (mode === "INDIVIDUAL") {
       for (const uid of ids) {
-        const found = await db.user.findUnique({ where: { id: uid }, select: { id: true, fullName: true, department: true, country: true, state: true } });
+        const found = await db.user.findUnique({ where: { id: uid }, select: { id: true, fullName: true, department: true, team: true, country: true, state: true } });
         if (!found) return fail("Assignee not found", 404);
         if (!isManager) {
           if (uid !== me.id) return fail("Employees can only create tasks for themselves", 403);
@@ -113,6 +113,12 @@ export async function POST(req: NextRequest) {
           if (me.role !== "ADMIN") {
             const sameCentre = me.country && me.state && found.country === me.country && found.state === me.state;
             if (!sameCentre) return fail(`${found.fullName} is not in your centre (${me.state})`, 403);
+            // Team leads can only assign to members of their OWN team within the
+            // centre — only supervisors (and admins) reach the whole centre.
+            if (me.role === "TEAM_LEAD") {
+              if (!me.team) return fail("Your account has no team set — ask an administrator to set your team before assigning tasks", 403);
+              if (found.team !== me.team) return fail(`${found.fullName} is not in your team (${me.team}) — team leads can only assign tasks to their own team members`, 403);
+            }
           }
         }
         assignees.push(found);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,7 +10,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { api, todayISO, type KpiMetric, type CallLogEntry, type ReportDTO, type SessionUser } from "@/lib/client";
 import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner } from "@/components/kallmania/shared";
 import { cn } from "@/lib/utils";
-import { ChevronDown, Save, Send, Calculator, Loader2, FileDown, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Save, Send, Calculator, Loader2, FileDown, Plus, Trash2, CalendarClock } from "lucide-react";
 
 export const DISPOSITIONS = ["Interested", "Callback Requested", "Not Interested", "No Answer", "Busy / Unreachable", "Wrong Number", "Voicemail", "Meeting Booked", "Hot Lead", "Warm Lead"];
 const CALL_LOG_ROWS = 8;
@@ -223,6 +223,12 @@ export default function AgentBpoReportForm({
   const [reviewer, setReviewer] = useState<string | null>(null);
   const [reviewedAt, setReviewedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // ── reporting-date guard: keep unsaved entries when the date changes ──
+  const loadIdRef = useRef(0);
+  const snapshotRef = useRef("{}");
+  const dateRef = useRef(date);
+  const mountedRef = useRef(false);
+  const [dateKept, setDateKept] = useState<string | null>(null);
 
   const DEFAULT_KPIS: KpiMetric[] = useMemo(() => ([
     { key: "totalCallsMade", label: "Total Calls Made", target: 30, targetLabel: "30", actual: null, variance: null, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "", mandatory: true },
@@ -256,58 +262,82 @@ export default function AgentBpoReportForm({
     { key: "outstandingFollowUps", label: "Outstanding Email Follow-ups", target: null, targetLabel: "-", actual: null, variance: null, unit: "count", category: "EMAIL_EXTENSION", auto: false, notes: "" },
   ]), []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const dept = inbound ? "INBOUND" : "BPO";
-        const [reportsRes, kpiConfigs] = await Promise.all([
-          api<{ reports: ReportDTO[] }>(`/api/reports?mine=1&type=AGENT_BPO&date=${date}`),
-          // administrator-managed catalogue for this call centre (targets, labels, optional/required, added & removed metrics)
-          api<{ configs: KpiConfigRow[] }>("/api/kpi-config")
-            .then((r) => r.configs.filter((c) => c.department === dept && c.active !== false))
-            .catch(() => null),
-        ]);
-        const existing = reportsRes.reports[0];
-        if (cancelled) return;
-        const savedMetrics = existing?.kpiMetrics ? JSON.parse(existing.kpiMetrics) as KpiMetric[] : [];
-        setKpiMetrics(buildKpiRows(kpiConfigs, DEFAULT_KPIS, savedMetrics, inbound));
-        if (existing) {
-          setReportId(existing.id);
-          setRef(existing.ref);
-          setStatus(existing.status);
-          setInfo({
-            shiftTime: existing.shiftTime || "", clockIn: existing.clockIn || "", clockOut: existing.clockOut || "",
-            attendanceStatus: existing.attendanceStatus || "Present", latenessMins: existing.latenessMins !== null && existing.latenessMins !== undefined ? String(existing.latenessMins) : "",
-          });
-          const logs = existing.callLogs ? JSON.parse(existing.callLogs) as CallLogEntry[] : [];
-          // start from the 8 template rows, extend if the agent logged more calls
-          setCallLogs(Array.from({ length: Math.max(CALL_LOG_ROWS, logs.length) }, (_, i) => logs[i] || {}));
-          const ctx = existing.emailContext ? JSON.parse(existing.emailContext) as { campaignName?: string } : {};
-          setCampaignName(ctx.campaignName || "");
-          setChallenges(existing.challenges || "");
-          setEscalations(existing.escalations || "");
-          setAdditional(existing.additionalActivities || "");
-          setFeedback(existing.supervisorFeedback || null);
-          setReviewer(existing.reviewer?.fullName || null);
-          setReviewedAt(existing.reviewedAt || null);
-        } else {
-          setReportId(null); setRef(null); setStatus("DRAFT");
-          setCallLogs(Array.from({ length: CALL_LOG_ROWS }, () => ({})));
-          setCampaignName(""); setChallenges(""); setEscalations(""); setAdditional("");
-          setFeedback(null); setReviewer(null); setReviewedAt(null);
-          setInfo({ shiftTime: "", clockIn: "", clockOut: "", attendanceStatus: "Present", latenessMins: "" });
-        }
-      } catch (e) {
-        setError((e as Error).message);
-      } finally {
-        if (!cancelled) setLoading(false);
+  const load = useCallback(async () => {
+    const loadId = ++loadIdRef.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const dept = inbound ? "INBOUND" : "BPO";
+      const [reportsRes, kpiConfigs] = await Promise.all([
+        api<{ reports: ReportDTO[] }>(`/api/reports?mine=1&type=AGENT_BPO&date=${date}`),
+        // administrator-managed catalogue for this call centre (targets, labels, optional/required, added & removed metrics)
+        api<{ configs: KpiConfigRow[] }>("/api/kpi-config")
+          .then((r) => r.configs.filter((c) => c.department === dept && c.active !== false))
+          .catch(() => null),
+      ]);
+      const existing = reportsRes.reports[0];
+      if (loadId !== loadIdRef.current) return;
+      const savedMetrics = existing?.kpiMetrics ? JSON.parse(existing.kpiMetrics) as KpiMetric[] : [];
+      const builtKpis = buildKpiRows(kpiConfigs, DEFAULT_KPIS, savedMetrics, inbound);
+      const builtInfo = existing ? {
+        shiftTime: existing.shiftTime || "", clockIn: existing.clockIn || "", clockOut: existing.clockOut || "",
+        attendanceStatus: existing.attendanceStatus || "Present", latenessMins: existing.latenessMins !== null && existing.latenessMins !== undefined ? String(existing.latenessMins) : "",
+      } : { shiftTime: "", clockIn: "", clockOut: "", attendanceStatus: "Present", latenessMins: "" };
+      const logs = existing?.callLogs ? JSON.parse(existing.callLogs) as CallLogEntry[] : [];
+      // start from the 8 template rows, extend if the agent logged more calls
+      const builtLogs = Array.from({ length: Math.max(CALL_LOG_ROWS, logs.length) }, (_, i) => logs[i] || {});
+      const ctx = existing?.emailContext ? JSON.parse(existing.emailContext) as { campaignName?: string } : {};
+      const builtCampaign = ctx.campaignName || "";
+      const builtChallenges = existing?.challenges || "";
+      const builtEscalations = existing?.escalations || "";
+      const builtAdditional = existing?.additionalActivities || "";
+      setKpiMetrics(builtKpis);
+      setInfo(builtInfo);
+      setCallLogs(builtLogs);
+      setCampaignName(builtCampaign);
+      setChallenges(builtChallenges);
+      setEscalations(builtEscalations);
+      setAdditional(builtAdditional);
+      if (existing) {
+        setReportId(existing.id);
+        setRef(existing.ref);
+        setStatus(existing.status);
+        setFeedback(existing.supervisorFeedback || null);
+        setReviewer(existing.reviewer?.fullName || null);
+        setReviewedAt(existing.reviewedAt || null);
+      } else {
+        setReportId(null); setRef(null); setStatus("DRAFT");
+        setFeedback(null); setReviewer(null); setReviewedAt(null);
       }
-    })();
-    return () => { cancelled = true; };
+      // baseline for the reporting-date guard — anything typed after this counts as unsaved
+      snapshotRef.current = JSON.stringify({ info: builtInfo, callLogs: builtLogs, campaignName: builtCampaign, challenges: builtChallenges, escalations: builtEscalations, additional: builtAdditional, kpiMetrics: builtKpis });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      if (loadId === loadIdRef.current) setLoading(false);
+    }
   }, [date, user.id, inbound, DEFAULT_KPIS]);
+
+  // Initial load only — date changes go through the guard below so the report
+  // is never wiped just because the agent picked another reporting date.
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  // Reporting-date guard: with unsaved entries the content is kept and only the
+  // date changes (saving then files the report under the new date); with a clean
+  // form the report already saved under the new date is loaded.
+  useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; dateRef.current = date; return; }
+    if (date === dateRef.current) return;
+    dateRef.current = date;
+    const current = JSON.stringify({ info, callLogs, campaignName, challenges, escalations, additional, kpiMetrics });
+    if (current !== snapshotRef.current) {
+      setDateKept(date);
+      return;
+    }
+    setDateKept(null);
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
 
   const save = async (submit: boolean) => {
     setSaving(true);
@@ -327,6 +357,8 @@ export default function AgentBpoReportForm({
       if (reportId) body.id = reportId;
       const { report } = await api<{ report: ReportDTO }>("/api/reports", { method: "POST", body: JSON.stringify(body) });
       setReportId(report.id); setRef(report.ref); setStatus(report.status);
+      snapshotRef.current = JSON.stringify({ info, callLogs, campaignName, challenges, escalations, additional, kpiMetrics });
+      setDateKept(null);
       onDone?.();
     } catch (e) {
       setError((e as Error).message);
@@ -348,6 +380,11 @@ export default function AgentBpoReportForm({
 
   return (
     <div className="space-y-5">
+      {dateKept && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+          <CalendarClock className="h-3.5 w-3.5 shrink-0" /> Reporting date changed to {dateKept} — your entries were kept and will be saved under this date.
+        </div>
+      )}
       {ref && status !== "DRAFT" && (
         <ReportStateBanner status={status} ref={ref} feedback={feedback} reviewer={reviewer} reviewedAt={reviewedAt} />
       )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api, fmtDate, type ReportDTO, type SessionUser } from "@/lib/client";
 import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner } from "@/components/kallmania/shared";
 import { cn } from "@/lib/utils";
-import { Save, Send, Loader2, RefreshCw, FileDown, Plus, Trash2 } from "lucide-react";
+import { Save, Send, Loader2, RefreshCw, FileDown, Plus, Trash2, CalendarClock } from "lucide-react";
 
 const ATTENDANCE_ROWS = [
   { key: "totalOnShift", label: "Total Agents on Shift" },
@@ -63,8 +63,15 @@ export default function SupervisorReportForm({ user, date, onExport }: { user: S
   const [plan, setPlan] = useState<PlanRow[]>(() => empty(PLAN_ROWS, blankPlan));
   const [managerReview, setManagerReview] = useState("");
   const [ownActivities, setOwnActivities] = useState("");
+  // ── reporting-date guard: keep unsaved entries when the date changes ──
+  const loadIdRef = useRef(0);
+  const snapshotRef = useRef("{}");
+  const dateRef = useRef(date);
+  const mountedRef = useRef(false);
+  const [dateKept, setDateKept] = useState<string | null>(null);
 
   const load = async () => {
+    const loadId = ++loadIdRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -75,63 +82,93 @@ export default function SupervisorReportForm({ user, date, onExport }: { user: S
         departments: Record<string, { teamKpiRows?: { key: string; label: string; teamTarget: number | null; teamAvg: number | null; best: string | null; lowest: string | null }[]; bpoTotals?: Record<string, number> }>;
       }>(`/api/consolidated?date=${date}`);
       const bpo = consolidated.departments?.BPO;
+      if (loadId !== loadIdRef.current) return;
 
+      const builtKpis = existing
+        ? (() => {
+            const kpis = existing.teamKpiAverages ? JSON.parse(existing.teamKpiAverages) as TeamKpiRow[] : [];
+            return TEAM_KPI_KEYS.map((k) => {
+              const found = kpis.find((x) => x.key === k.key);
+              return found ? { ...found, label: k.label } : { key: k.key, label: k.label, teamTarget: "", teamAvg: "", best: "", lowest: "", notes: "" };
+            });
+          })()
+        : bpo?.teamKpiRows
+          ? TEAM_KPI_KEYS.map((k) => {
+              const auto = bpo.teamKpiRows!.find((x) => x.key === k.key);
+              return {
+                key: k.key, label: k.label,
+                teamTarget: auto?.teamTarget !== null && auto?.teamTarget !== undefined ? String(auto.teamTarget) : "",
+                teamAvg: auto?.teamAvg !== null && auto?.teamAvg !== undefined ? String(auto.teamAvg) : "",
+                best: auto?.best || "", lowest: auto?.lowest || "", notes: "",
+              };
+            })
+          : TEAM_KPI_KEYS.map((k) => ({ key: k.key, label: k.label, teamTarget: "", teamAvg: "", best: "", lowest: "", notes: "" }));
+      const builtAttendance = existing
+        ? (() => {
+            const att = existing.attendanceSummary ? JSON.parse(existing.attendanceSummary) as Record<string, AttendanceRow> : {};
+            return Object.fromEntries(ATTENDANCE_ROWS.map((r) => [r.key, att[r.key] || { count: "", details: "" }]));
+          })()
+        : Object.fromEntries(ATTENDANCE_ROWS.map((r) => [r.key, { count: "", details: "" }]));
+      const builtCoaching = existing?.coachingEntries ? (JSON.parse(existing.coachingEntries) as CoachingRow[]) : empty(5, blankCoaching);
+      const builtEscalated = existing?.escalatedIssues ? (JSON.parse(existing.escalatedIssues) as EscalatedRow[]) : empty(4, blankEscalated);
+      const builtPlan = existing?.actionPlan ? (JSON.parse(existing.actionPlan) as PlanRow[]) : empty(PLAN_ROWS, blankPlan);
+      const builtQa = existing?.qaObservations || "";
+      const builtHighlights = existing?.highlights || "";
+      const builtLowlights = existing?.lowlights || "";
+      const builtManagerReview = existing?.managerReview || "";
+      const builtOwnActivities = existing?.additionalActivities || "";
+      const builtInfo = existing ? {
+        shiftTime: existing.shiftTime || "", clockIn: existing.clockIn || "", clockOut: existing.clockOut || "",
+        teamName: existing.teamName || "", campusLocation: existing.campusLocation || "",
+        agentsManaged: existing.agentsManaged !== null && existing.agentsManaged !== undefined ? String(existing.agentsManaged) : "",
+      } : { shiftTime: "", clockIn: "", clockOut: "", teamName: "", campusLocation: "", agentsManaged: "" };
+
+      setTeamKpis(builtKpis);
+      setAttendance(builtAttendance);
+      setCoaching(builtCoaching);
+      setEscalated(builtEscalated);
+      setPlan(builtPlan);
+      setQa(builtQa);
+      setHighlights(builtHighlights);
+      setLowlights(builtLowlights);
+      setManagerReview(builtManagerReview);
+      setOwnActivities(builtOwnActivities);
+      setInfo(builtInfo);
       if (existing) {
         setReportId(existing.id); setRef(existing.ref); setStatus(existing.status);
         setFeedback(existing.supervisorFeedback || null);
         setReviewer(existing.reviewer?.fullName || null);
         setReviewedAt(existing.reviewedAt || null);
-        setInfo({
-          shiftTime: existing.shiftTime || "", clockIn: existing.clockIn || "", clockOut: existing.clockOut || "",
-          teamName: existing.teamName || "", campusLocation: existing.campusLocation || "",
-          agentsManaged: existing.agentsManaged !== null && existing.agentsManaged !== undefined ? String(existing.agentsManaged) : "",
-        });
-        const att = existing.attendanceSummary ? JSON.parse(existing.attendanceSummary) as Record<string, AttendanceRow> : {};
-        setAttendance(Object.fromEntries(ATTENDANCE_ROWS.map((r) => [r.key, att[r.key] || { count: "", details: "" }])));
-        const kpis = existing.teamKpiAverages ? JSON.parse(existing.teamKpiAverages) as TeamKpiRow[] : [];
-        setTeamKpis(TEAM_KPI_KEYS.map((k) => {
-          const found = kpis.find((x) => x.key === k.key);
-          return found ? { ...found, label: k.label } : { key: k.key, label: k.label, teamTarget: "", teamAvg: "", best: "", lowest: "", notes: "" };
-        }));
-        setCoaching(existing.coachingEntries ? (JSON.parse(existing.coachingEntries) as CoachingRow[]) : empty(5, blankCoaching));
-        setQa(existing.qaObservations || "");
-        setEscalated(existing.escalatedIssues ? (JSON.parse(existing.escalatedIssues) as EscalatedRow[]) : empty(4, blankEscalated));
-        setHighlights(existing.highlights || "");
-        setLowlights(existing.lowlights || "");
-        setPlan(existing.actionPlan ? (JSON.parse(existing.actionPlan) as PlanRow[]) : empty(PLAN_ROWS, blankPlan));
-        setManagerReview(existing.managerReview || "");
-        setOwnActivities(existing.additionalActivities || "");
       } else {
         setReportId(null); setRef(null); setStatus("DRAFT");
         setFeedback(null); setReviewer(null); setReviewedAt(null);
-        if (bpo?.teamKpiRows) {
-          setTeamKpis(TEAM_KPI_KEYS.map((k) => {
-            const auto = bpo.teamKpiRows!.find((x) => x.key === k.key);
-            return {
-              key: k.key, label: k.label,
-              teamTarget: auto?.teamTarget !== null && auto?.teamTarget !== undefined ? String(auto.teamTarget) : "",
-              teamAvg: auto?.teamAvg !== null && auto?.teamAvg !== undefined ? String(auto.teamAvg) : "",
-              best: auto?.best || "", lowest: auto?.lowest || "", notes: "",
-            };
-          }));
-        } else {
-          setTeamKpis(TEAM_KPI_KEYS.map((k) => ({ key: k.key, label: k.label, teamTarget: "", teamAvg: "", best: "", lowest: "", notes: "" })));
-        }
-        setCoaching(empty(5, blankCoaching));
-        setEscalated(empty(4, blankEscalated));
-        setPlan(empty(PLAN_ROWS, blankPlan));
-        setInfo({ shiftTime: "", clockIn: "", clockOut: "", teamName: "", campusLocation: "", agentsManaged: "" });
-        setAttendance(Object.fromEntries(ATTENDANCE_ROWS.map((r) => [r.key, { count: "", details: "" }])));
-        setQa(""); setHighlights(""); setLowlights(""); setManagerReview(""); setOwnActivities("");
       }
+      // baseline for the reporting-date guard — anything typed after this counts as unsaved
+      snapshotRef.current = JSON.stringify({ info: builtInfo, attendance: builtAttendance, teamKpis: builtKpis, coaching: builtCoaching, qa: builtQa, escalated: builtEscalated, highlights: builtHighlights, lowlights: builtLowlights, plan: builtPlan, managerReview: builtManagerReview, ownActivities: builtOwnActivities });
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (loadId === loadIdRef.current) setLoading(false);
     }
   };
 
-  useEffect(() => { load();   }, [date, user.id]);
+  // Initial load only — date changes go through the guard below.
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  // Reporting-date guard: unsaved entries are kept; a clean form loads the saved date.
+  useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; dateRef.current = date; return; }
+    if (date === dateRef.current) return;
+    dateRef.current = date;
+    const current = JSON.stringify({ info, attendance, teamKpis, coaching, qa, escalated, highlights, lowlights, plan, managerReview, ownActivities });
+    if (current !== snapshotRef.current) {
+      setDateKept(date);
+      return;
+    }
+    setDateKept(null);
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
 
   const save = async (submit: boolean) => {
     setSaving(true);
@@ -154,6 +191,8 @@ export default function SupervisorReportForm({ user, date, onExport }: { user: S
       const { report } = await api<{ report: ReportDTO }>("/api/consolidated", { method: "POST", body: JSON.stringify(body) });
       setReportId(report.id); setRef(report.ref); setStatus(report.status);
       if (report.supervisorFeedback !== undefined) setFeedback(report.supervisorFeedback);
+      snapshotRef.current = JSON.stringify({ info, attendance, teamKpis, coaching, qa, escalated, highlights, lowlights, plan, managerReview, ownActivities });
+      setDateKept(null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -172,6 +211,11 @@ export default function SupervisorReportForm({ user, date, onExport }: { user: S
 
   return (
     <div className="space-y-5">
+      {dateKept && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+          <CalendarClock className="h-3.5 w-3.5 shrink-0" /> Reporting date changed to {dateKept} — your entries were kept and will be saved under this date.
+        </div>
+      )}
       {ref && status !== "DRAFT" && (
         <ReportStateBanner status={status} ref={ref} feedback={feedback} reviewer={reviewer} reviewedAt={reviewedAt} />
       )}

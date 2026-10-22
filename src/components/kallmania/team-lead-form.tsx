@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,11 +11,11 @@ import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner } from "@/
 import { cn } from "@/lib/utils";
 import {
   Save, Send, Loader2, Plus, Trash2, FileCog, RotateCcw, GripVertical, LayoutTemplate,
-  PencilLine, Eye, ArrowUp, ArrowDown, Settings2, ListPlus,
+  PencilLine, Eye, ArrowUp, ArrowDown, Settings2, ListPlus, CalendarClock,
 } from "lucide-react";
 import {
-  TEAM_LEAD_TEMPLATE_KEY, defaultTeamLeadTemplate, tlVariance,
-  type TlDefinition, type TlSection, type TlSectionValue,
+  TEAM_LEAD_TEMPLATE_KEY, TEAM_LEAD_TEMPLATES, defaultTeamLeadTemplate, teamTemplateMeta, tlTemplateKeyFor, tlVariance,
+  type TlDefinition, type TlSection, type TlSectionValue, type TlTemplateKey,
 } from "@/lib/team-lead-template";
 
 interface TemplateResponse {
@@ -29,6 +29,9 @@ type MetricRow = { key: string; label: string; target: number | null; targetLabe
 
 /** ───────────────────────── TEAM LEAD DAILY REPORT FORM ───────────────────────── */
 export default function TeamLeadReportForm({ user, date, onDone }: { user: SessionUser; date: string; onDone?: () => void }) {
+  // The report follows the team lead's DESIGNATED TEAM — outbound, inbound, social
+  // media and web & technical leads each get their own format (editable in KPI Configuration).
+  const templateKey: TlTemplateKey = tlTemplateKeyFor(user.department, user.team);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,54 +44,76 @@ export default function TeamLeadReportForm({ user, date, onDone }: { user: Sessi
   const [feedback, setFeedback] = useState<string | null>(null);
   const [reviewer, setReviewer] = useState<string | null>(null);
   const [reviewedAt, setReviewedAt] = useState<string | null>(null);
+  // ── reporting-date guard: keep unsaved entries when the date changes ──
+  const snapshotRef = useRef("{}");
+  const dateRef = useRef(date);
+  const mountedRef = useRef(false);
+  const [dateKept, setDateKept] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const tpl = await api<TemplateResponse>(`/api/report-template?key=${TEAM_LEAD_TEMPLATE_KEY}`);
+      const tpl = await api<TemplateResponse>(`/api/report-template?key=${templateKey}`);
       setDefinition(tpl.template.definition);
       setIsCustom(tpl.isCustom);
       const { reports } = await api<{ reports: ReportDTO[] }>(`/api/reports?mine=1&type=TEAM_LEAD&date=${date}`);
       const existing = reports[0];
+      const built: Record<string, TlSectionValue> = {};
       if (existing) {
         setReportId(existing.id);
         setRef(existing.ref);
         setStatus(existing.status);
         const payload = existing.payload ? JSON.parse(existing.payload) as { sections: Record<string, TlSectionValue> } : { sections: {} };
         // Ensure every section exists so inputs stay controlled
-        const filled: Record<string, TlSectionValue> = {};
         for (const s of tpl.template.definition.sections) {
           const v = payload.sections?.[s.id];
-          if (s.type === "table") filled[s.id] = Array.isArray(v) ? v : Array.from({ length: s.minRows || 3 }, () => ({}));
-          else if (s.type === "metrics") filled[s.id] = Array.isArray(v) ? v : (s.metrics || []).map((m) => ({ key: m.key, label: m.label, target: m.target, targetLabel: m.target === null ? "-" : String(m.target) + (m.unit === "percent" ? "%" : ""), unit: m.unit, actual: null, notes: "" }));
-          else if (s.type === "fields") filled[s.id] = typeof v === "object" && v !== null && !Array.isArray(v) ? v : {};
-          else filled[s.id] = typeof v === "string" ? v : "";
+          if (s.type === "table") built[s.id] = Array.isArray(v) ? v : Array.from({ length: s.minRows || 3 }, () => ({}));
+          else if (s.type === "metrics") built[s.id] = Array.isArray(v) ? v : (s.metrics || []).map((m) => ({ key: m.key, label: m.label, target: m.target, targetLabel: m.target === null ? "-" : String(m.target) + (m.unit === "percent" ? "%" : ""), unit: m.unit, actual: null, notes: "" }));
+          else if (s.type === "fields") built[s.id] = typeof v === "object" && v !== null && !Array.isArray(v) ? v : {};
+          else built[s.id] = typeof v === "string" ? v : "";
         }
-        setSections(filled);
+        setSections(built);
         setFeedback(existing.supervisorFeedback || null);
         setReviewer(existing.reviewer?.fullName || null);
         setReviewedAt(existing.reviewedAt || null);
       } else {
-        const fresh: Record<string, TlSectionValue> = {};
         for (const s of tpl.template.definition.sections) {
-          if (s.type === "table") fresh[s.id] = Array.from({ length: s.minRows || 3 }, () => ({}));
-          else if (s.type === "metrics") fresh[s.id] = (s.metrics || []).map((m) => ({ key: m.key, label: m.label, target: m.target, targetLabel: m.target === null ? "-" : String(m.target) + (m.unit === "percent" ? "%" : ""), unit: m.unit, actual: null, notes: "" }));
-          else if (s.type === "fields") fresh[s.id] = { teamName: user.team ? "" : "", attendanceStatus: "Present" };
-          else fresh[s.id] = "";
+          if (s.type === "table") built[s.id] = Array.from({ length: s.minRows || 3 }, () => ({}));
+          else if (s.type === "metrics") built[s.id] = (s.metrics || []).map((m) => ({ key: m.key, label: m.label, target: m.target, targetLabel: m.target === null ? "-" : String(m.target) + (m.unit === "percent" ? "%" : ""), unit: m.unit, actual: null, notes: "" }));
+          else if (s.type === "fields") built[s.id] = { teamName: user.team ? "" : "", attendanceStatus: "Present" };
+          else built[s.id] = "";
         }
-        setSections(fresh);
+        setSections(built);
         setReportId(null); setRef(null); setStatus("DRAFT");
         setFeedback(null); setReviewer(null); setReviewedAt(null);
       }
+      snapshotRef.current = JSON.stringify(built);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [date, user.team]);
+  }, [date, templateKey, user.team]);
 
-  useEffect(() => { load(); }, [load]);
+  // Initial load only — date changes are handled by the guard effect below,
+  // so switching the reporting date never wipes unsaved entries.
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  // Changing the reporting date only changes the date — unsaved entries are kept
+  // (a clean form still loads whatever is already saved under the new date).
+  useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; dateRef.current = date; return; }
+    if (date === dateRef.current) return;
+    dateRef.current = date;
+    if (JSON.stringify(sections) !== snapshotRef.current) {
+      setDateKept(date);
+      return;
+    }
+    setDateKept(null);
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
 
   const setSection = (id: string, value: TlSectionValue) => setSections((prev) => ({ ...prev, [id]: value }));
 
@@ -109,11 +134,13 @@ export default function TeamLeadReportForm({ user, date, onDone }: { user: Sessi
       const body: Record<string, unknown> = {
         type: "TEAM_LEAD", reportDate: date, department: user.department, submit,
         teamName: user.team || "BPO Division",
-        payload: JSON.stringify({ sections }),
+        payload: JSON.stringify({ sections, templateKey }),
       };
       if (reportId) body.id = reportId;
       const { report } = await api<{ report: ReportDTO }>("/api/reports", { method: "POST", body: JSON.stringify(body) });
       setReportId(report.id); setRef(report.ref); setStatus(report.status);
+      snapshotRef.current = JSON.stringify(sections);
+      setDateKept(null);
       onDone?.();
     } catch (e) {
       setError((e as Error).message);
@@ -287,6 +314,11 @@ export default function TeamLeadReportForm({ user, date, onDone }: { user: Sessi
 
   return (
     <div className="space-y-5">
+      {dateKept && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+          <CalendarClock className="h-3.5 w-3.5 shrink-0" /> Reporting date changed to {dateKept} — your entries were kept and will be saved under this date.
+        </div>
+      )}
       {ref && status !== "DRAFT" && <ReportStateBanner status={status} ref={ref} feedback={feedback} reviewer={reviewer} reviewedAt={reviewedAt} />}
       {ref && status === "DRAFT" && (
         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
@@ -297,7 +329,7 @@ export default function TeamLeadReportForm({ user, date, onDone }: { user: Sessi
       {error && <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</div>}
       {isCustom && status === "DRAFT" && (
         <div className="flex items-center gap-2 rounded-lg border border-[#8b7ff5]/30 bg-[#6c5ce7]/10 px-3 py-2 text-[11px] text-[#b3a5ff]">
-          <LayoutTemplate className="h-3.5 w-3.5" /> This report follows the custom format configured by your supervisor / administrator.
+          <LayoutTemplate className="h-3.5 w-3.5" /> This report follows the custom {teamTemplateMeta(templateKey)?.label || "team lead"} template configured by your supervisor / administrator.
         </div>
       )}
       {definition.sections.map(renderSection)}
@@ -317,6 +349,9 @@ export default function TeamLeadReportForm({ user, date, onDone }: { user: Sessi
 
 /** ───────────────────────── TEMPLATE EDITOR (admin & supervisor) ───────────────────────── */
 export function TeamLeadTemplateEditor() {
+  // One editor for every team's template — pick the team, edit its format.
+  const [tplKey, setTplKey] = useState<TlTemplateKey>("TL_OUTBOUND");
+  const meta = teamTemplateMeta(tplKey);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -329,7 +364,7 @@ export function TeamLeadTemplateEditor() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api<TemplateResponse>(`/api/report-template?key=${TEAM_LEAD_TEMPLATE_KEY}`);
+      const res = await api<TemplateResponse>(`/api/report-template?key=${tplKey}`);
       setDef(res.template.definition);
       setName(res.template.name);
       setIsCustom(res.isCustom);
@@ -338,7 +373,7 @@ export function TeamLeadTemplateEditor() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [tplKey]);
   useEffect(() => { load(); }, [load]);
 
   const update = (fn: (d: TlDefinition) => void) => {
@@ -352,8 +387,8 @@ export function TeamLeadTemplateEditor() {
     if (!def) return;
     setSaving(true); setError(null); setMessage(null);
     try {
-      await api("/api/report-template", { method: "PUT", body: JSON.stringify({ key: TEAM_LEAD_TEMPLATE_KEY, name, definition: def }) });
-      setMessage("Template saved — team leads will now use this format for their daily report.");
+      await api("/api/report-template", { method: "PUT", body: JSON.stringify({ key: tplKey, name, definition: def }) });
+      setMessage(`Template saved — ${meta?.label || "team"} leads will now use this format for their daily report.`);
       setIsCustom(true);
     } catch (e) {
       setError((e as Error).message);
@@ -365,9 +400,9 @@ export function TeamLeadTemplateEditor() {
   const reset = async () => {
     setSaving(true); setError(null); setMessage(null);
     try {
-      await api(`/api/report-template?key=${TEAM_LEAD_TEMPLATE_KEY}`, { method: "DELETE" });
+      await api(`/api/report-template?key=${tplKey}`, { method: "DELETE" });
       await load();
-      setMessage("Template reset to the shipped default format.");
+      setMessage(`Template reset to the shipped default format for ${meta?.label || "this team"}.`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -396,11 +431,23 @@ export function TeamLeadTemplateEditor() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="flex items-center gap-2 text-lg font-bold text-white"><FileCog className="h-5 w-5 text-[#8b7ff5]" /> Team Lead Report Template</h2>
+          <h2 className="flex items-center gap-2 text-lg font-bold text-white"><FileCog className="h-5 w-5 text-[#8b7ff5]" /> Team Lead Report Templates</h2>
           <p className="mt-0.5 text-xs text-slate-400">
-            Design the daily report format your team leads fill in. Changes apply immediately to the Team Lead report form{isCustom ? " · custom format in effect" : " · shipped default format"}.
+            Pick a team and design the daily report its team lead fills in — outbound, inbound, social media and web &amp; technical leads each get their own format{isCustom ? " · custom format in effect" : " · shipped default format"}.
           </p>
         </div>
+        <Select value={tplKey} onValueChange={(v) => { setMessage(null); setError(null); setPreview(false); setTplKey(v as TlTemplateKey); }}>
+          <SelectTrigger className="w-64 border-white/12 bg-white/[0.055] text-xs text-slate-200 backdrop-blur">
+            <SelectValue placeholder="Choose team template" />
+          </SelectTrigger>
+          <SelectContent className="max-h-72">
+            {TEAM_LEAD_TEMPLATES.map((t) => (
+              <SelectItem key={t.key} value={t.key}>
+                {t.label}{t.key === "TEAM_LEAD" ? "" : " — Team Lead"}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button variant="outline" size="sm" className="k-btn-glass border-white/15 text-slate-200" onClick={() => setPreview(!preview)}>
           <Eye className="mr-1.5 h-4 w-4" /> {preview ? "Edit structure" : "Preview form"}
         </Button>
@@ -411,6 +458,12 @@ export function TeamLeadTemplateEditor() {
           {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />} Save template
         </Button>
       </div>
+
+      {meta && (
+        <p className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] text-slate-400">
+          <span className="font-semibold text-slate-300">{meta.audience}:</span> {meta.description}
+        </p>
+      )}
 
       {message && <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">{message}</div>}
       {error && <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</div>}

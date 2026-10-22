@@ -3,16 +3,21 @@ import { db } from "@/lib/db";
 import { requireUser, isSupervisorLike } from "@/lib/auth";
 import { handle, ok, fail } from "@/lib/api-utils";
 import { audit } from "@/lib/notify";
-import { TEAM_LEAD_TEMPLATE_KEY, defaultTeamLeadTemplate, type TlDefinition } from "@/lib/team-lead-template";
+import { TEAM_LEAD_TEMPLATE_KEY, TEAM_LEAD_TEMPLATES, defaultTemplateFor, type TlDefinition } from "@/lib/team-lead-template";
 
-export const TEMPLATE_KEYS = [TEAM_LEAD_TEMPLATE_KEY];
+export const TEMPLATE_KEYS: string[] = TEAM_LEAD_TEMPLATES.map((t) => t.key);
 
+function templateMeta(key: string) {
+  return TEAM_LEAD_TEMPLATES.find((t) => t.key === key);
+}
 function defaultName(key: string): string {
-  return key === TEAM_LEAD_TEMPLATE_KEY ? "Team Lead Daily Report Template" : "Report Template";
+  const meta = templateMeta(key);
+  return meta ? `${meta.label} — Team Lead Daily Report Template` : "Report Template";
 }
 function defaultDescription(key: string): string {
-  return key === TEAM_LEAD_TEMPLATE_KEY
-    ? "Dynamic daily report format for team leads — editable by administrators and supervisors."
+  const meta = templateMeta(key);
+  return meta
+    ? `${meta.description} Used by: ${meta.audience}. Editable by administrators and supervisors.`
     : "";
 }
 
@@ -22,9 +27,10 @@ export async function GET(req: NextRequest) {
     await requireUser();
     const { searchParams } = new URL(req.url);
     const key = searchParams.get("key") || TEAM_LEAD_TEMPLATE_KEY;
+    if (!TEMPLATE_KEYS.includes(key)) return fail("Unknown template key", 404);
     const row = await db.reportTemplate.findUnique({ where: { key } });
     if (!row) {
-      const def = defaultTeamLeadTemplate();
+      const def = defaultTemplateFor(key);
       return ok({
         template: { key, name: defaultName(key), description: defaultDescription(key), definition: def },
         isCustom: false,
@@ -34,7 +40,7 @@ export async function GET(req: NextRequest) {
     try {
       definition = JSON.parse(row.definition) as TlDefinition;
     } catch {
-      definition = defaultTeamLeadTemplate();
+      definition = defaultTemplateFor(key);
     }
     return ok({
       template: { key: row.key, name: row.name, description: row.description, definition },

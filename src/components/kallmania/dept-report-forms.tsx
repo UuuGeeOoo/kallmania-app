@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api, ROLE_LABELS, type ReportDTO, type KpiMetric, type SessionUser } from "@/lib/client";
 import { SectionCard, Field, inputCls, StatusBadge, EmptyState, ReportStateBanner } from "@/components/kallmania/shared";
 import { cn } from "@/lib/utils";
-import { Plus, Trash2, Save, Send, Loader2, MessageSquareQuote } from "lucide-react";
+import { Plus, Trash2, Save, Send, Loader2, MessageSquareQuote, CalendarClock } from "lucide-react";
 
 const TECH_CATEGORIES = ["Website Development", "Frontend Development", "Backend Development", "Bug Fixing", "Website Maintenance", "API Integration", "Database Tasks", "Technical Support", "Testing & QA", "Deployment & Release", "Security & Performance", "Technical Research", "Documentation", "Other"];
 const TECH_STATUSES = ["Not Started", "In Progress", "Completed", "Under Review", "Blocked", "Pending Deployment", "Awaiting Approval", "Not Completed"];
@@ -71,63 +71,92 @@ function useDeptReport<T extends object>(opts: {
   const [reviewer, setReviewer] = useState<string | null>(null);
   const [reviewedAt, setReviewedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // ── reporting-date guard: keep unsaved entries when the date changes ──
+  const loadIdRef = useRef(0);
+  const snapshotRef = useRef("{}");
+  const dateRef = useRef(date);
+  const mountedRef = useRef(false);
+  const [dateKept, setDateKept] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const { reports } = await api<{ reports: ReportDTO[] }>(`/api/reports?mine=1&type=${type}&date=${date}`);
-        const existing = reports[0];
-        if (cancelled) return;
-        if (existing) {
-          setReportId(existing.id); setRef(existing.ref); setStatus(existing.status);
-          const parsed = existing.workEntries ? JSON.parse(existing.workEntries) as Record<string, unknown>[] : [];
-          setEntries(parsed.length ? parsed as T[] : [opts.blankEntries()]);
-          const ms = existing.metricsSummary ? JSON.parse(existing.metricsSummary) as Record<string, number> : {};
-          setMetrics(Object.fromEntries(Object.entries(ms).map(([k, v]) => [k, String(v)])));
-          if (type === "SOCIAL") {
-            const kpiParsed = existing.kpiMetrics ? JSON.parse(existing.kpiMetrics) as KpiMetric[] : [];
-            setSocialKpis(SOCIAL_KPI_ROWS.map((d) => {
-              const f = kpiParsed.find((m) => m.key === d.key);
+  const load = useCallback(async () => {
+    const loadId = ++loadIdRef.current;
+    setLoading(true);
+    try {
+      const { reports } = await api<{ reports: ReportDTO[] }>(`/api/reports?mine=1&type=${type}&date=${date}`);
+      const existing = reports[0];
+      if (loadId !== loadIdRef.current) return;
+      const builtEntries = existing
+        ? (() => {
+            const parsed = existing.workEntries ? JSON.parse(existing.workEntries) as Record<string, unknown>[] : [];
+            return parsed.length ? parsed as T[] : [opts.blankEntries()];
+          })()
+        : [opts.blankEntries()];
+      const ms = existing?.metricsSummary ? JSON.parse(existing.metricsSummary) as Record<string, number> : {};
+      const builtMetrics = Object.fromEntries(Object.entries(ms).map(([k, v]) => [k, String(v)]));
+      const builtSocialKpis = type === "SOCIAL"
+        ? (() => {
+            const kpiParsed = existing?.kpiMetrics ? JSON.parse(existing.kpiMetrics) as KpiMetric[] : [];
+            return SOCIAL_KPI_ROWS.map((d) => {
+              const f = existing ? kpiParsed.find((m) => m.key === d.key) : undefined;
               return f
                 ? { ...f, key: d.key, label: d.label, unit: d.unit, category: "SOCIAL_TEMPLATE", auto: false, targetLabel: f.target !== null && f.target !== undefined ? String(f.target) : "-", notes: f.notes || "" }
                 : { key: d.key, label: d.label, target: null, targetLabel: "-", actual: null, variance: null, unit: d.unit, category: "SOCIAL_TEMPLATE", auto: false, notes: "" };
-            }));
-          }
-          setInfo({
-            shiftTime: existing.shiftTime || "",
-            clockIn: existing.clockIn || "",
-            clockOut: existing.clockOut || "",
-            attendanceStatus: existing.attendanceStatus || "Present",
-            latenessMins: existing.latenessMins !== null && existing.latenessMins !== undefined ? String(existing.latenessMins) : "",
-            designation: existing.teamName || ROLE_LABELS[user.role] || "",
-          });
-          setChallenges(existing.challenges || "");
-          setEscalations(existing.escalations || "");
-          setFeedback(existing.supervisorFeedback || null);
-          setReviewer(existing.reviewer?.fullName || null);
-          setReviewedAt(existing.reviewedAt || null);
-        } else {
-          setReportId(null); setRef(null); setStatus("DRAFT");
-          setEntries([opts.blankEntries()]);
-          setMetrics({});
-          if (type === "SOCIAL") {
-            setSocialKpis(SOCIAL_KPI_ROWS.map((d) => ({ key: d.key, label: d.label, target: null, targetLabel: "-", actual: null, variance: null, unit: d.unit, category: "SOCIAL_TEMPLATE", auto: false, notes: "" })));
-          }
-          setInfo({ shiftTime: "", clockIn: "", clockOut: "", attendanceStatus: "Present", latenessMins: "", designation: ROLE_LABELS[user.role] || "" });
-          setChallenges(""); setEscalations("");
-          setFeedback(null); setReviewer(null); setReviewedAt(null);
-        }
-      } catch (e) {
-        setError((e as Error).message);
-      } finally {
-        if (!cancelled) setLoading(false);
+            });
+          })()
+        : [];
+      const builtInfo = existing ? {
+        shiftTime: existing.shiftTime || "",
+        clockIn: existing.clockIn || "",
+        clockOut: existing.clockOut || "",
+        attendanceStatus: existing.attendanceStatus || "Present",
+        latenessMins: existing.latenessMins !== null && existing.latenessMins !== undefined ? String(existing.latenessMins) : "",
+        designation: existing.teamName || ROLE_LABELS[user.role] || "",
+      } : { shiftTime: "", clockIn: "", clockOut: "", attendanceStatus: "Present", latenessMins: "", designation: ROLE_LABELS[user.role] || "" };
+      const builtChallenges = existing?.challenges || "";
+      const builtEscalations = existing?.escalations || "";
+      setEntries(builtEntries);
+      setMetrics(builtMetrics);
+      if (type === "SOCIAL") setSocialKpis(builtSocialKpis);
+      setInfo(builtInfo);
+      setChallenges(builtChallenges);
+      setEscalations(builtEscalations);
+      if (existing) {
+        setReportId(existing.id); setRef(existing.ref); setStatus(existing.status);
+        setFeedback(existing.supervisorFeedback || null);
+        setReviewer(existing.reviewer?.fullName || null);
+        setReviewedAt(existing.reviewedAt || null);
+      } else {
+        setReportId(null); setRef(null); setStatus("DRAFT");
+        setFeedback(null); setReviewer(null); setReviewedAt(null);
       }
-    })();
-    return () => { cancelled = true };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      // baseline for the reporting-date guard — anything typed after this counts as unsaved
+      snapshotRef.current = JSON.stringify({ entries: builtEntries, metrics: builtMetrics, socialKpis: builtSocialKpis, info: builtInfo, challenges: builtChallenges, escalations: builtEscalations });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      if (loadId === loadIdRef.current) setLoading(false);
+    }
   }, [date, user.id, type]);
+
+  // Initial load only — date changes go through the guard below so picking
+  // another reporting date never wipes what the user has typed so far.
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  // Reporting-date guard: unsaved entries are kept (saving files the report
+  // under the new date); a clean form loads what is saved under the new date.
+  useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; dateRef.current = date; return; }
+    if (date === dateRef.current) return;
+    dateRef.current = date;
+    const current = JSON.stringify({ entries, metrics, socialKpis, info, challenges, escalations });
+    if (current !== snapshotRef.current) {
+      setDateKept(date);
+      return;
+    }
+    setDateKept(null);
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
 
   const save = async (submit: boolean) => {
     setSaving(true);
@@ -165,6 +194,8 @@ function useDeptReport<T extends object>(opts: {
       setReportId(report.id); setRef(report.ref); setStatus(report.status);
       if (report.supervisorFeedback !== undefined) setFeedback(report.supervisorFeedback);
       setReviewer(report.reviewer?.fullName || null);
+      snapshotRef.current = JSON.stringify({ entries, metrics, socialKpis, info, challenges, escalations });
+      setDateKept(null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -172,7 +203,17 @@ function useDeptReport<T extends object>(opts: {
     }
   };
 
-  return { loading, saving, reportId, ref, status, entries, setEntries, metrics, setMetrics, socialKpis, setSocialKpis, info, setInfo, challenges, setChallenges, escalations, setEscalations, feedback, reviewer, reviewedAt, error, save };
+  return { loading, saving, reportId, ref, status, entries, setEntries, metrics, setMetrics, socialKpis, setSocialKpis, info, setInfo, challenges, setChallenges, escalations, setEscalations, feedback, reviewer, reviewedAt, error, save, dateKept };
+}
+
+/** Amber note shown when the reporting date was changed while the form had unsaved entries. */
+function DateKeptNote({ dateKept }: { dateKept: string | null }) {
+  if (!dateKept) return null;
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+      <CalendarClock className="h-3.5 w-3.5 shrink-0" /> Reporting date changed to {dateKept} — your entries were kept and will be saved under this date.
+    </div>
+  );
 }
 
 function CommonFooter({ saving, status, onSave, onSubmit }: { saving: boolean; status: string; onSave: () => void; onSubmit: () => void }) {
@@ -202,6 +243,7 @@ export function TechReportForm({ user, date }: { user: SessionUser; date: string
 
   return (
     <div className="space-y-5">
+      <DateKeptNote dateKept={state.dateKept} />
       {state.ref && state.status !== "DRAFT" && (
         <ReportStateBanner status={state.status} ref={state.ref} feedback={state.feedback} reviewer={state.reviewer} reviewedAt={state.reviewedAt} />
       )}
@@ -370,6 +412,7 @@ export function SocialReportForm({ user, date }: { user: SessionUser; date: stri
         <p className="mt-1 text-[11px] text-slate-500">SBTS Group Global</p>
       </div>
 
+      <DateKeptNote dateKept={state.dateKept} />
       {state.ref && state.status !== "DRAFT" && (
         <ReportStateBanner status={state.status} ref={state.ref} feedback={state.feedback} reviewer={state.reviewer} reviewedAt={state.reviewedAt} />
       )}

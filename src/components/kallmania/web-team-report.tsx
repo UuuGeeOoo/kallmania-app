@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, fmtDate, type ReportDTO, type SessionUser } from "@/lib/client";
 import { PageHeader, ReportStateBanner } from "@/components/kallmania/shared";
-import { Save, Send, Loader2, FileText } from "lucide-react";
+import { Save, Send, Loader2, FileText, CalendarClock } from "lucide-react";
 
 /**
  * Web Development and Technical Team Report — EXACT replica of the attached
@@ -53,71 +53,103 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
   const [escalations, setEscalations] = useState("");
   const [supervisorName, setSupervisorName] = useState("");
   const [signatureDate, setSignatureDate] = useState("");
+  // ── reporting-date guard: keep unsaved entries when the date changes ──
+  const loadIdRef = useRef(0);
+  const snapshotRef = useRef("{}");
+  const dateRef = useRef(date);
+  const mountedRef = useRef(false);
+  const [dateKept, setDateKept] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const { reports } = await api<{ reports: ReportDTO[] }>(`/api/reports?mine=1`);
-        const existing = reports.find((r) => r.type === "TECH" && new Date(r.reportDate).toISOString().slice(0, 10) === date);
-        if (!cancelled) {
-          if (existing) {
-            setReportId(existing.id);
-            setRef(existing.ref);
-            setStatus(existing.status);
-            setFeedback(existing.supervisorFeedback || null);
-            const rows = (() => { try { return JSON.parse(existing.kpiMetrics || "[]") as { key: string; target: number | null; actual: number | null; variance: number | null; notes?: string }[]; } catch { return []; } })();
-            setKpis(WEB_KPI_ROWS.map((d) => {
-              const hit = rows.find((r) => r.key === d.key);
-              return {
-                key: d.key, label: d.label, unit: d.unit,
-                target: hit?.target !== null && hit?.target !== undefined ? String(hit.target) : "",
-                actual: hit?.actual !== null && hit?.actual !== undefined ? String(hit.actual) : "",
-                variance: hit?.variance !== null && hit?.variance !== undefined ? String(hit.variance) : "",
-                notes: hit?.notes || "",
-              };
-            }));
-            let entries: Record<string, string>[] = [];
-            try { entries = JSON.parse(existing.workEntries || "[]"); } catch {}
-            setTasks(blankTasks().map((row, i) => ({
-              task: entries[i]?.task || "",
-              project: entries[i]?.project || "",
-              status: entries[i]?.status || "",
-              deliverable: entries[i]?.deliverable || "",
-            })));
-            setChallenges(existing.challenges || "");
-            setEscalations(existing.escalations || "");
-            let payload: Record<string, string> = {};
-            try { payload = JSON.parse(existing.payload || "{}"); } catch {}
-            setInfo({
-              staffName: payload.staffName || user.fullName,
-              role: payload.role || "",
-              shiftTime: existing.shiftTime || "",
-              clockIn: existing.clockIn || "",
-              clockOut: existing.clockOut || "",
-              attendanceStatus: existing.attendanceStatus || "Present",
-              lateness: existing.latenessMins !== null && existing.latenessMins !== undefined ? String(existing.latenessMins) : "",
-            });
-            setSupervisorName(payload.supervisorName || "");
-            setSignatureDate(payload.signatureDate || "");
-          } else {
-            setReportId(null); setRef(null); setStatus("DRAFT"); setFeedback(null);
-            setKpis(WEB_KPI_ROWS.map((d) => ({ key: d.key, label: d.label, unit: d.unit, target: "", actual: "", variance: "", notes: "" })));
-            setTasks(blankTasks());
-            setChallenges(""); setEscalations(""); setSupervisorName(""); setSignatureDate("");
-            setInfo({ staffName: user.fullName, role: "", shiftTime: "", clockIn: "", clockOut: "", attendanceStatus: "Present", lateness: "" });
-          }
-        }
-      } catch (e) {
-        if (!cancelled) setError((e as Error).message);
-      } finally {
-        if (!cancelled) setLoading(false);
+  const blankKpis = () => WEB_KPI_ROWS.map((d) => ({ key: d.key, label: d.label, unit: d.unit, target: "", actual: "", variance: "", notes: "" }));
+
+  const load = useCallback(async () => {
+    const loadId = ++loadIdRef.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const { reports } = await api<{ reports: ReportDTO[] }>(`/api/reports?mine=1`);
+      const existing = reports.find((r) => r.type === "TECH" && new Date(r.reportDate).toISOString().slice(0, 10) === date);
+      if (loadId !== loadIdRef.current) return;
+      const builtKpis = (() => {
+        if (!existing) return blankKpis();
+        const rows = (() => { try { return JSON.parse(existing.kpiMetrics || "[]") as { key: string; target: number | null; actual: number | null; variance: number | null; notes?: string }[]; } catch { return []; } })();
+        return WEB_KPI_ROWS.map((d) => {
+          const hit = rows.find((r) => r.key === d.key);
+          return {
+            key: d.key, label: d.label, unit: d.unit,
+            target: hit?.target !== null && hit?.target !== undefined ? String(hit.target) : "",
+            actual: hit?.actual !== null && hit?.actual !== undefined ? String(hit.actual) : "",
+            variance: hit?.variance !== null && hit?.variance !== undefined ? String(hit.variance) : "",
+            notes: hit?.notes || "",
+          };
+        });
+      })();
+      const builtTasks = (() => {
+        if (!existing) return blankTasks();
+        let entries: Record<string, string>[] = [];
+        try { entries = JSON.parse(existing.workEntries || "[]"); } catch {}
+        return blankTasks().map((row, i) => ({
+          task: entries[i]?.task || "",
+          project: entries[i]?.project || "",
+          status: entries[i]?.status || "",
+          deliverable: entries[i]?.deliverable || "",
+        }));
+      })();
+      const builtChallenges = existing?.challenges || "";
+      const builtEscalations = existing?.escalations || "";
+      const payload = (() => { if (!existing) return {} as Record<string, string>; try { return JSON.parse(existing.payload || "{}") as Record<string, string>; } catch { return {} as Record<string, string>; } })();
+      const builtInfo = existing ? {
+        staffName: payload.staffName || user.fullName,
+        role: payload.role || "",
+        shiftTime: existing.shiftTime || "",
+        clockIn: existing.clockIn || "",
+        clockOut: existing.clockOut || "",
+        attendanceStatus: existing.attendanceStatus || "Present",
+        lateness: existing.latenessMins !== null && existing.latenessMins !== undefined ? String(existing.latenessMins) : "",
+      } : { staffName: user.fullName, role: "", shiftTime: "", clockIn: "", clockOut: "", attendanceStatus: "Present", lateness: "" };
+      const builtSupervisor = payload.supervisorName || "";
+      const builtSignature = payload.signatureDate || "";
+      setKpis(builtKpis);
+      setTasks(builtTasks);
+      setChallenges(builtChallenges);
+      setEscalations(builtEscalations);
+      setInfo(builtInfo);
+      setSupervisorName(builtSupervisor);
+      setSignatureDate(builtSignature);
+      if (existing) {
+        setReportId(existing.id);
+        setRef(existing.ref);
+        setStatus(existing.status);
+        setFeedback(existing.supervisorFeedback || null);
+      } else {
+        setReportId(null); setRef(null); setStatus("DRAFT"); setFeedback(null);
       }
-    })();
-    return () => { cancelled = true; };
+      // baseline for the reporting-date guard — anything typed after this counts as unsaved
+      snapshotRef.current = JSON.stringify({ info: builtInfo, kpis: builtKpis, tasks: builtTasks, challenges: builtChallenges, escalations: builtEscalations, supervisorName: builtSupervisor, signatureDate: builtSignature });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      if (loadId === loadIdRef.current) setLoading(false);
+    }
   }, [date, user.fullName, user.id]);
+
+  // Initial load only — date changes go through the guard below.
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  // Reporting-date guard: unsaved entries are kept; a clean form loads the saved date.
+  useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; dateRef.current = date; return; }
+    if (date === dateRef.current) return;
+    dateRef.current = date;
+    const current = JSON.stringify({ info, kpis, tasks, challenges, escalations, supervisorName, signatureDate });
+    if (current !== snapshotRef.current) {
+      setDateKept(date);
+      return;
+    }
+    setDateKept(null);
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
 
   const locked = status === "SUBMITTED" || status === "APPROVED";
 
@@ -175,6 +207,8 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
       setRef(report.ref);
       setStatus(report.status);
       setFeedback(report.supervisorFeedback || null);
+      snapshotRef.current = JSON.stringify({ info, kpis, tasks, challenges, escalations, supervisorName, signatureDate });
+      setDateKept(null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -191,6 +225,11 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
         subtitle="Daily report — exact replica of the official SBTS Group document"
         actions={<span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-400">{fmtDate(date)}</span>}
       />
+      {dateKept && (
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+          <CalendarClock className="h-3.5 w-3.5 shrink-0" /> Reporting date changed to {dateKept} — your entries were kept and will be saved under this date.
+        </div>
+      )}
       {status === "SUBMITTED" && <div className="mb-4"><ReportStateBanner status="SUBMITTED" ref={ref || ""} /></div>}
       {status === "APPROVED" && <div className="mb-4"><ReportStateBanner status="APPROVED" ref={ref || ""} reviewer={feedback ? undefined : undefined} /></div>}
       {status === "REJECTED" && <div className="mb-4"><ReportStateBanner status="REJECTED" ref={ref || ""} feedback={feedback} /></div>}

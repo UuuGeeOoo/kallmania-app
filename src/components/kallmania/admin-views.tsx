@@ -9,6 +9,7 @@ import { api, fmtDate, fmtDateTime, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, type 
 import { PageHeader, EmptyState, StatusBadge, SectionCard, Field, inputCls } from "@/components/kallmania/shared";
 import { UserKpiDialog } from "@/components/kallmania/user-kpi-dialog";
 import { EscalationsPanel } from "@/components/kallmania/escalation-center";
+import { TeamLeadTemplateEditor } from "@/components/kallmania/team-lead-form";
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Country } from "country-state-city";
@@ -493,6 +494,11 @@ export function KpiConfigView({ user }: { user: SessionUser }) {
           </div>
         </SectionCard>
       )}
+
+      {/* Report Templates — per-team team-lead daily report formats, editable here */}
+      <div className="mt-8 border-t border-white/10 pt-6">
+        <TeamLeadTemplateEditor />
+      </div>
     </div>
   );
 }
