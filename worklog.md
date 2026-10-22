@@ -301,3 +301,20 @@ Work Log:
 
 Stage Summary:
 - GitHub main up to date with local (8277fc4); token not persisted anywhere
+
+---
+Task ID: 21
+Agent: main (Z.ai)
+Task: Per-centre KPI configuration for admins + Notify/Escalate light-theme text fix
+
+Work Log:
+- DISCOVERED: platform sync had rolled the workspace back to an Oct-16 snapshot (fresh git init, no remote, 6 component files missing, my local commits gone from objects). GitHub main still had everything (cde306e) — restored via fetch + reset --hard origin/main; recovered 1 uploads-storage file from dcf7ee8; bun install to resync node_modules (country-state-city was missing)
+- CRITICAL: .env and .env.local were wiped AGAIN by the sync — Supabase KALLMANIA_DATABASE_URL unrecoverable locally (never git-tracked, by design). Needs user to re-supply before deploy/migration
+- KPI per centre: KpiConfig + centreCountry/centreState (default ALL/ALL, unique dept+key+centre); API GET merges centre rows over global (isOverride/globalTarget), lists centres from approved users; POST/DELETE scoped (admin any centre, supervisor own only); legacy fallbacks for pre-migration DB
+- KpiConfigView(user): centre selector (admin) / pinned own centre (supervisor), override badges, global reference values, reset-to-default, per-centre add
+- Light theme: EscalationComposer + UserKpiDialog + 2 report detail dialogs switched from hardcoded bg-[#17171c]/bg-[#131f30] to token bg-popover (root cause: unmapped hex kept dark card in light mode while text remapped to near-black)
+- Build verified clean; committed 3b45a2b; pushed to GitHub main
+
+Stage Summary:
+- PENDING: prisma db push against Supabase (needs URL from user) — new KpiConfig columns; API falls back gracefully until then
+- PENDING: restore .env/.env.local with KALLMANIA_DATABASE_URL
