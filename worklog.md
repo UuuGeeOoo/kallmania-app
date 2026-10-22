@@ -340,3 +340,28 @@ Stage Summary:
 - Schema migration applied: per-centre KPI columns live; latent upsert data-corruption bug found and fixed before the user ever hit it
 - Admin can pick any centre in KPI Configuration and save per-centre overrides (verified UI+API both themes); light-theme escalate texts confirmed visible
 - Remote main = 5328530
+
+---
+Task ID: 23
+Agent: main (Z.ai)
+Task: Per-team team-lead report templates + template editor in KPI Configuration; non-destructive agent reporting-date changes; team-lead task assignment scoped to own team; update Git + Supabase
+
+Work Log:
+- Templates: added TL_OUTBOUND / TL_INBOUND / TL_SOCIAL / TL_TECH shipped defaults in src/lib/team-lead-template.ts via shared section builders (same section ids; inbound gains "SHIFT HANDOVER NOTES"; social/tech get platform/project columns and team-specific team-KPIs); tlTemplateKeyFor(department, team) resolver (team first: INBOUND/OUTBOUND/SOCIAL/TECH, then dept SOCIAL_MEDIA/WEB_DEV, else legacy TEAM_LEAD); defaultTemplateFor dispatcher
+- /api/report-template: TEMPLATE_KEYS from the lib metadata (string[]), unknown key -> 404, per-key default name/description from meta
+- TeamLeadReportForm: loads its team's template (templateKey from user dept/team), records templateKey inside the payload JSON, custom-format note names the template
+- TeamLeadTemplateEditor: team picker (5 templates) + audience hint + per-team save/reset messages; embedded at the bottom of KpiConfigView (admin+supervisor) in addition to the existing TL Report Template page
+- Date-change guard in ALL five report forms (agent BPO out/in via report-forms.tsx, tech+social via useDeptReport hook, web-team-report.tsx, team-lead-form.tsx, supervisor-form.tsx): load() extracted to useCallback with loadIdRef race guard; mount-only initial load; date-change effect compares a JSON snapshot of the form state -> unsaved entries are KEPT (amber CalendarClock note, save files under the new date via reportId+reportDate update), clean form still loads the saved report for the new date; save() refreshes the snapshot and clears the note
+- Tasks: POST /api/tasks now requires TEAM_LEAD assignees to be same-centre AND same-team (403 "X is not in your team (TEAM) — team leads can only assign tasks to their own team members"; no team set -> actionable 403); centre/all-centre broadcasts remain supervisor/admin-only; TaskDialog filters the picker to the TL's own team and labels it "Assign to — <team> team members"
+- Verified: scripts/verify-tl-and-templates.js — TL->same-team 201, TL->cross-team 403 with team message, TL broadcast 403, admin cross-team 201, all 5 template keys resolve distinct defaults, unknown key 404, admin edit (target=999 persists, isCustom) + reset to default; browser: KPI Config template editor picker/save/reset per team (screenshots download/kpi-config-templates*.png), agent date-change keeps Shift Time + KPI actual 42 and saves the draft under the NEW date (verified via API), TL assign dialog lists ONLY OUTBOUND members (download/tl-team-picker.png)
+- 3 disposable test accounts created, approved, used, then permanently deleted (DB back to 16 real users, 0 leftover tasks); custom template rows reset (all defaults in Supabase)
+- tsc: zero errors in touched files (remaining project errors pre-existing, build ignores); eslint: no new issues vs HEAD (identical pre-existing react-hooks/refs false positives)
+- bun run build clean; .zscripts/build.sh packaging exit 0 (needed free memory: dev server + browser closed first — 4GB sandbox OOM otherwise)
+- Supabase: no schema change needed (template key lives in ReportTemplate.key rows / report payload); prisma db push confirms "already in sync"
+- Committed 656ae7b; pushed 0b24668..656ae7b to GitHub main (PAT transient)
+
+Stage Summary:
+- Each team lead now files the report that matches their designated team (outbound/inbound/social/web-tech), all five editable per team by admins + supervisors from KPI Configuration -> Team Lead Report Templates
+- Changing the reporting date never deletes typed entries anymore — only the date changes; clean date switches still load that day's saved report
+- Team leads assign tasks only to their own team members in their centre; supervisors keep whole-centre reach; enforced server-side and reflected in the picker
+- GitHub main = Supabase state = deploy payload (656ae7b)
