@@ -457,3 +457,17 @@ Work Log:
 
 Stage Summary:
 - Admins, supervisors and team leads manage individual KPI targets per member (TL edits gated behind supervisor/admin approval); all password fields have show/hide eye toggles; admin can delete handled escalations; escalation feeds are privacy-filtered exactly per the requested role matrix; notices support centre/team/broadcast audiences with author cascade delete and agent-proof management notices; users can delete their own notifications
+
+---
+Task ID: 27-b
+Agent: main (Z.ai)
+Task: Sync local commits to GitHub (user provided a GitHub PAT)
+
+Work Log:
+- Pre-push safety check: .env* gitignored and untracked (no secret leak via env files); no credential helper configured
+- Found 3 unpushed commits (origin/main at c2a206c): b53b02c (env restore + daemon hardening), 10394fa (db.ts DATABASE_URL guard), b96bfde (Task 27 features)
+- Appended this addendum, autosave-committed, then pushed main to origin via one-time token URL (token not persisted in remote config or any file)
+- Verified remote HEAD == local HEAD; set upstream tracking origin/main
+
+Stage Summary:
+- GitHub repo UuuGeeOoo/kallmania-app now up to date with all Task 25-27 work; Supabase schema already in sync from Task 27 (prisma db push)
