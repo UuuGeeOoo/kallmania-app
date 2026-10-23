@@ -577,3 +577,18 @@ Work Log:
 
 Stage Summary:
 - GitHub fully up to date (523c54d), Supabase schema in sync, shiftfix31 preview deployed and verified; local dev server back on :3000
+
+---
+Task ID: 32
+Agent: main (Z.ai)
+Task: Remove all em dashes and the asterisks from the email and password on the login page; save to git + Supabase
+
+Work Log:
+- auth-view.tsx: "Email *" / "Password *" labels now render as plain "Email" / "Password" (asterisks removed)
+- All 10 visible em dashes on the auth page rewritten for natural reading: register subtitle + registration success toast now use a period; Division box, Team/Position/Employment-type label helpers, team + position dropdown descs and the INBOUND team desc now use parentheses; part-time schedule note now uses a period. Remaining "—" chars in the file are code comments only (never rendered)
+- Register-mode required-field asterisks (Full Name/Division/Team/Position/Employment type) intentionally kept — user scoped asterisk removal to email and password
+- Verified in browser (dev :3000): login mode labels = ["Email","Password"], bodyHasEmDash=false, bodyHasAsterisk=false; register mode bodyHasEmDash=false; dropdown triggers read "Outbound Call Centre (Outbound calls & email outreach)" and "Agent (Day-to-day team member)"; zero page errors
+- tsc: no new errors (only the documented pre-existing consolidated/route.ts one + out-of-project skills/examples)
+
+Stage Summary:
+- Login page is clean of em dashes everywhere and of asterisks on Email/Password, with all sentence rewrites reading naturally; register-mode required markers untouched

@@ -13,7 +13,7 @@ import { Loader2, LogIn, UserPlus, ShieldCheck, AlertCircle, CheckCircle2, Build
 /** Teams under Kallmania — every operational role falls in under the Kallmania division */
 const BPO_TEAMS = [
   { value: "OUTBOUND", desc: "Outbound calls & email outreach" },
-  { value: "INBOUND", desc: "Inbound call centre — receiving calls" },
+  { value: "INBOUND", desc: "Inbound call centre (receiving calls)" },
   { value: "EMAIL", desc: "Email marketing & campaigns" },
   { value: "SOCIAL", desc: "Social media & campaign team" },
   { value: "TECH", desc: "Web development & technical" },
@@ -97,7 +97,7 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
             city: form.city || undefined,
           }),
         });
-        setSuccess(res.message || "Registration submitted — an administrator will confirm your account.");
+        setSuccess(res.message || "Registration submitted. An administrator will confirm your account.");
         setMode("login");
       }
     } catch (e) {
@@ -124,7 +124,7 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
 
           <h1 className="text-3xl font-bold text-white">{mode === "login" ? "Login" : "Create your account"}</h1>
           <p className="mt-1.5 text-sm text-slate-400">
-            {mode === "login" ? "See your growth and get consulting support!" : "Choose where you fall in under Kallmania — an administrator will confirm your login and position."}
+            {mode === "login" ? "See your growth and get consulting support!" : "Choose where you fall in under Kallmania. An administrator will confirm your login and position."}
           </p>
 
           <div className="mt-7 space-y-4">
@@ -141,32 +141,32 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#6c5ce7] text-white shadow-[0_4px_14px_-2px_rgba(108,92,231,0.7)]"><Building2 className="h-4 w-4" /></span>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-white">Kallmania</p>
-                      <p className="text-[11px] text-slate-400">All teams and roles fall in under Kallmania — SBTS Group Global</p>
+                      <p className="text-[11px] text-slate-400">All teams and roles fall in under Kallmania (SBTS Group Global)</p>
                     </div>
                     <BadgeCheck className="ml-auto h-4 w-4 shrink-0 text-[#dce775]" />
                   </div>
                 </div>
                 {/* Step 2 — Team */}
                 <div className="space-y-1.5">
-                  <Label className="text-slate-300">Team * <span className="text-xs font-normal text-slate-500">— choose your team under Kallmania</span></Label>
+                  <Label className="text-slate-300">Team * <span className="text-xs font-normal text-slate-500">(choose your team under Kallmania)</span></Label>
                   <Select value={form.team} onValueChange={(v) => setForm({ ...form, team: v })}>
                     <SelectTrigger className="border-slate-600/50 bg-transparent text-slate-100"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {BPO_TEAMS.map((t) => (
-                        <SelectItem key={t.value} value={t.value}>{TEAM_LABELS[t.value]} — {t.desc}</SelectItem>
+                        <SelectItem key={t.value} value={t.value}>{TEAM_LABELS[t.value]} ({t.desc})</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 {/* Step 3 — Position within the team */}
                 <div className="space-y-1.5">
-                  <Label className="text-slate-300">Position * <span className="text-xs font-normal text-slate-500">— who are you in “{TEAM_LABELS[form.team]}”?</span></Label>
+                  <Label className="text-slate-300">Position * <span className="text-xs font-normal text-slate-500">(who are you in “{TEAM_LABELS[form.team]}”?)</span></Label>
                   <Select value={form.position} onValueChange={(v) => setForm({ ...form, position: v })}>
                     <SelectTrigger className="border-slate-600/50 bg-transparent text-slate-100"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {POSITIONS.map((p) => (
                         <SelectItem key={p.value} value={p.value}>
-                          <span className="flex items-center gap-2"><Users2 className="h-3.5 w-3.5" /> {p.label} — {p.desc}</span>
+                          <span className="flex items-center gap-2"><Users2 className="h-3.5 w-3.5" /> {p.label} ({p.desc})</span>
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -176,7 +176,7 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
                 {/* Step 3b — Employment type (agents choose Full-time or Part-time) */}
                 {form.position === "AGENT" && (
                   <div className="space-y-1.5">
-                    <Label className="text-slate-300">Employment type * <span className="text-xs font-normal text-slate-500">— how will you work?</span></Label>
+                    <Label className="text-slate-300">Employment type * <span className="text-xs font-normal text-slate-500">(how will you work?)</span></Label>
                     <div className="grid grid-cols-2 gap-2">
                       {[
                         { value: "FULL_TIME", label: "Full-time", desc: "Standard 8-hour shift", icon: Clock4 },
@@ -201,7 +201,7 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
                       })}
                     </div>
                     {form.employmentType === "PART_TIME" && (
-                      <p className="text-[11px] leading-relaxed text-amber-300/80">Part-time schedules vary — some work every day for a few hours, others a few days. The administrator will set your exact working days and shift hours (weekends included if needed).</p>
+                      <p className="text-[11px] leading-relaxed text-amber-300/80">Part-time schedules vary. Some work every day for a few hours, others a few days. The administrator will set your exact working days and shift hours (weekends included if needed).</p>
                     )}
                   </div>
                 )}
@@ -247,11 +247,11 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
               </>
             )}
             <div className="space-y-1.5">
-              <Label className="text-slate-300">Email *</Label>
+              <Label className="text-slate-300">Email</Label>
               <Input type="email" className="border-slate-600/50 bg-transparent text-slate-100 placeholder:text-slate-500" placeholder="mail@website.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-slate-300">Password *</Label>
+              <Label className="text-slate-300">Password</Label>
               <PasswordInput className="border-slate-600/50 bg-transparent text-slate-100 placeholder:text-slate-500" placeholder={mode === "register" ? "Min. 6 characters" : "Min. 8 character"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} onKeyDown={(e) => e.key === "Enter" && submit()} />
             </div>
 
