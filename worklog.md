@@ -562,3 +562,18 @@ Work Log:
 
 Stage Summary:
 - Missed-report notifications (and every "expected to report" surface: dashboard expected/outstanding, consolidated missing list) are now shift-aware — part-timers only get chased on their own workdays, while the report portal keeps accepting any date for exceptional attendance; stale off-day alerts were purged from Supabase and future user deletions no longer leave orphaned alerts
+
+---
+Task ID: 31-b
+Agent: main (Z.ai)
+Task: User-supplied PAT — push Task 31 to GitHub, sync Supabase, deploy shiftfix31 preview
+
+Work Log:
+- Pushed 1 unpushed commit (523c54d Task 31) via one-time inline PAT URL (token masked in output, never persisted); verified remote HEAD == 523c54d == local HEAD
+- Supabase: prisma db push (explicit DATABASE_URL from .env) → "The database is already in sync" — Task 31 was logic-level; workDays mask already in schema since Task 25
+- Dev server stopped before build (OOM guard); BUILD_ID=shiftfix31 → /tmp/build_fullstack_shiftfix31.tar.gz (59M)
+- Smoke test under hostile env (DATABASE_URL=file:./custom.db, PORT=3100, bun next-service-dist/server.js): GET / → 200, admin login → 200; smoke server stopped after
+- Complete pushed the preview; dev daemon restarted → :3000 → 200
+
+Stage Summary:
+- GitHub fully up to date (523c54d), Supabase schema in sync, shiftfix31 preview deployed and verified; local dev server back on :3000
