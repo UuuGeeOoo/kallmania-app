@@ -18,9 +18,12 @@ export async function POST(req: NextRequest) {
 
     // ── REGISTRATION ──────────────────────────────────────────
     if (action === "register") {
-      const { email, password, fullName, role, department, team, position, employeeId, phone, country, state, city } = body;
+      const { email, password, fullName, role, department, team, position, employeeId, phone, country, state, city, employmentType } = body;
       if (!email || !password || !fullName) return fail("Email, password and full name are required");
       if (String(password).length < 6) return fail("Password must be at least 6 characters");
+      const { isEmploymentType } = await import("@/lib/schedule");
+      if (employmentType !== undefined && employmentType !== "" && !isEmploymentType(employmentType))
+        return fail("Employment type must be Full-time or Part-time");
 
       // New hierarchy: BPO division → team → position. Legacy direct role picks still accepted.
       let resolved: { role: string; department: string; team: string | null } | null = null;
@@ -52,6 +55,7 @@ export async function POST(req: NextRequest) {
           team: resolved.team,
           employeeId: employeeId ? String(employeeId).trim() : null,
           phone: phone ? String(phone).trim() : null,
+          employmentType: isEmploymentType(employmentType) ? employmentType : "FULL_TIME",
           country: country ? String(country) : null,
           state: state ? String(state).trim().slice(0, 80) : null,
           city: city ? String(city).trim().slice(0, 80) : null,

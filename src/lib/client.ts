@@ -148,6 +148,10 @@ export interface UserDTO {
   status: string;
   createdAt: string;
   approvedAt?: string | null;
+  employmentType?: string;
+  workDays?: string | null;
+  shiftStart?: string | null;
+  shiftEnd?: string | null;
   reportCount?: number;
 }
 

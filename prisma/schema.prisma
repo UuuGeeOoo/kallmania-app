@@ -25,6 +25,13 @@ model User {
   team         String?
   employeeId   String?
   phone        String?
+  // Employment: FULL_TIME (standard 8-hour shift) | PART_TIME (fewer hours/days)
+  employmentType String @default("FULL_TIME")
+  // Working days as a 7-char mask Mon..Sun ("1" = works). "1111100" = Mon–Fri; positions 5-6 = weekend (Sat, Sun)
+  workDays     String   @default("1111100")
+  // Shift window, 24h HH:MM. Full-time default is the 8-hour shift 09:00–17:00
+  shiftStart   String   @default("09:00")
+  shiftEnd     String   @default("17:00")
   // Registration location (ISO-3166 country code + state/region name + optional city)
   country      String?
   state        String?

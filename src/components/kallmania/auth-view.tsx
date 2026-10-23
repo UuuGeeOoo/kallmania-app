@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, TEAM_LABELS, type SessionUser } from "@/lib/client";
 import { Country, State, City } from "country-state-city";
-import { Loader2, LogIn, UserPlus, ShieldCheck, AlertCircle, CheckCircle2, Building2, Users2, BadgeCheck } from "lucide-react";
+import { Loader2, LogIn, UserPlus, ShieldCheck, AlertCircle, CheckCircle2, Building2, Users2, BadgeCheck, Clock4, CalendarClock } from "lucide-react";
 
 /** Teams under Kallmania — every operational role falls in under the Kallmania division */
 const BPO_TEAMS = [
@@ -61,7 +61,7 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [form, setForm] = useState({ email: "", password: "", fullName: "", team: "OUTBOUND", position: "AGENT", employeeId: "", phone: "", country: "NG", state: "", city: "" });
+  const [form, setForm] = useState({ email: "", password: "", fullName: "", team: "OUTBOUND", position: "AGENT", employeeId: "", phone: "", country: "NG", state: "", city: "", employmentType: "FULL_TIME" });
   const statesOfCountry = form.country ? State.getStatesOfCountry(form.country) : [];
   const citiesOfState = (() => {
     if (!form.country || !form.state) return [];
@@ -90,6 +90,7 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
             position: form.position,
             employeeId: form.employeeId,
             phone: form.phone,
+            employmentType: form.position === "AGENT" ? form.employmentType : undefined,
             country: form.country || undefined,
             state: form.state || undefined,
             city: form.city || undefined,
@@ -171,6 +172,38 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
                   </Select>
                   <p className="flex items-center gap-1.5 text-xs text-slate-500"><ShieldCheck className="h-3.5 w-3.5 text-[#dce775]" /> Positions are confirmed (and can be changed) by the administrator. Supervisor accounts oversee the whole division.</p>
                 </div>
+                {/* Step 3b — Employment type (agents choose Full-time or Part-time) */}
+                {form.position === "AGENT" && (
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-300">Employment type * <span className="text-xs font-normal text-slate-500">— how will you work?</span></Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { value: "FULL_TIME", label: "Full-time", desc: "Standard 8-hour shift", icon: Clock4 },
+                        { value: "PART_TIME", label: "Part-time", desc: "Fewer hours and/or days", icon: CalendarClock },
+                      ].map((opt) => {
+                        const selected = form.employmentType === opt.value;
+                        const Icon = opt.icon;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setForm({ ...form, employmentType: opt.value })}
+                            className={`flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${selected ? "border-[#8b7ff5] bg-[#6c5ce7]/15 shadow-[0_0_0_1px_rgba(139,127,245,0.35)]" : "border-slate-600/50 bg-white/[0.02] hover:border-slate-500"}`}
+                          >
+                            <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${selected ? "text-[#b3a5ff]" : "text-slate-500"}`} />
+                            <span className="min-w-0">
+                              <span className={`block text-sm font-semibold ${selected ? "text-white" : "text-slate-300"}`}>{opt.label}</span>
+                              <span className="block text-[11px] leading-snug text-slate-500">{opt.desc}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {form.employmentType === "PART_TIME" && (
+                      <p className="text-[11px] leading-relaxed text-amber-300/80">Part-time schedules vary — some work every day for a few hours, others a few days. The administrator will set your exact working days and shift hours (weekends included if needed).</p>
+                    )}
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   <div className="space-y-1.5">
                     <Label className="text-slate-300">Country</Label>

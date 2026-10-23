@@ -13,6 +13,10 @@ const PUBLIC_PROFILE = {
   team: true,
   employeeId: true,
   phone: true,
+  employmentType: true,
+  workDays: true,
+  shiftStart: true,
+  shiftEnd: true,
   country: true,
   state: true,
   city: true,
@@ -31,13 +35,13 @@ export async function GET() {
   });
 }
 
-/** PATCH — self-service edits: fullName, employeeId, phone, country/state + optional password change.
- *  Role, department, team and email stay administrator-controlled. */
+/** PATCH — self-service edits: fullName, employeeId, phone, country/state, employmentType + optional password change.
+ *  Role, department, team, email, working days and shift hours stay administrator-controlled. */
 export async function PATCH(req: NextRequest) {
   return handle(async () => {
     const me = await requireUser();
     const body = await req.json();
-    const { fullName, phone, country, state, city, employeeId, currentPassword, newPassword } = body;
+    const { fullName, phone, country, state, city, employeeId, employmentType, currentPassword, newPassword } = body;
 
     const data: Record<string, unknown> = {};
 
@@ -71,6 +75,11 @@ export async function PATCH(req: NextRequest) {
       if (eid.length > 40) return fail("Employee ID looks too long (max 40 characters)");
       data.employeeId = eid || null;
     }
+    if (employmentType !== undefined) {
+      const { isEmploymentType } = await import("@/lib/schedule");
+      if (!isEmploymentType(employmentType)) return fail("Employment type must be Full-time or Part-time");
+      data.employmentType = employmentType;
+    }
     if (city !== undefined) {
       const c = String(city || "").trim();
       if (c.length > 100) return fail("City name too long");
@@ -91,11 +100,12 @@ export async function PATCH(req: NextRequest) {
 
     if (Object.keys(data).length === 0) return fail("Nothing to update");
 
-    const before = await db.user.findUnique({ where: { id: me.id }, select: { fullName: true, phone: true, employeeId: true, country: true, state: true } });
+    const before = await db.user.findUnique({ where: { id: me.id }, select: { fullName: true, phone: true, employeeId: true, country: true, state: true, employmentType: true } });
     const updated = await db.user.update({ where: { id: me.id }, data, select: PUBLIC_PROFILE });
     const changes = [
       ...(data.fullName !== undefined && before && before.fullName !== updated.fullName ? ["name"] : []),
       ...(data.employeeId !== undefined && before && before.employeeId !== updated.employeeId ? ["employee ID"] : []),
+      ...(data.employmentType !== undefined && before && before.employmentType !== updated.employmentType ? ["employment type"] : []),
       ...(data.phone !== undefined && before && before.phone !== updated.phone ? ["phone"] : []),
       ...((data.country !== undefined || data.state !== undefined) && before && (before.country !== updated.country || before.state !== updated.state) ? ["location"] : []),
       ...(passwordChanged ? ["password"] : []),

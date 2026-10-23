@@ -5,15 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { api, fmtDate, fmtDateTime, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, type UserDTO, type NotificationDTO, type SessionUser } from "@/lib/client";
 import { PageHeader, EmptyState, StatusBadge, SectionCard, Field, inputCls } from "@/components/kallmania/shared";
+import { EMPLOYMENT_LABELS, WORKDAY_SHORT, FULL_TIME_DEFAULT, formatWorkDays, shiftHours, includesWeekend, weeklyHours, type EmploymentType } from "@/lib/schedule";
 import { UserKpiDialog } from "@/components/kallmania/user-kpi-dialog";
 import { EscalationsPanel } from "@/components/kallmania/escalation-center";
 import { TeamLeadTemplateEditor } from "@/components/kallmania/team-lead-form";
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Country } from "country-state-city";
-import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2, Loader2, Bell, Settings2, ScrollText, Info, MapPin } from "lucide-react";
+import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2, Loader2, Bell, Settings2, ScrollText, Info, MapPin, CalendarClock } from "lucide-react";
 
 const ALL_ROLES = ["AGENT_BPO", "TEAM_LEAD", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR", "ADMIN"];
 const ALL_TEAMS = ["OUTBOUND", "INBOUND", "EMAIL", "SOCIAL", "TECH"];
@@ -35,6 +37,8 @@ export function AdminUsersView() {
   const [resetUser, setResetUser] = useState<UserDTO | null>(null);
   const [deleteUser, setDeleteUser] = useState<UserDTO | null>(null);
   const [kpiUser, setKpiUser] = useState<UserDTO | null>(null);
+  const [scheduleUser, setScheduleUser] = useState<UserDTO | null>(null);
+  const [schedForm, setSchedForm] = useState({ employmentType: "FULL_TIME", workDays: "1111100", shiftStart: "09:00", shiftEnd: "17:00" });
   const [newPassword, setNewPassword] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const { toast } = useToast();
@@ -89,6 +93,23 @@ export function AdminUsersView() {
 
   const visible = users.filter((u) => filter === "ALL" || u.status === filter);
   const pending = users.filter((u) => u.status === "PENDING");
+
+  const openSchedule = (u: UserDTO) => {
+    setSchedForm({
+      employmentType: u.employmentType || "FULL_TIME",
+      workDays: u.workDays || FULL_TIME_DEFAULT.workDays,
+      shiftStart: u.shiftStart || FULL_TIME_DEFAULT.shiftStart,
+      shiftEnd: u.shiftEnd || FULL_TIME_DEFAULT.shiftEnd,
+    });
+    setScheduleUser(u);
+  };
+  const toggleDay = (i: number) =>
+    setSchedForm((f) => {
+      const arr = f.workDays.split("");
+      arr[i] = arr[i] === "1" ? "0" : "1";
+      const next = arr.join("");
+      return next.includes("1") ? { ...f, workDays: next } : f; // at least one working day
+    });
 
   return (
     <div>
@@ -151,6 +172,7 @@ export function AdminUsersView() {
                 <TableHead className="text-[11px] text-slate-400">Location</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Role</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Team under Kallmania</TableHead>
+                <TableHead className="text-[11px] text-slate-400">Employment</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Status</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Registered</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Actions</TableHead>
@@ -195,6 +217,17 @@ export function AdminUsersView() {
                       </Select>
                     )}
                   </TableCell>
+                  <TableCell className="py-2.5">
+                    <div className="flex flex-col gap-0.5">
+                      <span className={`w-fit rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${(u.employmentType || "FULL_TIME") === "PART_TIME" ? "bg-amber-500/15 text-amber-700 dark:text-amber-300" : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"}`}>
+                        {EMPLOYMENT_LABELS[(u.employmentType as EmploymentType) || "FULL_TIME"] || "Full-time"}
+                      </span>
+                      <span className="text-[10px] leading-tight text-slate-500">
+                        {formatWorkDays(u.workDays || FULL_TIME_DEFAULT.workDays)} · {u.shiftStart || "09:00"}–{u.shiftEnd || "17:00"}
+                        {includesWeekend(u.workDays || FULL_TIME_DEFAULT.workDays) ? " · incl. weekend" : ""}
+                      </span>
+                    </div>
+                  </TableCell>
                   <TableCell className="py-2.5"><StatusBadge status={u.status} /></TableCell>
                   <TableCell className="py-2.5 text-[11px] text-slate-500">{fmtDate(u.createdAt)}</TableCell>
                   <TableCell className="py-2.5">
@@ -202,6 +235,7 @@ export function AdminUsersView() {
                       {u.status === "PENDING" && <Button size="icon" variant="ghost" className="h-7 w-7 text-emerald-400" title="Approve" onClick={() => act(u.id, "approve")}><CheckCircle2 className="h-3.5 w-3.5" /></Button>}
                       {u.status === "APPROVED" && <Button size="icon" variant="ghost" className="h-7 w-7 text-amber-400" title="Suspend" onClick={() => act(u.id, "suspend")}><PauseCircle className="h-3.5 w-3.5" /></Button>}
                       {u.status === "SUSPENDED" && <Button size="icon" variant="ghost" className="h-7 w-7 text-emerald-400" title="Reactivate" onClick={() => act(u.id, "reactivate")}><PlayCircle className="h-3.5 w-3.5" /></Button>}
+                      <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-[#eda06a]" title="Working days & shift hours" onClick={() => openSchedule(u)}><CalendarClock className="h-3.5 w-3.5" /></Button>
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-[#8b7ff5]" title="Reset password" onClick={() => { setResetUser(u); setNewPassword(""); }}><KeyRound className="h-3.5 w-3.5" /></Button>
                       {u.role !== "ADMIN" && <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-rose-300" title="Delete" onClick={() => setDeleteUser(u)}><Trash2 className="h-3.5 w-3.5" /></Button>}
                     </div>
@@ -257,6 +291,101 @@ export function AdminUsersView() {
           <div className="flex justify-end gap-2">
             <Button variant="outline" className="border-slate-600 text-slate-200" onClick={() => setResetUser(null)}>Cancel</Button>
             <Button disabled={newPassword.length < 6} className="bg-[#6c5ce7] hover:bg-[#5b4bd4]" onClick={async () => { if (resetUser) { await act(resetUser.id, "resetPassword", { newPassword }); setResetUser(null); } }}>Reset</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!scheduleUser} onOpenChange={(v) => !v && setScheduleUser(null)}>
+        <DialogContent className="border-white/10 bg-[#1b2a3b] text-slate-100 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white">Work schedule — {scheduleUser?.fullName}</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Employment type, working days and shift hours. Weekend days (Sat, Sun) can be included — toggle them on to assign weekend work.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Field label="Employment type" required>
+              <Select value={schedForm.employmentType} onValueChange={(v) => setSchedForm((f) => ({ ...f, employmentType: v }))}>
+                <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FULL_TIME">Full-time — standard 8-hour shift</SelectItem>
+                  <SelectItem value="PART_TIME">Part-time — fewer hours and/or days</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label className="text-xs text-slate-300">Working days <span className="font-normal text-slate-500">— tap to toggle; Sat/Sun = weekend</span></Label>
+                <div className="flex gap-1.5">
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-slate-300 hover:bg-white/5" onClick={() => setSchedForm((f) => ({ ...f, workDays: "1111100" }))}>Mon–Fri</Button>
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-slate-300 hover:bg-white/5" onClick={() => setSchedForm((f) => ({ ...f, workDays: "1111110" }))}>Mon–Sat</Button>
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-slate-300 hover:bg-white/5" onClick={() => setSchedForm((f) => ({ ...f, workDays: "1111111" }))}>Every day</Button>
+                </div>
+              </div>
+              <div className="grid grid-cols-7 gap-1.5">
+                {WORKDAY_SHORT.map((d, i) => {
+                  const on = schedForm.workDays[i] === "1";
+                  const weekend = i >= 5;
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => toggleDay(i)}
+                      className={`rounded-lg border px-1 py-2 text-[11px] font-semibold transition ${
+                        on
+                          ? weekend
+                            ? "border-amber-400/60 bg-amber-500/20 text-amber-700 dark:text-amber-200"
+                            : "border-emerald-400/50 bg-emerald-500/15 text-emerald-700 dark:text-emerald-200"
+                          : "border-white/10 bg-white/[0.03] text-slate-600 hover:border-white/25"
+                      }`}
+                      title={on ? `${d} — working day${weekend ? " (weekend)" : ""}` : `${d} — off`}
+                    >
+                      {d}
+                    </button>
+                  );
+                })}
+              </div>
+              {includesWeekend(schedForm.workDays) && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-300">Weekend work assigned — Sat and/or Sun are working days.</p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Shift starts" required>
+                <Input type="time" className={`${inputCls} [color-scheme:dark]`} value={schedForm.shiftStart} onChange={(e) => setSchedForm((f) => ({ ...f, shiftStart: e.target.value }))} />
+              </Field>
+              <Field label="Shift ends" required>
+                <Input type="time" className={`${inputCls} [color-scheme:dark]`} value={schedForm.shiftEnd} onChange={(e) => setSchedForm((f) => ({ ...f, shiftEnd: e.target.value }))} />
+              </Field>
+            </div>
+
+            <p className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-slate-400">
+              {(() => {
+                const perDay = shiftHours(schedForm.shiftStart, schedForm.shiftEnd);
+                const week = weeklyHours(schedForm);
+                if (perDay === null || week === null) return "Enter a valid shift window (end must be after start).";
+                const days = schedForm.workDays.split("").filter((c) => c === "1").length;
+                return `Summary: ${days} working day${days === 1 ? "" : "s"} · ${perDay % 1 === 0 ? perDay : perDay.toFixed(2)}h/day · ${week % 1 === 0 ? week : week.toFixed(2)}h/week${schedForm.employmentType === "FULL_TIME" && perDay !== 8 ? " — full-time agents normally work an 8-hour shift." : ""}`;
+              })()}
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" className="border-slate-600 text-slate-200" onClick={() => setScheduleUser(null)}>Cancel</Button>
+            <Button
+              disabled={busy === (scheduleUser?.id ?? "") + "setSchedule" || shiftHours(schedForm.shiftStart, schedForm.shiftEnd) === null}
+              className="bg-[#6c5ce7] hover:bg-[#5b4bd4]"
+              onClick={async () => {
+                if (!scheduleUser) return;
+                const res = await act(scheduleUser.id, "setSchedule", schedForm);
+                if (res) {
+                  toast({ title: "Schedule saved", description: (res.schedule as { summary?: string } | undefined)?.summary || `${scheduleUser.fullName}'s schedule was updated.` });
+                  setScheduleUser(null);
+                }
+              }}
+            >
+              {busy === (scheduleUser?.id ?? "") + "setSchedule" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <CalendarClock className="mr-1 h-3.5 w-3.5" />} Save schedule
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

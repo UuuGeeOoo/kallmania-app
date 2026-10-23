@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, fmtDate, type SessionUser } from "@/lib/client";
 import { PageHeader, SectionCard, Field, inputCls, StatusBadge } from "@/components/kallmania/shared";
+import { EMPLOYMENT_LABELS, WORKDAY_SHORT, formatWorkDays, shiftHours, includesWeekend, type EmploymentType } from "@/lib/schedule";
 import { useToast } from "@/hooks/use-toast";
 import { Country, State, City } from "country-state-city";
-import { Loader2, Save, UserCircle2, KeyRound, Info } from "lucide-react";
+import { Loader2, Save, UserCircle2, KeyRound, Info, CalendarClock } from "lucide-react";
 
 const ALL_COUNTRIES = Country.getAllCountries().slice().sort((a, b) => a.name.localeCompare(b.name));
 
@@ -21,6 +22,10 @@ interface ProfileDTO {
   team: string | null;
   employeeId: string | null;
   phone: string | null;
+  employmentType?: string;
+  workDays?: string | null;
+  shiftStart?: string | null;
+  shiftEnd?: string | null;
   country: string | null;
   state: string | null;
   city: string | null;
@@ -36,7 +41,7 @@ export default function ProfileView({ user }: { user: SessionUser }) {
   const [saving, setSaving] = useState(false);
   const [savingPw, setSavingPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ fullName: "", employeeId: "", phone: "", country: "", state: "", city: "" });
+  const [form, setForm] = useState({ fullName: "", employeeId: "", phone: "", country: "", state: "", city: "", employmentType: "FULL_TIME" });
   const [pw, setPw] = useState({ currentPassword: "", newPassword: "", confirm: "" });
 
   const statesOfCountry = form.country ? State.getStatesOfCountry(form.country) : [];
@@ -51,7 +56,7 @@ export default function ProfileView({ user }: { user: SessionUser }) {
       try {
         const { profile } = await api<{ profile: ProfileDTO }>("/api/profile");
         setProfile(profile);
-        setForm({ fullName: profile.fullName, employeeId: profile.employeeId || "", phone: profile.phone || "", country: profile.country || "", state: profile.state || "", city: profile.city || "" });
+        setForm({ fullName: profile.fullName, employeeId: profile.employeeId || "", phone: profile.phone || "", country: profile.country || "", state: profile.state || "", city: profile.city || "", employmentType: profile.employmentType || "FULL_TIME" });
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -65,10 +70,10 @@ export default function ProfileView({ user }: { user: SessionUser }) {
     try {
       const { profile: updated, message } = await api<{ profile: ProfileDTO; message: string }>("/api/profile", {
         method: "PATCH",
-        body: JSON.stringify({ fullName: form.fullName, employeeId: form.employeeId, phone: form.phone, country: form.country, state: form.state, city: form.city }),
+        body: JSON.stringify({ fullName: form.fullName, employeeId: form.employeeId, phone: form.phone, country: form.country, state: form.state, city: form.city, employmentType: form.employmentType }),
       });
       setProfile(updated);
-      setForm({ fullName: updated.fullName, employeeId: updated.employeeId || "", phone: updated.phone || "", country: updated.country || "", state: updated.state || "", city: updated.city || "" });
+      setForm({ fullName: updated.fullName, employeeId: updated.employeeId || "", phone: updated.phone || "", country: updated.country || "", state: updated.state || "", city: updated.city || "", employmentType: updated.employmentType || "FULL_TIME" });
       toast({ title: "Profile saved", description: message });
     } catch (e) {
       const msg = (e as Error).message;
@@ -102,7 +107,7 @@ export default function ProfileView({ user }: { user: SessionUser }) {
 
   const dirty =
     profile &&
-    (form.fullName !== profile.fullName || form.employeeId !== (profile.employeeId || "") || form.phone !== (profile.phone || "") || form.country !== (profile.country || "") || form.state !== (profile.state || "") || form.city !== (profile.city || ""));
+    (form.fullName !== profile.fullName || form.employeeId !== (profile.employeeId || "") || form.phone !== (profile.phone || "") || form.country !== (profile.country || "") || form.state !== (profile.state || "") || form.city !== (profile.city || "") || form.employmentType !== (profile.employmentType || "FULL_TIME"));
 
   if (loading) {
     return <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
@@ -134,12 +139,51 @@ export default function ProfileView({ user }: { user: SessionUser }) {
             <div className="flex justify-between gap-2"><dt className="text-slate-500">Role</dt><dd className="text-right text-slate-200">{ROLE_LABELS[profile.role] || profile.role}</dd></div>
             <div className="flex justify-between gap-2"><dt className="text-slate-500">Department</dt><dd className="text-right text-slate-200">{DEPT_LABELS[profile.department] || profile.department}</dd></div>
             {profile.team && <div className="flex justify-between gap-2"><dt className="text-slate-500">Team under Kallmania</dt><dd className="text-right text-slate-200">{TEAM_LABELS[profile.team] || profile.team}</dd></div>}
+            <div className="flex justify-between gap-2"><dt className="text-slate-500">Employment</dt><dd className="text-right text-slate-200">{EMPLOYMENT_LABELS[(profile.employmentType as EmploymentType) || "FULL_TIME"] || "Full-time"}</dd></div>
             {profile.employeeId && <div className="flex justify-between gap-2"><dt className="text-slate-500">Employee ID</dt><dd className="text-right text-slate-200">{profile.employeeId}</dd></div>}
             <div className="flex justify-between gap-2"><dt className="text-slate-500">Member since</dt><dd className="text-right text-slate-200">{fmtDate(profile.createdAt)}</dd></div>
           </dl>
           <p className="mt-4 flex items-start gap-1.5 rounded-md border border-white/5 bg-white/[0.03] p-2.5 text-[11px] leading-relaxed text-slate-400">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
             To correct your role, department, team or email, contact an administrator — these fields drive reports and permissions.
+          </p>
+        </SectionCard>
+
+        {/* Work schedule — set by the administrator, shown read-only */}
+        <SectionCard title="Work schedule" subtitle="Set by the administrator — contact them to change it" className="lg:col-span-1">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#6c5ce7]/20 text-[#b3a5ff]"><CalendarClock className="h-4.5 w-4.5" /></span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-100">{EMPLOYMENT_LABELS[(profile.employmentType as EmploymentType) || "FULL_TIME"] || "Full-time"}</p>
+              <p className="text-[11px] text-slate-400">
+                {formatWorkDays(profile.workDays || "1111100")} · {profile.shiftStart || "09:00"}–{profile.shiftEnd || "17:00"}
+                {shiftHours(profile.shiftStart || "09:00", profile.shiftEnd || "17:00") !== null ? ` · ${shiftHours(profile.shiftStart || "09:00", profile.shiftEnd || "17:00")}h/day` : ""}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {(profile.workDays || "1111100").split("").map((on, i) => (
+              <span
+                key={i}
+                className={`rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+                  on === "1"
+                    ? i >= 5
+                      ? "bg-amber-500/20 text-amber-700 ring-1 ring-amber-400/40 dark:text-amber-300"
+                      : "bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-400/30 dark:text-emerald-300"
+                    : "bg-white/[0.04] text-slate-600"
+                }`}
+                title={on === "1" ? (i >= 5 ? "Working day (weekend)" : "Working day") : "Off day"}
+              >
+                {WORKDAY_SHORT[i]}
+              </span>
+            ))}
+          </div>
+          {includesWeekend(profile.workDays || "1111100") && (
+            <p className="mt-2.5 rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">Your schedule includes weekend work (highlighted in amber).</p>
+          )}
+          <p className="mt-3 flex items-start gap-1.5 rounded-md border border-white/5 bg-white/[0.03] p-2.5 text-[11px] leading-relaxed text-slate-400">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
+            Full-time agents work a standard 8-hour shift. Part-time schedules (days and hours) are configured by the administrator — including weekend assignments.
           </p>
         </SectionCard>
 
@@ -154,6 +198,15 @@ export default function ProfileView({ user }: { user: SessionUser }) {
             </Field>
             <Field label="Phone number">
               <Input className={inputCls} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="e.g. +234 801 234 5678" />
+            </Field>
+            <Field label="Employment type" hint="Full-time = standard 8-hour shift">
+              <Select value={form.employmentType} onValueChange={(v) => setForm({ ...form, employmentType: v })}>
+                <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FULL_TIME">Full-time</SelectItem>
+                  <SelectItem value="PART_TIME">Part-time</SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
             <Field label="Country" hint="Used for centre-based task assignment">
               <Select value={form.country || undefined} onValueChange={(v) => setForm({ ...form, country: v, state: "" })}>

@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
       select: {
         id: true, email: true, fullName: true, role: true, department: true, team: true,
         employeeId: true, phone: true, country: true, state: true, status: true, createdAt: true, approvedAt: true,
+        employmentType: true, workDays: true, shiftStart: true, shiftEnd: true,
         _count: { select: { reports: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -108,6 +109,21 @@ export async function PATCH(req: NextRequest) {
         }
         await audit({ userId: admin.id, actorName: admin.fullName, action: "SET_LEAVE", entity: "User", entityId: userId, details: `${user.email} leave ${date} = ${onLeave}` });
         return ok({ success: true });
+      }
+      case "setSchedule": {
+        // Employment type + working days + shift hours (admin-controlled; weekend days included in the mask)
+        const { employmentType, workDays, shiftStart, shiftEnd } = body;
+        const { isEmploymentType, isValidWorkDays, isValidTime, shiftHours, describeSchedule } = await import("@/lib/schedule");
+        if (!isEmploymentType(employmentType)) return fail("Employment type must be Full-time or Part-time");
+        if (!isValidWorkDays(workDays)) return fail("Pick at least one working day (Mon–Sun)");
+        if (!isValidTime(shiftStart) || !isValidTime(shiftEnd)) return fail("Shift hours must be valid 24h times (HH:MM)");
+        const hrs = shiftHours(shiftStart, shiftEnd);
+        if (hrs === null) return fail("Shift end must be after shift start");
+        await db.user.update({ where: { id: userId }, data: { employmentType, workDays, shiftStart, shiftEnd } });
+        const summary = describeSchedule({ employmentType, workDays, shiftStart, shiftEnd });
+        await notify({ userId, type: "SCHEDULE_UPDATED", severity: "INFO", title: "Your work schedule was updated", message: `An administrator set your schedule to: ${summary}.`, dedupeKey: `schedule:${userId}:${workDays}:${shiftStart}:${shiftEnd}` });
+        await audit({ userId: admin.id, actorName: admin.fullName, action: "SET_SCHEDULE", entity: "User", entityId: userId, details: `${user.email} → ${summary}` });
+        return ok({ success: true, schedule: { employmentType, workDays, shiftStart, shiftEnd, summary } });
       }
       case "delete": {
         if (user.role === "ADMIN") return fail("Cannot delete an administrator account");

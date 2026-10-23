@@ -385,3 +385,23 @@ Stage Summary:
 Task 24 addendum — "Update it to Git and Supabase":
 - Git: platform auto-sync committed the task-24 artifacts (worklog, scripts/inspect-report-templates.js, 4 evidence screenshots, user uploads) as c04da68 and pushed; origin/main = local HEAD = c04da68 — nothing left to push.
 - Supabase: `prisma db push` against the session pooler reports "The database is already in sync with the Prisma schema" (no schema change in task 24 — template customizations are ReportTemplate rows, 0 custom rows present).
+
+---
+Task ID: 25
+Agent: main (Z.ai)
+Task: Employment status (Full-time/Part-time) for agents — choose at registration, editable in profile; administrator sets working days + shift hours (incl. weekend work) for part-time AND full-time agents; full-time = 8-hour shift
+
+Work Log:
+- WORKSPACE ROLLED BACK AGAIN by platform sync before starting (fresh git init, no remote, commits gone from objects, .env/.env.local wiped, api dirs + 6 components missing, HEAD at old snapshot 25f7bbd). Restored: re-added origin, fetched with transient PAT, `git reset --hard origin/main` (255e886), rewrote .env + .env.local (pooler URL, %25E6 password), bun install, dev daemon restart, admin login verified
+- Schema: User + employmentType ("FULL_TIME"|"PART_TIME", default FULL_TIME), workDays (7-char Mon..Sun mask, default "1111100" Mon–Fri; positions 5-6 = Sat/Sun weekend), shiftStart/shiftEnd (24h HH:MM, default 09:00–17:00 = 8h). `prisma db push` applied to Supabase (additive, safe); client regenerated; dev server restart required to load the new Prisma client (old in-memory client made register/users calls throw)
+- src/lib/schedule.ts: EMPLOYMENT_LABELS, WORKDAY_SHORT, FULL_TIME_DEFAULT (Mon–Fri 09:00–17:00), isEmploymentType/isValidWorkDays (≥1 day)/isValidTime/shiftHours/formatWorkDays (collapses runs → "Mon–Fri", "Mon, Wed, Fri", "Every day")/includesWeekend/describeSchedule/weeklyHours
+- APIs: register accepts employmentType (validated, defaults FULL_TIME); /api/profile GET returns schedule fields + PATCH self-edits employmentType only (audited "employment type"); /api/users GET selects schedule fields; PATCH new action "setSchedule" (admin): validates type/mask/times + end>start, saves, notifies the user with the summary, audits SET_SCHEDULE
+- UI: auth-view registration shows Full-time/Part-time cards when Position = Agent ("Standard 8-hour shift" vs "Fewer hours and/or days") with a part-time explainer; profile-view adds Employment row + editable Employment type select in Personal details + read-only "Work schedule" card (day chips Mon–Sun, weekend amber, 8h note); AdminUsersView adds Employment column (badge + days/hours + "incl. weekend") + CalendarClock action opening the Work schedule dialog (employment select, Mon–Fri/Mon–Sat/Every-day presets, 7 toggle chips with weekend highlight, shift time inputs, live per-day/per-week summary, 8h hint for full-time)
+- Light theme: amber-300/emerald-300 chip + note texts washed out on light bg → switched to amber-700/emerald-700 + dark: variants (profile chips/note, admin badges, dialog chips/hint)
+- Verified: scripts/verify-employment-schedule.js 14/14 PASS (register PART_TIME, invalid type rejected, list exposes fields, approve, setSchedule incl. weekend "Part-time · Mon, Wed, Fri, Sun · 09:00–13:00 (4h/day)", zero-days + end-before-start rejections, agent login, profile carries schedule, self-edit employmentType, invalid rejected, cleanup); browser as admin: employment column + dialog (toggled Sat on, 4h shift, saved → API shows 1111110 09:00–13:00), registration cards + part-time hint; browser as agent: profile schedule card + self-edit persisted. All disposable test users deleted (0 leftovers)
+- Build: bun run build clean; .zscripts/build.sh exit 0 (59M); prisma db push "already in sync"; dev daemon restarted (GET / 200)
+- Screenshots: download/register-employment-parttime.png, admin-schedule-table-dark.png, profile-schedule-dark.png, profile-schedule-light.png, profile-schedule-light-fixed.png
+
+Stage Summary:
+- Agents choose Full-time or Part-time at registration and can change it in My Profile; admins set working days (Mon–Sun incl. weekend) + shift start/end hours for any member via User Management → Work schedule dialog; full-time = 8-hour shift default (09:00–17:00), part-time covers both "all days few hours" and "few days few hours"; schedule changes notify the user and are audited
+- GitHub main = Supabase schema = deploy payload
