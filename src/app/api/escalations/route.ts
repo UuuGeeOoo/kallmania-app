@@ -11,8 +11,9 @@ import { notify, audit } from "@/lib/notify";
  * POST   /api/escalations   — staff escalate to TEAM_LEAD / SUPERVISOR / ADMIN;
  *                             management can notify any agent of their choice.
  * PATCH  /api/escalations   — acknowledge / resolve (management)
- * DELETE /api/escalations   — administrator removes escalations that were already
- *                             handled (ACKNOWLEDGED or RESOLVED)
+ * DELETE /api/escalations   — administrator removes escalations of ANY status
+ *                             (single ?id= or bulk { ids: [...] }), cascading
+ *                             to their inbox notification copies
  *
  * Visibility rules (who sees what in the feed):
  *  - ADMIN: everything.
@@ -219,26 +220,42 @@ export async function PATCH(req: NextRequest) {
   });
 }
 
-/** Administrator housekeeping: remove escalations that were already handled. */
+/**
+ * Administrator housekeeping: remove escalations — any status (OPEN included).
+ * Supports a single ?id= or a JSON body { ids: [...] } for bulk removal.
+ * Every removal cascades to the inbox notifications pointing at the escalation.
+ */
 export async function DELETE(req: NextRequest) {
   return handle(async () => {
     const me = await requireUser();
     if (me.role !== "ADMIN") throw new AuthError("Only administrators can delete escalations", 403);
     const { searchParams } = new URL(req.url);
-    const id = searchParams.get("id");
-    if (!id) return fail("id is required");
-    const escalation = await db.escalation.findUnique({ where: { id } });
-    if (!escalation) return fail("Escalation not found", 404);
-    if (escalation.status === "OPEN") {
-      return fail("Only escalations that were already acknowledged or resolved can be deleted");
+    let ids: string[] = [];
+    const idParam = searchParams.get("id");
+    if (idParam) ids = [idParam];
+    else {
+      try {
+        const body = await req.json();
+        if (Array.isArray(body?.ids)) ids = body.ids.map(String);
+      } catch { /* no body */ }
     }
-    // Cascade: drop the inbox notifications that point at this escalation.
-    await db.notification.deleteMany({ where: { linkData: { contains: escalation.id } } });
-    await db.escalation.delete({ where: { id } });
-    await audit({
-      userId: me.id, actorName: me.fullName, action: "DELETE_ESCALATION", entity: "Escalation", entityId: id,
-      details: `${escalation.status} — ${escalation.subject} (from ${escalation.fromName})`,
-    });
-    return ok({ success: true });
+    ids = ids.filter(Boolean).slice(0, 200);
+    if (ids.length === 0) return fail("id (or ids) is required");
+
+    let deleted = 0;
+    for (const id of ids) {
+      const escalation = await db.escalation.findUnique({ where: { id } });
+      if (!escalation) continue;
+      // Cascade: drop the inbox notifications that point at this escalation.
+      await db.notification.deleteMany({ where: { linkData: { contains: escalation.id } } });
+      await db.escalation.delete({ where: { id } });
+      deleted++;
+      await audit({
+        userId: me.id, actorName: me.fullName, action: "DELETE_ESCALATION", entity: "Escalation", entityId: id,
+        details: `${escalation.status} — ${escalation.subject} (from ${escalation.fromName})`,
+      });
+    }
+    if (deleted === 0) return fail("Escalation not found", 404);
+    return ok({ success: true, deleted });
   });
 }

@@ -526,3 +526,20 @@ Work Log:
 
 Stage Summary:
 - GitHub UuuGeeOoo/kallmania-app fully up to date (80adb86); Supabase schema confirmed in sync; nothing to migrate for the combobox fix
+
+---
+Task ID: 30
+Agent: main (Z.ai)
+Task: Admin deletes every notification/escalation; multi-select bulk delete in notifications; reload keeps users in their current section
+
+Work Log:
+- Escalations API DELETE (src/app/api/escalations/route.ts): admin can now delete escalations of ANY status (OPEN block removed; OPEN included); accepts single ?id= or bulk JSON body { ids: [...] } (cap 200), each deletion cascades to the inbox notification copies via linkData-contains, audited per id
+- Notifications API PATCH (src/app/api/notifications/route.ts): new "deleteMany" action (ids array) — own copies for regular users; for ADMIN, delete + deleteMany remove the logical notification EVERYWHERE: all rows sharing the dedupeKey base (dedupeKey = `${base}#${userId}`) plus all rows whose linkData points at the same escalationId (adminGlobalScope OR-scope)
+- NotificationsView (admin-views.tsx): per-row Checkbox (stopPropagation, ring highlight), Select-all with indeterminate state, "Delete selected (N)" destructive button in the header, admin explainer line ("Administrator delete removes a notification for every recipient"); per-item trash keeps admin tooltip "Delete for every recipient"
+- EscalationsPanel (escalation-center.tsx): admin Delete button now shows for every card regardless of status; per-card admin Checkbox + Select-all + "Delete selected (N)"; generalized confirm dialog handles single + bulk; bulkBusy spinner
+- Reload persistence (src/app/page.tsx): hash routing — navigate() writes #/<view>[/<data>] via history.replaceState (clean history, back still exits); boot restores session + hash (incl. review/<reportId> deep links); login/logout clear the hash; guard effect falls back to dashboard when a stale hash is not on the role's nav
+- Verified in browser (admin): navigate → #/kpi-config → F5 reload lands back on KPI Configuration; #/notifications reload lands on Notifications; OPEN+URGENT escalation "Report Submission" showed Delete and was deleted (gone from feed); 3 notifications checked → "Delete selected (3)" → removed; API test deleteMany removed exactly 2 (inbox 125→123 exact); admin single delete of one KPI-shortfall notification cascade-deleted ALL 4 recipients' copies (4→0); non-admin paths unchanged (own-copy delete); tsc clean; zero console errors (pre-existing DialogContent a11y warning only)
+- Supabase: no schema changes (API/UI-only task) — nothing to push
+
+Stage Summary:
+- Admins can now delete any escalation (OPEN included) and any notification for every recipient, with multi-select bulk delete on both the inbox list and the escalation feed; every user stays in their current section across page reloads via hash routing

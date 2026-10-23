@@ -15,6 +15,7 @@ import { EscalationsPanel } from "@/components/kallmania/escalation-center";
 import { TeamLeadTemplateEditor } from "@/components/kallmania/team-lead-form";
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Country } from "country-state-city";
 import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2, Loader2, Bell, Settings2, ScrollText, Info, MapPin, CalendarClock } from "lucide-react";
 
@@ -753,12 +754,16 @@ export function AuditView() {
 export function NotificationsView({ user, onNavigate }: { user: { id: string; role: string; fullName: string; email: string; department: string; team?: string | null; employeeId?: string | null; status: string }; onNavigate: (view: string, data?: string) => void }) {
   const [items, setItems] = useState<NotificationDTO[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const isAdmin = user.role === "ADMIN";
 
   const load = async () => {
     setLoading(true);
     try {
       const { notifications } = await api<{ notifications: NotificationDTO[] }>("/api/notifications");
       setItems(notifications);
+      setSelected(new Set());
     } finally {
       setLoading(false);
     }
@@ -780,9 +785,29 @@ export function NotificationsView({ user, onNavigate }: { user: { id: string; ro
 
   const sevColor = (s: string) => (s === "CRITICAL" ? "border-l-rose-500" : s === "WARNING" ? "border-l-amber-500" : "border-l-sky-500");
 
+  const toggleSelect = (id: string, on: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+  const allSelected = items.length > 0 && selected.size === items.length;
+
   const removeNotification = async (n: NotificationDTO) => {
     await api("/api/notifications", { method: "PATCH", body: JSON.stringify({ action: "delete", id: n.id }) });
     load();
+  };
+
+  const removeSelected = async () => {
+    if (selected.size === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    try {
+      await api("/api/notifications", { method: "PATCH", body: JSON.stringify({ action: "deleteMany", ids: [...selected] }) });
+      await load();
+    } finally {
+      setBulkBusy(false);
+    }
   };
 
   return (
@@ -791,20 +816,55 @@ export function NotificationsView({ user, onNavigate }: { user: { id: string; ro
         title="Notifications"
         subtitle="Alerts for submissions, KPI shortfalls, escalations, overdue reports and failed uploads"
         actions={
-          <Button variant="outline" size="sm" className="border-slate-600 text-slate-300 hover:bg-white/10" onClick={markAll}>Mark all read</Button>
+          <div className="flex items-center gap-2">
+            {selected.size > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={bulkBusy}
+                className="border-rose-500/40 text-rose-300 hover:bg-rose-500/10"
+                title={isAdmin ? "Deletes every recipient's copy of the selected notifications" : "Deletes the selected notifications from your inbox"}
+                onClick={removeSelected}
+              >
+                {bulkBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1.5 h-3.5 w-3.5" />}
+                Delete selected ({selected.size})
+              </Button>
+            )}
+            <Button variant="outline" size="sm" className="border-slate-600 text-slate-300 hover:bg-white/10" onClick={markAll}>Mark all read</Button>
+          </div>
         }
       />
       <div className="mb-5">
         <EscalationsPanel user={user as SessionUser} />
       </div>
+      {isAdmin && items.length > 0 && (
+        <p className="mb-2 text-[11px] text-slate-500">
+          <Info className="mr-1 inline h-3 w-3 text-[#8b7ff5]" />
+          Administrator delete removes a notification for <span className="font-semibold text-slate-400">every recipient</span> — selecting several lets you clean up everyone&apos;s inbox at once.
+        </p>
+      )}
       {loading ? (
         <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
       ) : items.length === 0 ? (
         <EmptyState icon={<Bell className="h-8 w-8" />} title="No notifications" hint="You will be alerted here when action is needed." />
       ) : (
         <div className="space-y-2">
+          <label className="flex cursor-pointer items-center gap-2 px-1 text-[11px] text-slate-500">
+            <Checkbox
+              checked={allSelected ? true : selected.size > 0 ? "indeterminate" : false}
+              onCheckedChange={(v) => setSelected(v ? new Set(items.map((n) => n.id)) : new Set())}
+            />
+            Select all{selected.size > 0 ? ` (${selected.size} selected)` : ""}
+          </label>
           {items.map((n) => (
-            <div key={n.id} role="button" tabIndex={0} onClick={() => openNotification(n)} onKeyDown={(e) => e.key === "Enter" && openNotification(n)} className={`k-card flex w-full cursor-pointer items-start gap-3 border-l-4 p-4 text-left ${sevColor(n.severity)} ${n.read ? "opacity-60" : ""}`}>
+            <div key={n.id} role="button" tabIndex={0} onClick={() => openNotification(n)} onKeyDown={(e) => e.key === "Enter" && openNotification(n)} className={`k-card flex w-full cursor-pointer items-start gap-3 border-l-4 p-4 text-left ${sevColor(n.severity)} ${n.read ? "opacity-60" : ""} ${selected.has(n.id) ? "ring-1 ring-[#6c5ce7]/50" : ""}`}>
+              <span className="mt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                <Checkbox
+                  checked={selected.has(n.id)}
+                  onCheckedChange={(v) => toggleSelect(n.id, v === true)}
+                  aria-label={`Select notification: ${n.title}`}
+                />
+              </span>
               <Bell className={`mt-0.5 h-4 w-4 shrink-0 ${n.severity === "CRITICAL" ? "text-rose-400" : n.severity === "WARNING" ? "text-amber-400" : "text-sky-400"}`} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -818,7 +878,7 @@ export function NotificationsView({ user, onNavigate }: { user: { id: string; ro
                 size="icon"
                 variant="ghost"
                 className="h-7 w-7 shrink-0 text-slate-500 hover:text-rose-300"
-                title="Delete this notification"
+                title={isAdmin ? "Delete for every recipient" : "Delete this notification"}
                 onClick={(e) => { e.stopPropagation(); removeNotification(n); }}
               >
                 <Trash2 className="h-3.5 w-3.5" />

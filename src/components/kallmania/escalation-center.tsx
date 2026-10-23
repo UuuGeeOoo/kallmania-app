@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { api, fmtDateTime, ROLE_LABELS, type EscalationDTO, type SessionUser } from "@/lib/client";
 import { EmptyState } from "@/components/kallmania/shared";
 import { Siren, Send, Loader2, CheckCheck, ShieldCheck, User2, Users2, Trash2 } from "lucide-react";
@@ -157,7 +158,9 @@ export function EscalationsPanel({ user }: { user: SessionUser }) {
   const [items, setItems] = useState<EscalationDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [composerOpen, setComposerOpen] = useState(false);
-  const [deleting, setDeleting] = useState<EscalationDTO | null>(null);
+  const [deleting, setDeleting] = useState<{ ids: string[]; label: string } | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const canManage = ["TEAM_LEAD", "SUPERVISOR", "ADMIN"].includes(user.role);
   const isAdmin = user.role === "ADMIN";
 
@@ -166,6 +169,7 @@ export function EscalationsPanel({ user }: { user: SessionUser }) {
     try {
       const { escalations } = await api<{ escalations: EscalationDTO[] }>("/api/escalations");
       setItems(escalations);
+      setSelected(new Set());
     } finally {
       setLoading(false);
     }
@@ -177,11 +181,26 @@ export function EscalationsPanel({ user }: { user: SessionUser }) {
     load();
   };
 
-  const removeEscalation = async (id: string) => {
-    await api(`/api/escalations?id=${encodeURIComponent(id)}`, { method: "DELETE" });
-    setDeleting(null);
-    load();
+  const removeEscalations = async (ids: string[]) => {
+    setBulkBusy(true);
+    try {
+      await api("/api/escalations", { method: "DELETE", body: JSON.stringify({ ids }) });
+      setDeleting(null);
+      setSelected(new Set());
+      await load();
+    } finally {
+      setBulkBusy(false);
+    }
   };
+
+  const toggleSel = (id: string, on: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+  const allSelected = items.length > 0 && selected.size === items.length;
 
   return (
     <div className="k-card p-5">
@@ -192,9 +211,22 @@ export function EscalationsPanel({ user }: { user: SessionUser }) {
             {user.role === "ADMIN" ? "Every notice across every centre reaches you here" : "Escalations you sent, received, or routed to your role"}
           </p>
         </div>
-        <Button onClick={() => setComposerOpen(true)} className="bg-[#e8935a] font-semibold text-[#1a120b] hover:bg-[#dd8040]">
-          <Siren className="mr-2 h-4 w-4" /> {canManage ? "Notify / escalate" : "Notify / escalate"}
-        </Button>
+        <div className="flex items-center gap-2">
+          {isAdmin && selected.size > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={bulkBusy}
+              className="border-rose-500/40 text-rose-300 hover:bg-rose-500/10"
+              onClick={() => setDeleting({ ids: [...selected], label: `${selected.size} escalation${selected.size === 1 ? "" : "s"}` })}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete selected ({selected.size})
+            </Button>
+          )}
+          <Button onClick={() => setComposerOpen(true)} className="bg-[#e8935a] font-semibold text-[#1a120b] hover:bg-[#dd8040]">
+            <Siren className="mr-2 h-4 w-4" /> {canManage ? "Notify / escalate" : "Notify / escalate"}
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -203,11 +235,25 @@ export function EscalationsPanel({ user }: { user: SessionUser }) {
         <EmptyState icon={<Siren className="h-7 w-7" />} title="No notices yet" hint="Use the bar above to notify your team lead, supervisor or administrator — or to message an agent." />
       ) : (
         <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
+          {isAdmin && items.length > 0 && (
+            <label className="flex cursor-pointer items-center gap-2 px-1 text-[11px] text-slate-500">
+              <Checkbox
+                checked={allSelected ? true : selected.size > 0 ? "indeterminate" : false}
+                onCheckedChange={(v) => setSelected(v ? new Set(items.map((e) => e.id)) : new Set())}
+              />
+              Select all{selected.size > 0 ? ` (${selected.size} selected)` : ""} — admins can remove escalations in any status
+            </label>
+          )}
           {items.map((e) => {
             const mine = e.fromId === user.id;
             return (
-              <div key={e.id} className={cn("rounded-xl border p-3", e.severity === "URGENT" ? "border-rose-500/30 bg-rose-500/[0.04]" : "border-white/10 bg-white/[0.02]")}>
+              <div key={e.id} className={cn("rounded-xl border p-3", e.severity === "URGENT" ? "border-rose-500/30 bg-rose-500/[0.04]" : "border-white/10 bg-white/[0.02]", selected.has(e.id) && "ring-1 ring-[#6c5ce7]/50")}>
                 <div className="flex flex-wrap items-center gap-2">
+                  {isAdmin && (
+                    <span onClick={(ev) => ev.stopPropagation()}>
+                      <Checkbox checked={selected.has(e.id)} onCheckedChange={(v) => toggleSel(e.id, v === true)} aria-label={`Select escalation: ${e.subject}`} />
+                    </span>
+                  )}
                   {e.severity === "URGENT" && <span className="rounded bg-rose-500/20 px-1.5 py-0.5 text-[9px] font-bold text-rose-300">URGENT</span>}
                   <p className="text-sm font-semibold text-slate-100">{e.subject}</p>
                   <span className={cn("rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase", ESC_STATUS[e.status] || ESC_STATUS.OPEN)}>{e.status}</span>
@@ -231,12 +277,12 @@ export function EscalationsPanel({ user }: { user: SessionUser }) {
                     </Button>
                   </div>
                 )}
-                {isAdmin && e.status !== "OPEN" && (
+                {isAdmin && (
                   <div className="mt-2 flex items-center gap-2">
-                    <Button size="sm" variant="outline" className="h-7 border-rose-500/40 text-xs text-rose-300 hover:bg-rose-500/10" onClick={() => setDeleting(e)}>
+                    <Button size="sm" variant="outline" className="h-7 border-rose-500/40 text-xs text-rose-300 hover:bg-rose-500/10" onClick={() => setDeleting({ ids: [e.id], label: `“${e.subject}” from ${e.fromName}` })}>
                       <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
                     </Button>
-                    <span className="text-[10px] text-slate-600">Approved escalations can be removed by the administration</span>
+                    <span className="text-[10px] text-slate-600">Admins can remove any escalation for everyone, including its inbox copies</span>
                   </div>
                 )}
               </div>
@@ -247,19 +293,19 @@ export function EscalationsPanel({ user }: { user: SessionUser }) {
 
       <EscalationComposer user={user} open={composerOpen} setOpen={setComposerOpen} onSent={load} />
 
-      {/* Admin delete confirmation — only for already-handled escalations */}
+      {/* Admin delete confirmation — any status, single or bulk */}
       <Dialog open={!!deleting} onOpenChange={(v) => !v && setDeleting(null)}>
         <DialogContent className="border-white/10 bg-popover text-popover-foreground text-slate-100 sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-white">Delete escalation</DialogTitle>
+            <DialogTitle className="text-white">Delete {deleting && deleting.ids.length > 1 ? `${deleting.ids.length} escalations` : "escalation"}</DialogTitle>
           </DialogHeader>
           <p className="text-xs leading-relaxed text-slate-400">
-            <span className="font-semibold text-rose-300">“{deleting?.subject}”</span> from {deleting?.fromName} ({deleting?.status.toLowerCase()}) will be permanently removed for everyone, including its inbox notifications.
+            <span className="font-semibold text-rose-300">{deleting?.label}</span> will be permanently removed for everyone, including its inbox notifications.
           </p>
           <div className="flex justify-end gap-2">
             <Button variant="outline" className="border-slate-600 text-slate-200 hover:bg-white/10" onClick={() => setDeleting(null)}>Cancel</Button>
-            <Button className="bg-rose-600 hover:bg-rose-500" onClick={() => deleting && removeEscalation(deleting.id)}>
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
+            <Button disabled={bulkBusy} className="bg-rose-600 hover:bg-rose-500" onClick={() => deleting && removeEscalations(deleting.ids)}>
+              {bulkBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1.5 h-3.5 w-3.5" />} Delete
             </Button>
           </div>
         </DialogContent>

@@ -20,6 +20,33 @@ import ProfileView from "@/components/kallmania/profile-view";
 import { api, todayISO, type SessionUser } from "@/lib/client";
 import { Loader2 } from "lucide-react";
 
+// ── Reload persistence (hash routing) ──
+// The current section lives in the URL hash (e.g. #/kpi-config, #/review/<id>)
+// so a browser refresh restores it instead of bouncing back to the dashboard.
+// replaceState keeps the browser history clean (back still leaves the app).
+function readHash(): { view: string; data: string | null } | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.location.hash.replace(/^#\/?/, "").trim();
+  if (!raw) return null;
+  const slash = raw.indexOf("/");
+  const view = slash === -1 ? raw : raw.slice(0, slash);
+  const data = slash === -1 ? null : raw.slice(slash + 1) || null;
+  return view ? { view: decodeURIComponent(view), data: data ? decodeURIComponent(data) : null } : null;
+}
+function writeHash(view: string, data?: string) {
+  try {
+    if (typeof window === "undefined") return;
+    const hash = data ? `#/${view}/${data}` : `#/${view}`;
+    window.history.replaceState(null, "", hash);
+  } catch { /* ignore */ }
+}
+function clearHash() {
+  try {
+    if (typeof window === "undefined") return;
+    if (window.location.hash) window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  } catch { /* ignore */ }
+}
+
 export default function Page() {
   const [booted, setBooted] = useState(false);
   const [user, setUser] = useState<SessionUser | null>(null);
@@ -37,11 +64,31 @@ export default function Page() {
       } catch { /* non-fatal */ }
       try {
         const { user } = await api<{ user: SessionUser | null }>("/api/auth");
-        setUser(user && user.status === "APPROVED" ? user : null);
+        const restored = user && user.status === "APPROVED" ? user : null;
+        setUser(restored);
+        // Reload persistence: land the user back in the section they were in.
+        const h = readHash();
+        if (restored && h) {
+          if (h.view === "review" && h.data) setFocusReportId(h.data);
+          setView(h.view);
+        } else if (!restored) {
+          clearHash();
+        }
       } catch { /* not logged in */ }
       setBooted(true);
     })();
   }, []);
+
+  // If the persisted view is not on this role's nav (stale hash, role change),
+  // fall back to the dashboard and clean the URL.
+  useEffect(() => {
+    if (!user || !booted) return;
+    const allowed = navForRole(user.role).map((n) => n.key);
+    if (!allowed.includes(view)) {
+      setView("dashboard");
+      clearHash();
+    }
+  }, [user, booted, view]);
 
   // Poll unread count
   const refreshUnread = useCallback(() => {
@@ -61,17 +108,20 @@ export default function Page() {
     if (v === "supervisor-report") setSupervisorDate(todayISO());
     if (v === "review" && data) setFocusReportId(data);
     setView(v);
+    writeHash(v, data);
   };
 
   const handleAuthed = (u: SessionUser) => {
     setUser(u);
     setView("dashboard");
+    clearHash();
   };
 
   const logout = async () => {
     await api("/api/auth", { method: "POST", body: JSON.stringify({ action: "logout" }) }).catch(() => {});
     setUser(null);
     setView("dashboard");
+    clearHash();
   };
 
   const exportReport = (id: string) => window.open(`/api/export?format=docx&id=${id}`, "_blank");
