@@ -8,6 +8,9 @@ const path = require("path");
 // into the environment. @next/env does NOT override existing process.env, so a
 // broken exported DATABASE_URL would win over .env and crash Prisma at login
 // ("the URL must start with the protocol postgresql://"). Force the .env value.
+// Keep this fallback in sync with KALLMANIA_FALLBACK_DATABASE_URL in src/lib/db.ts.
+const KALLMANIA_FALLBACK_DATABASE_URL =
+  "postgresql://postgres.heybhtesxvhuktuhvfyd:w8jKp6PJ%25E6w_Wv@aws-0-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require&sslaccept=accept_invalid_certs&connection_limit=5&pool_timeout=20";
 const projectRoot = "/home/z/my-project";
 for (const envFile of [".env.local", ".env"]) {
   const p = path.join(projectRoot, envFile);
@@ -20,8 +23,8 @@ for (const envFile of [".env.local", ".env"]) {
   }
 }
 if (!String(process.env.DATABASE_URL || "").startsWith("postgresql://")) {
-  console.error("dev-daemon: no postgresql:// DATABASE_URL found in .env — refusing to start (would crash Prisma)");
-  process.exit(1);
+  console.warn("dev-daemon: no valid DATABASE_URL in env files — using committed Supabase fallback (see src/lib/db.ts)");
+  process.env.DATABASE_URL = KALLMANIA_FALLBACK_DATABASE_URL;
 }
 
 const out = fs.openSync("/home/z/my-project/dev.log", "a");

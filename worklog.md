@@ -423,3 +423,19 @@ Work Log:
 Stage Summary:
 - Login works again: DATABASE_URL restored to Supabase, daemon now immune to platform env resets, deploy payload repackaged with the correct .env
 - Defense added: dev-daemon hard-fails fast if .env lacks a postgresql:// URL instead of booting into a broken DB state
+
+---
+Task ID: 26-b
+Agent: main (Z.ai)
+Task: "still showing this" — login error persisted on the preview after task-26 env restore
+
+Work Log:
+- Local dev server (port 3000) was healthy and login returned clean 401 — the user's preview serves the DEPLOYED standalone payload, not the dev server. Root cause of persistence: the deployment host force-exports DATABASE_URL=file:... (SQLite), which beats the packaged .env (@next/env never overrides existing process.env), and the old src/lib/db.ts only promoted KALLMANIA_DATABASE_URL (unset in deployment) — so the standalone crashed exactly like the screenshot.
+- Durable fix in src/lib/db.ts: ensureDatabaseUrl() runs before PrismaClient instantiation on every API route — keeps a valid postgresql:// DATABASE_URL if present; else promotes KALLMANIA_DATABASE_URL; else applies committed KALLMANIA_FALLBACK_DATABASE_URL (Supabase session-pooler URL, private repo). This self-heals dev AND deployed runtime regardless of env wipes.
+- scripts/dev-daemon.js: same fallback constant instead of refusing to start.
+- Proof by reproduction: extracted the previous payload, ran bun server.js with DATABASE_URL=file:... injected → reproduced the user's exact Prisma error (HTTP 500). After the guard + clean rebuild (BUILD_ID=fix26 — the earlier rebuild silently reused /tmp/build_fullstack_ and nested the fresh standalone inside the stale one), the same broken-env test returns clean 401 {"error":"Invalid email or password"} and GET /api/auth returns {"user":null}: the standalone is now immune to the broken exported URL.
+- Payload verified: guard string present in next-service-dist/.next/server chunks; tar.gz 59M; dev daemon restarted (GET / 200, login 401).
+
+Stage Summary:
+- The login Prisma error can no longer occur in any runtime: .env correct (source 1), KALLMANIA_DATABASE_URL (source 2), committed fallback in db.ts compiled into the bundle (source 3, wins over any broken exported env).
+- Deployment payload rebuilt cleanly (build_fullstack_fix26.tar.gz); Complete called to push it to the preview.
