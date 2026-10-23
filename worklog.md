@@ -486,3 +486,17 @@ Work Log:
 
 Stage Summary:
 - Both KPI configuration surfaces (individual per-member and centre/team metrics) now accept any metric: pick from the standard options or type a new custom one, with units for custom metrics and in-place re-targeting of existing ones without duplicates
+
+---
+Task ID: 28-b
+Agent: main (Z.ai)
+Task: Fix failed preview deployment ("Sorry, there was a problem deploying the code")
+
+Work Log:
+- Diagnosed: metric28 payload verified byte-healthy — server.js/.env/Prisma debian-openssl engine identical to the successful kpi26 deploy; standalone boots with hostile DATABASE_URL=file: env (Ready ~80ms, login 200); Task 28 combobox code present in SSR + client chunks. Conclusion: transient platform-side deploy error, not a payload defect.
+- Rebuild attempt 1 was OOM-killed (exit 137, 4GB RAM box with dev server running); stopped dev daemon, freed 1.3GB, rebuilt cleanly.
+- Fresh BUILD_ID=deploy29 (stale /tmp/build_fullstack_deploy29* removed first): /tmp/build_fullstack_deploy29.tar.gz (59M) smoke-tested end-to-end — Ready 78ms, GET / 200, /api/auth OK, admin login 200, "as a new metric" present in client chunks.
+- Complete called to push deploy29 preview; dev daemon restarted on :3000 (200, session OK).
+
+Stage Summary:
+- Deployment re-pushed with a verified-fresh payload; local dev healthy. No code or schema changes in this task (HEAD remains de4df5f, already synced to GitHub).
