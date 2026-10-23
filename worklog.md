@@ -500,3 +500,16 @@ Work Log:
 
 Stage Summary:
 - Deployment re-pushed with a verified-fresh payload; local dev healthy. No code or schema changes in this task (HEAD remains de4df5f, already synced to GitHub).
+
+---
+Task ID: 29
+Agent: main (Z.ai)
+Task: Metric combobox no longer shows the option list on click — only typing worked; both pick and type must work
+
+Work Log:
+- Root cause (src/components/kallmania/shared.tsx MetricCombobox): dropdown rendered only when open && touched, and touched was set exclusively in onChange — clicking/focusing the input set open but never touched, so the list never appeared until the user typed (regression vs the old Select which listed options on click).
+- Fix: removed the touched gate entirely — dropdown renders whenever open; onFocus + onClick both open it (onClick lets an already-focused input reopen after Escape/selection), Escape/outside-click/selection close. Cleaned the empty-catalog message. Applies to both surfaces (individual member editor + centre KPI config) since they share the component.
+- Verified in browser (admin, dev :3000): click without typing opens full list (BPO: Total Calls Made…Conversion Rate; Social Media: Shares/Saves/Link Clicks/Messages Responded To/Follower Growth/Campaign Leads — matches the user's screenshot); pick Contact Rate (%) filled the input; typing "LinkedIn Connections" showed the orange "Use as a new metric" row + key linkedin_connections; picked Link Clicks + target 5 → saved APPROVED, then removed the row (no data changes left); centre form: click opens, Escape closes, click reopens, pick "Calls Connected" set value (closed without saving); zero page errors; tsc clean.
+
+Stage Summary:
+- Clicking (or focusing) the metric field now always shows the full pickable option list immediately on both the individual and centre KPI configuration forms; typing to filter/create still works as before.

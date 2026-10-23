@@ -117,9 +117,10 @@ export interface MetricOption { key: string; label: string; unit?: string; categ
 
 /**
  * Typeable metric selector.
+ *  - Clicking/focusing the input immediately opens the full option list
+ *    (typing filters it; free text that matches nothing stays available as a
+ *    custom metric via onText — the parent decides how to persist it).
  *  - Clicking a suggestion resolves to that option (onSelect).
- *  - Typing free text that matches no option stays available as a custom
- *    metric (onText) — the parent decides how to persist it.
  *  - The dropdown closes on outside click / Escape / selection.
  */
 export function MetricCombobox({
@@ -134,7 +135,6 @@ export function MetricCombobox({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [touched, setTouched] = useState(false);
 
   const query = text.trim().toLowerCase();
   const matches = query
@@ -144,26 +144,27 @@ export function MetricCombobox({
   const isCustomText = !!query && !exact;
 
   return (
-    <div className="relative" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) { setOpen(false); setTouched(false); } }}>
+    <div className="relative" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpen(false); }}>
       <Input
         value={text}
         disabled={disabled}
-        onChange={(e) => { onText(e.target.value); setTouched(true); setOpen(true); }}
+        onChange={(e) => { onText(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
-        onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); setTouched(false); } }}
+        onClick={() => setOpen(true)}
+        onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }}
         placeholder={placeholder}
         autoComplete="off"
         className={cn("h-8 pr-8", inputClassName || inputCls)}
       />
       <ChevronDown className={cn("pointer-events-none absolute right-2.5 top-2 h-4 w-4 text-slate-500 transition-transform", open && "rotate-180")} />
-      {open && touched && (
+      {open && (
         <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-white/12 bg-[#16212f] shadow-xl shadow-black/40">
           {matches.map((o) => (
             <button
               key={o.key}
               type="button"
               className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs text-slate-200 hover:bg-[#6c5ce7]/25"
-              onMouseDown={(e) => { e.preventDefault(); onSelect(o); setOpen(false); setTouched(false); }}
+              onMouseDown={(e) => { e.preventDefault(); onSelect(o); setOpen(false); }}
             >
               <span className="truncate">{o.label}</span>
               <span className="shrink-0 font-mono text-[9px] text-slate-500">{o.unit || "count"}</span>
@@ -173,14 +174,14 @@ export function MetricCombobox({
             <button
               type="button"
               className="flex w-full items-center gap-1.5 border-t border-white/10 px-3 py-1.5 text-left text-xs font-medium text-[#eda06a] hover:bg-[#e8935a]/15"
-              onMouseDown={(e) => { e.preventDefault(); setOpen(false); setTouched(false); }}
+              onMouseDown={(e) => { e.preventDefault(); setOpen(false); }}
             >
               <Plus className="h-3 w-3 shrink-0" />
               <span className="truncate">Use “{text.trim()}” as a new metric</span>
             </button>
           )}
           {matches.length === 0 && !isCustomText && (
-            <p className="px-3 py-2 text-[11px] text-slate-500">No metrics match — keep typing to add “{text.trim()}” as a new one.</p>
+            <p className="px-3 py-2 text-[11px] text-slate-500">No metrics available yet — type a name to add a new one.</p>
           )}
           {matches.length === 0 && isCustomText && (
             <p className="px-3 pb-1.5 text-[10px] text-slate-500">Press the orange row above to use it, or click away to keep typing.</p>
