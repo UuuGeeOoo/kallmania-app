@@ -513,3 +513,16 @@ Work Log:
 
 Stage Summary:
 - Clicking (or focusing) the metric field now always shows the full pickable option list immediately on both the individual and centre KPI configuration forms; typing to filter/create still works as before.
+
+---
+Task ID: 29-b
+Agent: main (Z.ai)
+Task: "update it in git and supabase" — sync Task 29 fix to GitHub + Supabase
+
+Work Log:
+- Pre-push safety check: diff origin/main..HEAD touches only shared.tsx (combobox fix), scripts/db-usage.ts (reads .env at runtime, no embedded credentials) and 3 user screenshot PNGs; no secrets in diff
+- Pushed 3 unpushed commits (e90f182 deploy29 redeploy, baa73a6 platform checkpoint, 80adb86 combobox fix) via one-time PAT URL (token not persisted); verified 0 commits behind: remote HEAD == 80adb86
+- Supabase: prisma db push (explicit DATABASE_URL from .env after platform env wipe broke the first attempt) → "The database is already in sync with the Prisma schema" — no schema changes existed for the frontend-only fix; client regenerated
+
+Stage Summary:
+- GitHub UuuGeeOoo/kallmania-app fully up to date (80adb86); Supabase schema confirmed in sync; nothing to migrate for the combobox fix
