@@ -405,3 +405,21 @@ Work Log:
 Stage Summary:
 - Agents choose Full-time or Part-time at registration and can change it in My Profile; admins set working days (Mon–Sun incl. weekend) + shift start/end hours for any member via User Management → Work schedule dialog; full-time = 8-hour shift default (09:00–17:00), part-time covers both "all days few hours" and "few days few hours"; schedule changes notify the user and are audited
 - GitHub main = Supabase schema = deploy payload
+
+---
+Task ID: 26
+Agent: main (Z.ai)
+Task: "fix the error" — login page showed Prisma "Error validating datasource db: the URL must start with the protocol postgresql://" (screenshot)
+
+Work Log:
+- Root cause: platform workspace sync rolled the sandbox back AGAIN and reset .env to the SQLite fallback ("DATABASE_URL=file:/home/z/my-project/db/custom.db", mtime 14:56 today) while prisma/schema.prisma provider = postgresql (Supabase). The sandbox shell also exports DATABASE_URL=file:... which @next/env does NOT override — so the dev server (spawned via scripts/dev-daemon.js with inherited env) crashed every prisma.user.findUnique() at login.
+- Restored .env + .env.local (Supabase session-pooler URL, host aws-0-eu-west-1.pooler.supabase.com:5432, user postgres.heybhtesxvhuktuhvfyd, %25E6-encoded password — recovered from scripts/inspect-db-state.js / test-db-restored.js where previous sessions left the working forms)
+- Verified credentials via Prisma against Supabase: DB OK — 16 users (7 AGENT_BPO, 3 ADMIN, 2 DEVELOPER, 2 SOCIAL_MEDIA, 1 TEAM_LEAD, 1 SUPERVISOR), incl. task-25 employment/schedule columns
+- Hardened scripts/dev-daemon.js: parses .env.local/.env and FORCE-overrides process.env.DATABASE_URL before spawning next dev; refuses to start unless the URL starts with postgresql:// (prevents this exact failure mode from recurring after future workspace syncs)
+- Restarted dev daemon: GET / -> 200; POST /api/auth {action:login} with a wrong password now returns clean 401 {"error":"Invalid email or password"} (the exact prisma.user.findUnique() call from the screenshot now executes against Supabase instead of crashing)
+- Stopped dev server, rebuilt deploy payload: .zscripts/build.sh exit 0 (59M tar.gz, postgresql provider detected, SQLite fallback file created for package structure only); dev daemon restarted and re-verified
+- No schema change, no data change; Supabase untouched
+
+Stage Summary:
+- Login works again: DATABASE_URL restored to Supabase, daemon now immune to platform env resets, deploy payload repackaged with the correct .env
+- Defense added: dev-daemon hard-fails fast if .env lacks a postgresql:// URL instead of booting into a broken DB state
