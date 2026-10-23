@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api, fmtDateTime, ROLE_LABELS, type EscalationDTO, type SessionUser } from "@/lib/client";
 import { EmptyState } from "@/components/kallmania/shared";
-import { Siren, Send, Loader2, CheckCheck, ShieldCheck, User2, Users2 } from "lucide-react";
+import { Siren, Send, Loader2, CheckCheck, ShieldCheck, User2, Users2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const inputCls = "border-white/12 bg-white/[0.055] text-slate-100 placeholder:text-slate-500";
@@ -157,7 +157,9 @@ export function EscalationsPanel({ user }: { user: SessionUser }) {
   const [items, setItems] = useState<EscalationDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [deleting, setDeleting] = useState<EscalationDTO | null>(null);
   const canManage = ["TEAM_LEAD", "SUPERVISOR", "ADMIN"].includes(user.role);
+  const isAdmin = user.role === "ADMIN";
 
   const load = async () => {
     setLoading(true);
@@ -172,6 +174,12 @@ export function EscalationsPanel({ user }: { user: SessionUser }) {
 
   const act = async (id: string, action: "ack" | "resolve") => {
     await api("/api/escalations", { method: "PATCH", body: JSON.stringify({ id, action }) });
+    load();
+  };
+
+  const removeEscalation = async (id: string) => {
+    await api(`/api/escalations?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    setDeleting(null);
     load();
   };
 
@@ -223,6 +231,14 @@ export function EscalationsPanel({ user }: { user: SessionUser }) {
                     </Button>
                   </div>
                 )}
+                {isAdmin && e.status !== "OPEN" && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <Button size="sm" variant="outline" className="h-7 border-rose-500/40 text-xs text-rose-300 hover:bg-rose-500/10" onClick={() => setDeleting(e)}>
+                      <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
+                    </Button>
+                    <span className="text-[10px] text-slate-600">Approved escalations can be removed by the administration</span>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -230,6 +246,24 @@ export function EscalationsPanel({ user }: { user: SessionUser }) {
       )}
 
       <EscalationComposer user={user} open={composerOpen} setOpen={setComposerOpen} onSent={load} />
+
+      {/* Admin delete confirmation — only for already-handled escalations */}
+      <Dialog open={!!deleting} onOpenChange={(v) => !v && setDeleting(null)}>
+        <DialogContent className="border-white/10 bg-popover text-popover-foreground text-slate-100 sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-white">Delete escalation</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs leading-relaxed text-slate-400">
+            <span className="font-semibold text-rose-300">“{deleting?.subject}”</span> from {deleting?.fromName} ({deleting?.status.toLowerCase()}) will be permanently removed for everyone, including its inbox notifications.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" className="border-slate-600 text-slate-200 hover:bg-white/10" onClick={() => setDeleting(null)}>Cancel</Button>
+            <Button className="bg-rose-600 hover:bg-rose-500" onClick={() => deleting && removeEscalation(deleting.id)}>
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -162,6 +162,11 @@ export interface NoticeDTO {
   pinned: boolean;
   authorId?: string | null;
   authorName?: string | null;
+  authorRole?: string | null;
+  centreCountry?: string | null;
+  centreState?: string | null;
+  teams?: string | null;
+  allCentres?: boolean;
   createdAt: string;
   updatedAt: string;
 }

@@ -2,10 +2,11 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { STATUS_COLORS } from "@/lib/client";
-import type { ReactNode } from "react";
-import { CheckCircle2, Hourglass, Undo2, ShieldCheck } from "lucide-react";
+import { type ReactNode, useState } from "react";
+import { CheckCircle2, Hourglass, Undo2, ShieldCheck, Eye, EyeOff } from "lucide-react";
 
 export function StatusBadge({ status, className }: { status: string; className?: string }) {
   const key = status === "APPROVED" && className?.includes("user") ? "APPROVED_USER" : status;
@@ -13,6 +14,26 @@ export function StatusBadge({ status, className }: { status: string; className?:
     <Badge variant="outline" className={cn("text-[11px] font-medium", STATUS_COLORS[status] || STATUS_COLORS.DRAFT, className)}>
       {status.replace(/_/g, " ")}
     </Badge>
+  );
+}
+
+/** Password input with a show/hide eye toggle so users can verify what they typed. */
+export function PasswordInput({ className, ...props }: React.ComponentProps<typeof Input>) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <Input type={show ? "text" : "password"} {...props} className={cn(className, "pr-10")} />
+      <button
+        type="button"
+        tabIndex={-1}
+        onClick={() => setShow((v) => !v)}
+        aria-label={show ? "Hide password" : "Show password"}
+        title={show ? "Hide password" : "Show password"}
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 transition hover:text-slate-200 dark:text-slate-500 dark:hover:text-slate-300"
+      >
+        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
   );
 }
 

@@ -10,6 +10,7 @@ import { api, fmtDate, fmtDateTime, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, type 
 import { PageHeader, EmptyState, StatusBadge, SectionCard, Field, inputCls } from "@/components/kallmania/shared";
 import { EMPLOYMENT_LABELS, WORKDAY_SHORT, FULL_TIME_DEFAULT, formatWorkDays, shiftHours, includesWeekend, weeklyHours, type EmploymentType } from "@/lib/schedule";
 import { UserKpiDialog } from "@/components/kallmania/user-kpi-dialog";
+import { MemberKpiConfigCard } from "@/components/kallmania/member-kpi-editor";
 import { EscalationsPanel } from "@/components/kallmania/escalation-center";
 import { TeamLeadTemplateEditor } from "@/components/kallmania/team-lead-form";
 import { useToast } from "@/hooks/use-toast";
@@ -30,7 +31,7 @@ function locationLabel(u: { country?: string | null; state?: string | null }): s
   return [u.state, countryName].filter(Boolean).join(", ");
 }
 
-export function AdminUsersView() {
+export function AdminUsersView({ user }: { user: SessionUser }) {
   const [users, setUsers] = useState<UserDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("ALL");
@@ -247,7 +248,7 @@ export function AdminUsersView() {
         </div>
       )}
 
-      <UserKpiDialog user={kpiUser || { id: "", fullName: "", role: "" }} open={!!kpiUser} setOpen={(v) => !v && setKpiUser(null)} />
+      <UserKpiDialog user={kpiUser || { id: "", fullName: "", role: "" }} viewer={user} open={!!kpiUser} setOpen={(v) => !v && setKpiUser(null)} />
 
       <Dialog open={!!deleteUser} onOpenChange={(v) => !v && setDeleteUser(null)}>
         <DialogContent className="border-white/10 bg-[#1b2a3b] text-slate-100 sm:max-w-sm">
@@ -472,6 +473,7 @@ export function KpiConfigView({ user }: { user: SessionUser }) {
 
   const visible = configs.filter((c) => c.department === deptFilter);
   const isInbound = deptFilter === "INBOUND";
+  const isManager = isAdmin || isSupervisor;
   // Only the outbound BPO template locks its three core template rows — Inbound rows are all editable/deletable.
   const isProtected = (c: KpiConfigDTO) => !centreSelected && deptFilter === "BPO" && ["totalCallsMade", "totalMailsSent", "callsConnected"].includes(c.key);
 
@@ -481,10 +483,20 @@ export function KpiConfigView({ user }: { user: SessionUser }) {
 
   return (
     <div>
-      <PageHeader title="KPI Configuration" subtitle="Pick a centre and configure the KPI targets for its teams — or edit the global defaults" />
+      <PageHeader title="KPI Configuration" subtitle="Centre targets, individual member targets and report templates" />
 
+      {/* Individual (per-member) KPI configuration — administrators, supervisors and team leads */}
+      <SectionCard
+        title="Individual KPI Configuration — per member"
+        subtitle={isAdmin ? "Pick any staff member and fine-tune their personal KPI targets" : isSupervisor ? "Fine-tune the personal KPI targets of members of your centre" : "Fine-tune the personal KPI targets of your own team members — supervisor or admin approval required"}
+      >
+        <MemberKpiConfigCard me={user} />
+      </SectionCard>
+
+      {isManager && (
+        <>
       {/* Scope selector — administrators choose any centre; supervisors are pinned to theirs */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="mt-8 mb-4 flex flex-wrap items-center gap-2">
         <Select value={deptFilter} onValueChange={setDeptFilter}>
           <SelectTrigger className="w-56 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -628,6 +640,8 @@ export function KpiConfigView({ user }: { user: SessionUser }) {
       <div className="mt-8 border-t border-white/10 pt-6">
         <TeamLeadTemplateEditor />
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -717,6 +731,11 @@ export function NotificationsView({ user, onNavigate }: { user: { id: string; ro
 
   const sevColor = (s: string) => (s === "CRITICAL" ? "border-l-rose-500" : s === "WARNING" ? "border-l-amber-500" : "border-l-sky-500");
 
+  const removeNotification = async (n: NotificationDTO) => {
+    await api("/api/notifications", { method: "PATCH", body: JSON.stringify({ action: "delete", id: n.id }) });
+    load();
+  };
+
   return (
     <div>
       <PageHeader
@@ -736,7 +755,7 @@ export function NotificationsView({ user, onNavigate }: { user: { id: string; ro
       ) : (
         <div className="space-y-2">
           {items.map((n) => (
-            <button key={n.id} onClick={() => openNotification(n)} className={`k-card flex w-full items-start gap-3 border-l-4 p-4 text-left ${sevColor(n.severity)} ${n.read ? "opacity-60" : ""}`}>
+            <div key={n.id} role="button" tabIndex={0} onClick={() => openNotification(n)} onKeyDown={(e) => e.key === "Enter" && openNotification(n)} className={`k-card flex w-full cursor-pointer items-start gap-3 border-l-4 p-4 text-left ${sevColor(n.severity)} ${n.read ? "opacity-60" : ""}`}>
               <Bell className={`mt-0.5 h-4 w-4 shrink-0 ${n.severity === "CRITICAL" ? "text-rose-400" : n.severity === "WARNING" ? "text-amber-400" : "text-sky-400"}`} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -746,7 +765,16 @@ export function NotificationsView({ user, onNavigate }: { user: { id: string; ro
                 <p className="mt-0.5 text-xs text-slate-400">{n.message}</p>
                 <p className="mt-1 text-[10px] text-slate-600">{fmtDateTime(n.createdAt)}</p>
               </div>
-            </button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 shrink-0 text-slate-500 hover:text-rose-300"
+                title="Delete this notification"
+                onClick={(e) => { e.stopPropagation(); removeNotification(n); }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           ))}
         </div>
       )}

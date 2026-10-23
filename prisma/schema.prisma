@@ -55,6 +55,35 @@ model User {
   notices        Notice[]       @relation("NoticeAuthor")
   escalationsSent     Escalation[] @relation("EscalationFrom")
   escalationsReceived Escalation[] @relation("EscalationTarget")
+  memberKpiConfigs MemberKpiConfig[]
+}
+
+// Individual (per-member) KPI configuration — overrides of the centre/global
+// KPI targets for ONE staff member. Administrators and supervisors save
+// directly as APPROVED; a team lead's edits stay PENDING until a supervisor
+// or administrator approves them.
+model MemberKpiConfig {
+  id         String  @id @default(cuid())
+  userId     String
+  user       User    @relation(fields: [userId], references: [id])
+  department String // BPO | INBOUND | WEB_DEV | SOCIAL_MEDIA
+  key        String // metric key from the KPI catalogue
+  label      String
+  target     Float?
+  unit       String  @default("count") // count | percent | minutes
+  // PENDING | APPROVED | REJECTED
+  status        String  @default("APPROVED")
+  proposedById   String?
+  proposedByName String?
+  reviewedById   String?
+  reviewedByName String?
+  reviewNote     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, department, key])
+  @@index([userId])
+  @@index([status])
 }
 
 model Report {
@@ -211,6 +240,15 @@ model Notice {
   authorId   String?
   author     User?    @relation("NoticeAuthor", fields: [authorId], references: [id])
   authorName String?
+  authorRole String?
+  // Audience targeting: null centre + allCentres=false = company-wide (everyone);
+  // centreCountry+centreState = one centre; teams (JSON array of team keys)
+  // narrows a targeted centre to specific teams; allCentres=true = broadcast
+  // to every centre (administrator only).
+  centreCountry String?
+  centreState   String?
+  teams         String?
+  allCentres    Boolean @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

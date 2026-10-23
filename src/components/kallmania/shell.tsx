@@ -32,9 +32,10 @@ export function navForRole(role: string): NavItem[] {
     { key: "notifications", label: "Notifications", icon: Bell },
     { key: "profile", label: "My Profile", icon: UserCircle2 },
   ];
-  // Team leads assign & monitor the tasks of the agents in their centre
+  // Team leads assign & monitor the tasks of the agents in their centre and
+  // configure the individual KPI targets of their own team members.
   if (role === "TEAM_LEAD") {
-    employeeNav.splice(5, 0, { key: "team-tasks", label: "Tasks & Assignments", icon: ClipboardCheck });
+    employeeNav.splice(5, 0, { key: "team-tasks", label: "Tasks & Assignments", icon: ClipboardCheck }, { key: "kpi-config", label: "KPI Configuration", icon: Target });
   }
   const supervisorNav: NavItem[] = [
     { key: "dashboard", label: "Dashboard", icon: Home },
@@ -95,6 +96,7 @@ export function navGroupsForRole(role: string, nav: NavItem[]): NavGroup[] {
   if (reports.length) groups.push({ kind: "group", label: "Reports", items: reports });
   if (has("tasks")) groups.push({ kind: "flat", item: pickNav(nav, "tasks") });
   if (role === "TEAM_LEAD" && has("team-tasks")) groups.push({ kind: "flat", item: pickNav(nav, "team-tasks") });
+  if (role === "TEAM_LEAD" && has("kpi-config")) groups.push({ kind: "group", label: "Configuration", items: pickAll(["kpi-config"]) });
   if (has("daily-report")) groups.push({ kind: "flat", item: pickNav(nav, "daily-report") });
   if (has("notice-board")) groups.push({ kind: "flat", item: pickNav(nav, "notice-board") });
   return groups;

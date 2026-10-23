@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, TEAM_LABELS, type SessionUser } from "@/lib/client";
+import { PasswordInput } from "@/components/kallmania/shared";
 import { Country, State, City } from "country-state-city";
 import { Loader2, LogIn, UserPlus, ShieldCheck, AlertCircle, CheckCircle2, Building2, Users2, BadgeCheck, Clock4, CalendarClock } from "lucide-react";
 
@@ -251,7 +252,7 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
             </div>
             <div className="space-y-1.5">
               <Label className="text-slate-300">Password *</Label>
-              <Input type="password" className="border-slate-600/50 bg-transparent text-slate-100 placeholder:text-slate-500" placeholder={mode === "register" ? "Min. 6 characters" : "Min. 8 character"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} onKeyDown={(e) => e.key === "Enter" && submit()} />
+              <PasswordInput className="border-slate-600/50 bg-transparent text-slate-100 placeholder:text-slate-500" placeholder={mode === "register" ? "Min. 6 characters" : "Min. 8 character"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} onKeyDown={(e) => e.key === "Enter" && submit()} />
             </div>
 
             {error && (

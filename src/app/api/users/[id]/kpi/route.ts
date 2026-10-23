@@ -54,6 +54,23 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const bpoReports = reports.filter((r) => r.type === "AGENT_BPO");
     const rows = bpoReports.length ? cumulativeKpiRows(bpoReports.map((r) => r.kpiMetrics), distinctDates) : [];
 
+    // Individual (per-member) KPI overrides — APPROVED ones become the member's
+    // effective targets (daily target, scaled by report days like the defaults).
+    const memberConfigsAll = await db.memberKpiConfig.findMany({
+      where: { userId: id },
+      orderBy: [{ department: "asc" }, { label: "asc" }],
+    });
+    const memberOverrides = new Map(memberConfigsAll.filter((c) => c.status === "APPROVED" && c.target !== null).map((c) => [c.key, c]));
+    for (const row of rows) {
+      const o = memberOverrides.get(row.key);
+      if (!o || o.target === null) continue;
+      const scale = row.unit === "count" ? distinctDates : 1;
+      const target = Math.round((o.target as number) * scale * 100) / 100;
+      row.target = target;
+      row.targetLabel = `${target}${o.unit === "percent" ? "%" : o.unit === "minutes" ? "mins" : ""}${scale > 1 ? ` (${o.target}/day × ${scale}d — individual)` : " (individual)"}`;
+      row.pct = row.actual !== null && target !== 0 ? Math.round(((row.actual as number) / target) * 10000) / 100 : null;
+    }
+
     const deptTotals: Record<string, number> = {};
     for (const r of reports.filter((x) => x.type !== "AGENT_BPO")) {
       const ms = safeParse<Record<string, number | null>>(r.metricsSummary, {});
@@ -93,6 +110,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       recentReports: reports.slice(-8).reverse().map((r) => ({ id: r.id, ref: r.ref, type: r.type, status: r.status, reportDate: r.reportDate })),
       techLabels: TECH_SUMMARY_METRICS,
       socialLabels: SOCIAL_SUMMARY_METRICS,
+      memberConfigs: memberConfigsAll,
+      pendingMemberKpi: memberConfigsAll.filter((c) => c.status === "PENDING").length,
+      viewerCanEditMemberKpi: isSelf ? false : me.role === "ADMIN" || me.role === "SUPERVISOR" || me.role === "TEAM_LEAD",
+      viewerCanApproveMemberKpi: !isSelf && (me.role === "ADMIN" || me.role === "SUPERVISOR"),
     });
   });
 }

@@ -558,7 +558,7 @@ function SupervisorDashboard({ sup, user, onNavigate }: { sup: SupervisorDash; u
       {/* Multi-period cumulative performance (day / week / month / year) */}
       <PeriodKpiPanel role={user.role} />
 
-      <UserKpiDialog user={kpiUser || { id: "", fullName: "", role: "" }} open={!!kpiUser} setOpen={(v) => !v && setKpiUser(null)} />
+      <UserKpiDialog user={kpiUser || { id: "", fullName: "", role: "" }} viewer={user} open={!!kpiUser} setOpen={(v) => !v && setKpiUser(null)} />
     </div>
   );
 }

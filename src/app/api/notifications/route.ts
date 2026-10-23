@@ -34,6 +34,11 @@ export async function PATCH(req: NextRequest) {
       await db.notification.deleteMany({ where: { userId: me.id } });
       return ok({ success: true });
     }
+    // Any user can delete a notification from their own inbox.
+    if (body.action === "delete" && body.id) {
+      await db.notification.deleteMany({ where: { id: body.id, userId: me.id } });
+      return ok({ success: true });
+    }
     return fail("Unknown action");
   });
 }

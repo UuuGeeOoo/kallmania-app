@@ -439,3 +439,21 @@ Work Log:
 Stage Summary:
 - The login Prisma error can no longer occur in any runtime: .env correct (source 1), KALLMANIA_DATABASE_URL (source 2), committed fallback in db.ts compiled into the bundle (source 3, wins over any broken exported env).
 - Deployment payload rebuilt cleanly (build_fullstack_fix26.tar.gz); Complete called to push it to the preview.
+
+---
+Task ID: 27
+Agent: main (Z.ai)
+Task: Individual (per-member) KPI configuration with TL approval flow; show-password toggles; escalation delete + privacy visibility; notice audiences (centre/teams/broadcast) + author cascade delete; notification self-delete; sync to Git + Supabase
+
+Work Log:
+- Schema (Supabase pushed via prisma db push, additive): new MemberKpiConfig model (userId/department/key unique, target, unit, status PENDING|APPROVED|REJECTED, proposer/reviewer fields); Notice + authorRole, centreCountry, centreState, teams (JSON), allCentres fields
+- New API /api/users/[id]/member-kpi (GET/POST/PATCH/DELETE): admin any member; supervisor own centre; TL own team + centre. Supervisor/admin saves apply APPROVED immediately; TL saves stay PENDING and notify supervisors+admins; PATCH approve/reject notifies proposer + member; TL may withdraw only own PENDING proposals. /api/users/[id]/kpi now applies APPROVED member overrides to performance rows (daily target scaled by report days, "individual" tag) and returns memberConfigs + viewer flags
+- Escalations: GET feed rewritten to the requested privacy model — admin sees all; supervisor sees own + role-routed + ALL_MANAGEMENT + TL-sent (centre) + agent-sent (centre); TL sees own + targeted + TEAM_LEAD-routed + own-team-member-sent only; agents see only own + direct. DELETE (admin) for ACKNOWLEDGED/RESOLVED escalations, cascade-deletes inbox notifications; OPEN blocked. User-delete purge transaction now also removes the member's MemberKpiConfig rows and sent escalations + their inbox copies (fixed FK crash found during verification)
+- Notices: POST opened to admin (company-wide / broadcast allCentres / centre / centre+teams), supervisor (own centre ± teams), TL (own team); audience fan-out creates inbox notifications; GET filters by audience (global+broadcast reach everyone, centre notices stay in centre, team notices stay in team; admin sees all); PATCH/DELETE limited to author or admin; author/admin delete cascades to every recipient's inbox copies
+- Notifications: PATCH action "delete" — any user removes their own inbox items; per-item trash button in NotificationsView (row no longer a nested-button)
+- UI: PasswordInput (eye toggle) in shared.tsx wired into login/register password and profile change-password fields (verified toggling reveals the typed value); MemberKpiEditor + MemberKpiConfigCard components; KPI Configuration page now shows "Individual KPI Configuration — per member" card first for admin+supervisor+TL (centre tables remain manager-only), TL gets a KPI Configuration nav entry; UserKpiDialog embeds the editor for managers; admin delete button + confirm on handled escalations; Notice Board composer with audience picker (Everyone | specific centre + team chips | broadcast), audience labels on cards, author/admin edit+delete
+- Verified: scripts/verify-kpi-escalation-notices.js — 45/45 PASS (member-KPI approve/reject/withdraw/403s, performance override fields, escalation visibility matrix across agent/TL/supervisor/admin, admin delete OPEN-blocked + RESOLVED-ok, notice audiences per centre/team/role, cascade delete incl. inbox cleanup, notification self-delete, test-user purge); browser: eye toggle reveals password, member target 40 saved APPROVED then removed, notice composer centre+team chips; leftover FK crash on user delete found and fixed; 0 test users remain (16 real users intact)
+- Build: BUILD_ID=kpi26 .zscripts/build.sh exit 0 (59M); Supabase in sync (prisma db push); dev daemon restarted
+
+Stage Summary:
+- Admins, supervisors and team leads manage individual KPI targets per member (TL edits gated behind supervisor/admin approval); all password fields have show/hide eye toggles; admin can delete handled escalations; escalation feeds are privacy-filtered exactly per the requested role matrix; notices support centre/team/broadcast audiences with author cascade delete and agent-proof management notices; users can delete their own notifications

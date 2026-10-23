@@ -6,7 +6,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, fmtDate, ROLE_LABELS, type UserDTO } from "@/lib/client";
 import { EmptyState, StatusBadge } from "@/components/kallmania/shared";
-import { Loader2, Target, ListTodo, CalendarDays } from "lucide-react";
+import { MemberKpiEditor } from "@/components/kallmania/member-kpi-editor";
+import { Loader2, Target, ListTodo, CalendarDays, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Period = "day" | "week" | "month" | "year";
@@ -48,8 +49,10 @@ function fmtVal(v: number | null, unit: string): string {
 /**
  * Per-staff KPI performance dialog — click any user in User Management (or the
  * centre panel) to inspect their KPI achievement daily / weekly / monthly / yearly.
+ * Managers (admin / supervisor / team lead) also get the individual KPI
+ * configuration editor inside the dialog.
  */
-export function UserKpiDialog({ user: staff, open, setOpen }: { user: UserDTO | { id: string; fullName: string; role: string }; open: boolean; setOpen: (v: boolean) => void }) {
+export function UserKpiDialog({ user: staff, viewer, open, setOpen }: { user: UserDTO | { id: string; fullName: string; role: string }; viewer?: { id: string; role: string; team?: string | null; department?: string }; open: boolean; setOpen: (v: boolean) => void }) {
   const [period, setPeriod] = useState<Period>("month");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [data, setData] = useState<UserKpiData | null>(null);
@@ -76,6 +79,7 @@ export function UserKpiDialog({ user: staff, open, setOpen }: { user: UserDTO | 
 
   const coreRows = data?.rows.filter((r) => r.category !== "EMAIL_EXTENSION") ?? [];
   const emailRows = data?.rows.filter((r) => r.category === "EMAIL_EXTENSION" && r.actual !== null) ?? [];
+  const viewerIsManager = !!viewer && ["ADMIN", "SUPERVISOR", "TEAM_LEAD"].includes(viewer.role) && viewer.id !== staff.id;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -174,6 +178,13 @@ export function UserKpiDialog({ user: staff, open, setOpen }: { user: UserDTO | 
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {viewerIsManager && (
+              <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                <p className="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-[#eda06a]"><Settings2 className="h-3.5 w-3.5" /> Individual KPI configuration</p>
+                <MemberKpiEditor staff={staff} me={{ id: viewer.id, role: viewer.role, team: viewer.team ?? null, department: viewer.department }} />
               </div>
             )}
           </div>

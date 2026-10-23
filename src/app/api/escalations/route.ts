@@ -7,14 +7,26 @@ import { notify, audit } from "@/lib/notify";
 /**
  * Notify / escalate bar.
  *
- * GET  /api/escalations          — role-aware escalation feed
- * POST /api/escalations          — staff escalate to TEAM_LEAD / SUPERVISOR / ADMIN
- *                                  (admins always see everything); management can
- *                                  notify any agent of their choice.
- * PATCH /api/escalations         — acknowledge / resolve (management)
+ * GET    /api/escalations   — role-aware escalation feed (privacy-filtered)
+ * POST   /api/escalations   — staff escalate to TEAM_LEAD / SUPERVISOR / ADMIN;
+ *                             management can notify any agent of their choice.
+ * PATCH  /api/escalations   — acknowledge / resolve (management)
+ * DELETE /api/escalations   — administrator removes escalations that were already
+ *                             handled (ACKNOWLEDGED or RESOLVED)
+ *
+ * Visibility rules (who sees what in the feed):
+ *  - ADMIN: everything.
+ *  - SUPERVISOR: own sent + targeted at them + role-routed to SUPERVISOR +
+ *    ALL_MANAGEMENT + anything sent by team leads (their centre) + anything
+ *    sent by agents (their centre). NOT what others routed to ADMIN only.
+ *  - TEAM_LEAD: own sent + targeted at them + role-routed to TEAM_LEAD +
+ *    escalations sent by their own team members. NOT agent→supervisor/admin
+ *    escalations of other teams, NOT management→agent notices of others.
+ *  - Agents: only what they sent and what was sent directly to them.
  */
 
 const MANAGEMENT_ROLES = ["TEAM_LEAD", "SUPERVISOR", "ADMIN"];
+const AGENT_ROLES = ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA"];
 
 /** Users allowed to see an escalation authored by `from` when routed to their role. */
 async function recipientsFor(from: { id: string; country: string | null; state: string | null; role: string }, targetType: string, targetRole: string | null): Promise<{ id: string; fullName: string }[]> {
@@ -57,15 +69,29 @@ export async function GET(req: NextRequest) {
     if (me.role === "ADMIN") {
       where = {}; // administrators see every notice in every centre
     } else {
+      const centre = me.country && me.state ? { country: me.country, state: me.state } : null;
       const or: Record<string, unknown>[] = [{ fromId: me.id }, { targetUserId: me.id }];
+
       if (me.role === "SUPERVISOR") {
-        or.push({ targetRole: { in: ["SUPERVISOR", "ADMIN"] } });
+        // Routed to the supervisor's role or broadcast to management.
+        or.push({ targetType: "TARGET_ROLE", targetRole: "SUPERVISOR" });
         or.push({ targetType: "ALL_MANAGEMENT" });
-        if (me.country && me.state) or.push({ from: { country: me.country, state: me.state }, targetType: { in: ["TARGET_ROLE", "ALL_MANAGEMENT"] } });
+        // Everything team leads send (supervisors oversee their leads)…
+        or.push({ fromRole: "TEAM_LEAD", ...(centre ? { from: centre } : {}) });
+        // …and everything agents send (agent notices are for supervisor + admin).
+        or.push({ fromRole: { in: AGENT_ROLES }, ...(centre ? { from: centre } : {}) });
       } else if (me.role === "TEAM_LEAD") {
-        or.push({ targetRole: "TEAM_LEAD" });
-        if (me.country && me.state) or.push({ from: { country: me.country, state: me.state }, targetType: { in: ["TARGET_ROLE", "ALL_MANAGEMENT"] } });
+        // Routed to team leads (centre-scoped when the lead has a centre).
+        or.push({ targetType: "TARGET_ROLE", targetRole: "TEAM_LEAD", ...(centre ? { from: centre } : {}) });
+        // A lead only sees escalations sent by members of their own team —
+        // agent→supervisor/admin escalations of other teams stay private.
+        or.push({
+          fromRole: { in: AGENT_ROLES },
+          ...(centre ? { from: { country: me.country, state: me.state, team: me.team } } : {}),
+        });
       }
+      // Agents: nothing beyond own sent + directly targeted (already in `or`).
+
       where = { OR: or };
     }
     if (status) where.status = status;
@@ -73,7 +99,7 @@ export async function GET(req: NextRequest) {
     const escalations = await db.escalation.findMany({
       where,
       include: {
-        from: { select: { id: true, fullName: true, role: true, country: true, state: true } },
+        from: { select: { id: true, fullName: true, role: true, country: true, state: true, team: true } },
         targetUser: { select: { id: true, fullName: true, role: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -190,5 +216,29 @@ export async function PATCH(req: NextRequest) {
       return ok({ escalation: updated });
     }
     return fail("Unknown action");
+  });
+}
+
+/** Administrator housekeeping: remove escalations that were already handled. */
+export async function DELETE(req: NextRequest) {
+  return handle(async () => {
+    const me = await requireUser();
+    if (me.role !== "ADMIN") throw new AuthError("Only administrators can delete escalations", 403);
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    if (!id) return fail("id is required");
+    const escalation = await db.escalation.findUnique({ where: { id } });
+    if (!escalation) return fail("Escalation not found", 404);
+    if (escalation.status === "OPEN") {
+      return fail("Only escalations that were already acknowledged or resolved can be deleted");
+    }
+    // Cascade: drop the inbox notifications that point at this escalation.
+    await db.notification.deleteMany({ where: { linkData: { contains: escalation.id } } });
+    await db.escalation.delete({ where: { id } });
+    await audit({
+      userId: me.id, actorName: me.fullName, action: "DELETE_ESCALATION", entity: "Escalation", entityId: id,
+      details: `${escalation.status} — ${escalation.subject} (from ${escalation.fromName})`,
+    });
+    return ok({ success: true });
   });
 }

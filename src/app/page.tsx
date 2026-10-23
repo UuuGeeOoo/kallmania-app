@@ -127,7 +127,7 @@ export default function Page() {
       case "uploads-admin":
         return <UploadsAdminView />;
       case "admin-users":
-        return <AdminUsersView />;
+        return <AdminUsersView user={user} />;
       case "kpi-config":
         return <KpiConfigView user={user} />;
       case "audit":

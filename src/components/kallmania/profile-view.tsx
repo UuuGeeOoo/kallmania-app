@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, fmtDate, type SessionUser } from "@/lib/client";
-import { PageHeader, SectionCard, Field, inputCls, StatusBadge } from "@/components/kallmania/shared";
+import { PageHeader, SectionCard, Field, inputCls, StatusBadge, PasswordInput } from "@/components/kallmania/shared";
 import { EMPLOYMENT_LABELS, WORKDAY_SHORT, formatWorkDays, shiftHours, includesWeekend, type EmploymentType } from "@/lib/schedule";
 import { useToast } from "@/hooks/use-toast";
 import { Country, State, City } from "country-state-city";
@@ -246,13 +246,13 @@ export default function ProfileView({ user }: { user: SessionUser }) {
         <SectionCard title="Change password" subtitle="Confirm your current password, then set the new one" className="lg:col-span-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field label="Current password" required>
-              <Input type="password" autoComplete="current-password" className={inputCls} value={pw.currentPassword} onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} />
+              <PasswordInput autoComplete="current-password" className={inputCls} value={pw.currentPassword} onChange={(e) => setPw({ ...pw, currentPassword: e.target.value })} />
             </Field>
             <Field label="New password" required hint="At least 6 characters">
-              <Input type="password" autoComplete="new-password" className={inputCls} value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} />
+              <PasswordInput autoComplete="new-password" className={inputCls} value={pw.newPassword} onChange={(e) => setPw({ ...pw, newPassword: e.target.value })} />
             </Field>
             <Field label="Confirm new password" required>
-              <Input type="password" autoComplete="new-password" className={inputCls} value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
+              <PasswordInput autoComplete="new-password" className={inputCls} value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
             </Field>
           </div>
           <div className="mt-4 flex items-center justify-between gap-3">

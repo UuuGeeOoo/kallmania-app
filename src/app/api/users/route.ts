@@ -129,6 +129,7 @@ export async function PATCH(req: NextRequest) {
         if (user.role === "ADMIN") return fail("Cannot delete an administrator account");
         const reportCount = await db.report.count({ where: { userId } });
         const userFiles = await db.uploadedFile.findMany({ where: { userId }, select: { storedName: true } });
+        const sentEscalations = await db.escalation.findMany({ where: { fromId: userId }, select: { id: true } });
         // Permanently remove the account and every record tied to it — atomically.
         // Foreign-key children are cleared/re-pointed first so the delete can never fail
         // with a constraint violation (the old silent-failure bug).
@@ -141,6 +142,14 @@ export async function PATCH(req: NextRequest) {
           db.reportTemplate.updateMany({ where: { updatedById: userId }, data: { updatedById: null } }),
           // Notifications belong solely to the user
           db.notification.deleteMany({ where: { userId } }),
+          // Inbox copies held by OTHERS that point at this user's escalations
+          db.notification.deleteMany({ where: { OR: sentEscalations.map((e) => ({ linkData: { contains: e.id } })) } }),
+          // Escalations the user sent belong solely to them
+          db.escalation.deleteMany({ where: { fromId: userId } }),
+          // Escalations targeted directly at the user — keep them, drop the link
+          db.escalation.updateMany({ where: { targetUserId: userId }, data: { targetUserId: null, targetName: user.fullName } }),
+          // Individual KPI configurations belong solely to the member
+          db.memberKpiConfig.deleteMany({ where: { userId } }),
           // Uploaded-file records registered by the user
           db.uploadedFile.deleteMany({ where: { userId } }),
           // Audit trail stays readable (actorName preserved), link to deleted account severed
