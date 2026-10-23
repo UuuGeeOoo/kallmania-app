@@ -4,6 +4,7 @@ import { requireUser, isSupervisorLike } from "@/lib/auth";
 import { handle, ok, safeParse } from "@/lib/api-utils";
 import { checkOverdueReports } from "@/lib/notify";
 import { aggregateTeamKpis, type KpiMetric } from "@/lib/kpi";
+import { worksOn } from "@/lib/schedule";
 
 /**
  * GET /api/dashboard?date=YYYY-MM-DD
@@ -75,7 +76,7 @@ export async function GET(req: NextRequest) {
         : (country || state ? { ...(country ? { country } : {}), ...(state ? { state } : {}) } : {});
     const staff = await db.user.findMany({
       where: { status: "APPROVED", role: { in: ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR"] }, ...centreUserFilter },
-      select: { id: true, fullName: true, role: true, department: true, employeeId: true },
+      select: { id: true, fullName: true, role: true, department: true, employeeId: true, workDays: true },
     });
     const staffIds = staff.map((s) => s.id);
 
@@ -150,7 +151,7 @@ export async function GET(req: NextRequest) {
       const deptTasks = tasksAll.filter((t) => t.department === dept);
       return {
         department: dept,
-        expected: deptStaff.length,
+        expected: deptStaff.filter((s) => worksOn(s.workDays, date)).length,
         submitted: deptSubmitted.length,
         pending: deptReports.length - deptSubmitted.length,
         tasksAssigned: deptTasks.length,
@@ -193,6 +194,9 @@ export async function GET(req: NextRequest) {
         })
       : [];
 
+    // Staff actually scheduled on this date (shift mask) — part-timers off today are not outstanding
+    const scheduledReporters = staff.filter((s) => s.role !== "SUPERVISOR" && worksOn(s.workDays, date));
+
     return ok({
       role: me.role,
       date,
@@ -201,9 +205,9 @@ export async function GET(req: NextRequest) {
         centreAgents,
         trend,
         totalActiveEmployees: staff.length,
-        expectedToReport: staff.filter((s) => s.role !== "SUPERVISOR").length,
+        expectedToReport: scheduledReporters.length,
         reportsSubmitted: submittedReports.length,
-        outstandingReports: Math.max(0, staff.filter((s) => s.role !== "SUPERVISOR").length - submittedReports.length),
+        outstandingReports: Math.max(0, scheduledReporters.length - submittedReports.length),
         tasksAssigned,
         tasksCompleted,
         tasksOverdue,

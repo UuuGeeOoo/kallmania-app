@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { worksOn } from "@/lib/schedule";
 
 export interface NotifyInput {
   userId: string;
@@ -73,8 +74,10 @@ export async function audit(params: {
 /**
  * Overdue report detection (lazy scheduler — evaluated on dashboard/consolidated loads).
  * Any APPROVED employee expected to report who has no SUBMITTED/APPROVED report for the
- * given date generates a deduped supervisor notification. Approved-leave / nonworking days
- * can be respected by inserting a SystemFlag leave record keyed `leave:{userId}:{date}`.
+ * given date generates a deduped supervisor notification. Only dates that fall on the
+ * employee's own work schedule (User.workDays shift mask) produce alerts — a part-timer
+ * who is off on that date is never flagged. Approved-leave / nonworking days can also be
+ * respected by inserting a SystemFlag leave record keyed `leave:{userId}:{date}`.
  */
 export async function checkOverdueReports(dateISO: string): Promise<void> {
   const date = new Date(dateISO + "T00:00:00.000Z");
@@ -100,6 +103,9 @@ export async function checkOverdueReports(dateISO: string): Promise<void> {
 
   for (const emp of reporters) {
     if (submittedSet.has(emp.id)) continue;
+    // shift-aware: employees are only expected to report on their own workdays —
+    // a part-timer scheduled Tue+Thu is never alerted about a Monday.
+    if (!worksOn(emp.workDays, dateISO)) continue;
     // respect approved leave
     const leave = await db.systemFlag.findUnique({ where: { key: `leave:${emp.id}:${dateISO}` } });
     if (leave) continue;

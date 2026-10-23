@@ -543,3 +543,22 @@ Work Log:
 
 Stage Summary:
 - Admins can now delete any escalation (OPEN included) and any notification for every recipient, with multi-select bulk delete on both the inbox list and the escalation feed; every user stays in their current section across page reloads via hash routing
+
+---
+Task ID: 31
+Agent: main (Z.ai)
+Task: Part-timers must never be alerted about days they are not scheduled to work — missed-report notifications/escalations only for each agent's own shift days; any-date report submission stays open; update Git + Supabase
+
+Work Log:
+- New schedule helpers (src/lib/schedule.ts): workdayIndexOf(dateISO) (Mon-first 0–6 from the UTC date) + worksOn(mask, dateISO) — true only when the date falls on the person's User.workDays shift mask, falling back to the Mon–Fri default for null/invalid masks
+- Root cause (src/lib/notify.ts checkOverdueReports): flagged EVERY approved reporter without a SUBMITTED/APPROVED report for a date, ignoring their schedule. Now skips employees whose mask does not include the date's weekday, so a Tue+Thu part-timer is never flagged for a Monday/Friday
+- Consolidated view (api/consolidated/route.ts): expected / pending / employeesMissing now count only staff scheduled on the selected date (workDays added to staff select) — part-timers off that day are no longer "missing"
+- Dashboard (api/dashboard/route.ts): expectedToReport, outstandingReports and per-department "expected" now use scheduled staff only
+- Any-date submission: report portal "Reporting date" strip (page.tsx) already had no min/max restriction — verified unchanged; agents can still pick any date (exception days they were told to come in) and only get expected-report pressure on their shift days
+- One-time DB cleanup (scripts/cleanup-stale-overdue.ts, self-heals DATABASE_URL from .env): deletes REPORT_OVERDUE notifications whose embedded date is not in the target employee's schedule + alerts referencing purged users. Ran against Supabase: 20 deleted (16 off-day flags from Fri 2026-10-23 for the four 0101000 Tue+Thu part-timers — exactly the user's complaint — + 4 GONE-USER strays from old e2e tests); 66→114 remaining all schedule-valid
+- Hardened user-delete (api/users/route.ts): the delete transaction now also purges notifications held by OTHERS that are about the deleted user (linkData contains "userId":"<id>" OR dedupeKey contains :<id>:) — previously left orphaned overdue alerts in supervisor/admin inboxes
+- Verified: scripts/verify-shift-overdue.js 12/12 PASS (temp part-timer Tue+Thu → dashboard loads for past Fri + Tue: alert generated for missed Tuesday, ZERO alerts for Friday; consolidated missing list excludes them Friday/includes Tuesday; expectedToReport/outstanding workday>offday (7 vs 12 with test user); user deletion purges alerts about them from every inbox). Browser (admin): Fri expected 7 / Tue 11; all 20 inbox overdue alerts cross-checked against schedules → 0 invalid, 0 orphaned; report date strip accepted Sunday 18 Oct and the form reloaded for it; notifications view renders with Task-30 bulk delete intact; zero page errors. tsc clean for all touched files (one pre-existing consolidated error at old line 130 untouched)
+- Data: no test users/reports remain; cleanup re-run shows Deleted: 0
+
+Stage Summary:
+- Missed-report notifications (and every "expected to report" surface: dashboard expected/outstanding, consolidated missing list) are now shift-aware — part-timers only get chased on their own workdays, while the report portal keeps accepting any date for exceptional attendance; stale off-day alerts were purged from Supabase and future user deletions no longer leave orphaned alerts

@@ -50,6 +50,26 @@ export function includesWeekend(mask: string): boolean {
   return mask.split("").some((c, i) => c === "1" && WEEKEND.has(i));
 }
 
+/** Weekday index (0=Mon … 6=Sun) of a YYYY-MM-DD date, or -1 when unparseable. */
+export function workdayIndexOf(dateISO: string): number {
+  const d = new Date(dateISO + "T00:00:00.000Z");
+  return Number.isNaN(d.getTime()) ? -1 : (d.getUTCDay() + 6) % 7;
+}
+
+/**
+ * Is the given date (YYYY-MM-DD) one of this person's scheduled working days?
+ * Falls back to the Mon–Fri default when no valid mask is stored, so full-timers
+ * keep their expected behaviour. Used by overdue-report alerts, consolidated
+ * "missing" lists and dashboard "expected to report" counts — a part-timer who
+ * is off on a given date is never flagged for it.
+ */
+export function worksOn(mask: string | null | undefined, dateISO: string): boolean {
+  const idx = workdayIndexOf(dateISO);
+  if (idx < 0) return false;
+  const m = mask && isValidWorkDays(mask) ? mask : FULL_TIME_DEFAULT.workDays;
+  return m[idx] === "1";
+}
+
 /** Human summary of the mask: "Mon–Fri", "Mon, Wed, Fri", "Every day". */
 export function formatWorkDays(mask: string): string {
   if (!isValidWorkDays(mask)) return "—";

@@ -4,6 +4,7 @@ import { requireUser, requireSupervisorOrAdmin } from "@/lib/auth";
 import { handle, ok, fail, safeParse, toDateOrNull } from "@/lib/api-utils";
 import { aggregateTeamKpis, isShortfall, type KpiMetric } from "@/lib/kpi";
 import { audit } from "@/lib/notify";
+import { worksOn } from "@/lib/schedule";
 import { SUPERVISOR_TEAM_KPIS } from "@/lib/template-config";
 
 /** GET /api/consolidated?date=YYYY-MM-DD — cross-department consolidation for the supervisor report */
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
 
     const staff = await db.user.findMany({
       where: { status: "APPROVED", role: { in: ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA"] } },
-      select: { id: true, fullName: true, role: true, department: true },
+      select: { id: true, fullName: true, role: true, department: true, workDays: true },
     });
 
     const allReports = await db.report.findMany({
@@ -40,11 +41,14 @@ export async function GET(req: NextRequest) {
       const confirmed = deptReports.filter((r) => ["SUBMITTED", "APPROVED"].includes(r.status));
       const unconfirmed = deptReports.filter((r) => !["SUBMITTED", "APPROVED"].includes(r.status));
 
+      // only staff scheduled on this date (shift mask) count as expected —
+      // part-timers off today are not "missing"
+      const scheduled = deptStaff.filter((s) => worksOn(s.workDays, date));
       const deptData: Record<string, unknown> = {
-        expected: deptStaff.length,
+        expected: scheduled.length,
         submitted: confirmed.length,
-        pending: Math.max(0, deptStaff.length - confirmed.length),
-        employeesMissing: deptStaff.filter((s) => !confirmed.some((r) => r.userId === s.id)).map((s) => s.fullName),
+        pending: Math.max(0, scheduled.length - confirmed.length),
+        employeesMissing: scheduled.filter((s) => !confirmed.some((r) => r.userId === s.id)).map((s) => s.fullName),
         reports: deptReports.map((r) => ({
           id: r.id, ref: r.ref, userName: r.user.fullName, status: r.status,
           verificationStatus: r.verificationStatus, sourceType: r.sourceType, type: r.type,

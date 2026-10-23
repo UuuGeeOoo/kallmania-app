@@ -144,6 +144,9 @@ export async function PATCH(req: NextRequest) {
           db.notification.deleteMany({ where: { userId } }),
           // Inbox copies held by OTHERS that point at this user's escalations
           db.notification.deleteMany({ where: { OR: sentEscalations.map((e) => ({ linkData: { contains: e.id } })) } }),
+          // Alerts held by OTHERS that are ABOUT this user (e.g. overdue-report alerts reference
+          // them in linkData/dedupeKey) — meaningless once the account is gone
+          db.notification.deleteMany({ where: { OR: [{ linkData: { contains: `"userId":"${userId}"` } }, { dedupeKey: { contains: `:${userId}:` } }] } }),
           // Escalations the user sent belong solely to them
           db.escalation.deleteMany({ where: { fromId: userId } }),
           // Escalations targeted directly at the user — keep them, drop the link
