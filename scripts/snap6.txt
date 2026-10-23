@@ -1,0 +1,433 @@
+- generic
+  - generic
+    - banner
+      - button "K Kallmania" [ref=e9]
+        - StaticText "K"
+        - paragraph
+          - StaticText "Kallmania"
+      - button "Notify / escalate" [ref=e10]
+      - button "Switch to light theme" [ref=e11]
+      - button "Notifications" [ref=e12]
+      - button "EC" [expanded=false, ref=e13]
+      - navigation
+        - button "Dashboard Overview" [expanded=false, ref=e50]
+          - StaticText "Dashboard Overview"
+        - button "Home" [ref=e51]
+          - StaticText "Home"
+        - button "Reports" [expanded=false, ref=e52]
+          - StaticText "Reports"
+        - button "Team" [expanded=false, ref=e53]
+          - StaticText "Team"
+        - button "Tasks & Assignments" [ref=e54]
+          - StaticText "Tasks & Assignments"
+        - button "Configuration" [expanded=false, ref=e55]
+          - StaticText "Configuration"
+        - button "My Daily Report" [ref=e56]
+          - StaticText "My Daily Report"
+        - button "Notice Board" [ref=e57]
+          - StaticText "Notice Board"
+    - main
+      - heading "KPI Configuration" [level=2, ref=e89]
+      - paragraph
+        - StaticText "Centre targets, individual member targets and report templates"
+      - generic
+        - heading "Individual KPI Configuration — per member" [level=3, ref=e92]
+        - paragraph
+          - StaticText "Pick any staff member and fine-tune their personal KPI targets"
+        - combobox [expanded=false, ref=e93]: Otubelu Peace Chidiebube — Social Media & Campaign · SOCIAL
+          - generic [ref=e325] clickable [onclick]
+            - StaticText "Otubelu Peace Chidiebube — Social Media & Campaign · SOCIAL"
+        - paragraph
+          - StaticText " INDIVIDUAL KPI CONFIGURATION — OTUBELU PEACE CHIDIEBUBE"
+        - paragraph
+          - StaticText "Your changes apply immediately. You also approve or reject team-lead proposals."
+        - paragraph
+          - StaticText "No individual KPI settings yet"
+        - paragraph
+          - StaticText "The member follows the centre/global defaults. Add an override below."
+        - LabelText
+          - StaticText "Department"
+        - combobox [expanded=false, ref=e611]: Social Media
+          - generic [ref=e614] clickable [onclick]
+            - StaticText "Social Media"
+        - LabelText
+          - StaticText "Metric"
+        - textbox "Pick a metric or type a new one" [ref=e615]
+        - LabelText
+          - StaticText "Daily target"
+        - spinbutton "blank = none" [ref=e612]
+        - button "Set individual target" [disabled, ref=e613]
+      - combobox [expanded=false, ref=e90]: Social Media
+        - generic [ref=e94] clickable [onclick]
+          - StaticText "Social Media"
+      - combobox [expanded=false, ref=e91]: All centres — global defaults
+        - generic [ref=e95] clickable [onclick]
+          - StaticText "All centres — global defaults"
+      - generic
+        - heading "Metrics — Social Media & Campaign · All centres (default)" [level=3, ref=e118]
+        - paragraph
+          - StaticText "Edit the default target for any metric. Blank target = no fixed target."
+        - table
+          - rowgroup
+            - row
+              - columnheader "Metric" [ref=e552]
+              - columnheader "Key" [ref=e553]
+              - columnheader "Category" [ref=e554]
+              - columnheader "Unit" [ref=e555]
+              - columnheader "Default target" [ref=e556]
+              - columnheader "Mandatory" [ref=e557]
+          - row
+            - cell "E2E Metric" [ref=e683]
+            - cell "e2e_metric" [ref=e684]
+            - cell "CUSTOM" [ref=e685]
+            - cell "count" [ref=e686]
+            - cell "5" [ref=e687]
+              - textbox [ref=e690]: 5
+            - cell "optional" [ref=e688]
+            - cell "Remove" [ref=e689]
+              - button "Remove" [ref=e691]
+        - LabelText
+        - textbox "Pick a metric or type a new one" [ref=e326]: Link Clicks
+        - paragraph
+        - LabelText
+        - spinbutton [ref=e119]
+        - LabelText
+        - combobox [expanded=false, ref=e120]: count
+          - generic [ref=e327] clickable [onclick]
+        - LabelText
+        - combobox [expanded=false, ref=e121]: Optional
+          - generic [ref=e328] clickable [onclick]
+        - button "Add metric" [ref=e122]
+      - heading "Team Lead Report Templates" [level=2, ref=e112]
+      - paragraph
+        - StaticText "Pick a team and design the daily report its team lead fills in — outbound, inbound, social media and web & technical leads each get their own format · shipped default format."
+      - combobox [expanded=false, ref=e113]: Outbound Call Centre — Team Lead
+        - generic [ref=e123] clickable [onclick]
+      - button "Preview form" [ref=e114]
+      - button "Reset to default" [ref=e115]
+      - button "Save template" [ref=e116]
+      - paragraph
+        - StaticText "Team Lead — BPO · Outbound Call Centre: Calls made, connections, contact & conversion rates and leads generated."
+      - generic
+        - heading "Report identity" [level=3, ref=e124]
+        - LabelText
+        - textbox [ref=e125]: Outbound Call Centre — Team Lead Daily Report Template
+        - LabelText
+        - textbox [ref=e126]: DAILY REPORT — OUTBOUND CALL CENTRE TEAM LEAD
+      - generic
+        - heading "Section 1" [level=3, ref=e127]
+        - paragraph
+        - button "Move up" [ref=e128]
+        - button "Move down" [ref=e129]
+        - button "Remove section" [ref=e130]
+        - LabelText
+        - textbox [ref=e131]: STAFF INFORMATION
+        - LabelText
+        - combobox [expanded=false, ref=e132]: Info fields (grid)
+          - generic [ref=e329] clickable [onclick]
+        - LabelText
+        - textbox [ref=e133]
+        - LabelText
+        - combobox [expanded=false, ref=e134]: Optional
+          - generic [ref=e330] clickable [onclick]
+        - StaticText "FIELDS IN THIS SECTION"
+        - textbox "Field label" [ref=e135]: Team / Squad
+        - combobox [expanded=false, ref=e136]: text
+          - generic [ref=e331] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e137]
+        - button [ref=e138]
+        - textbox "Field label" [ref=e139]: Shift Time
+        - combobox [expanded=false, ref=e140]: text
+          - generic [ref=e332] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e141]
+        - button [ref=e142]
+        - textbox "Field label" [ref=e143]: Clock-In Time
+        - combobox [expanded=false, ref=e144]: time
+          - generic [ref=e333] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e145]
+        - button [ref=e146]
+        - textbox "Field label" [ref=e147]: Clock-Out Time
+        - combobox [expanded=false, ref=e148]: time
+          - generic [ref=e334] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e149]
+        - button [ref=e150]
+        - textbox "Field label" [ref=e151]: Attendance Status
+        - combobox [expanded=false, ref=e152]: select
+          - generic [ref=e335] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e153]: Present, Late, Absent
+        - button [ref=e154]
+        - textbox "Field label" [ref=e155]: Lateness (mins)
+        - combobox [expanded=false, ref=e156]: number
+          - generic [ref=e336] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e157]
+        - button [ref=e158]
+        - textbox "Field label" [ref=e159]: Agents on Duty
+        - combobox [expanded=false, ref=e160]: number
+          - generic [ref=e337] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e161]
+        - button [ref=e162]
+        - button "Add field" [ref=e163]
+      - generic
+        - heading "Section 2" [level=3, ref=e164]
+        - paragraph
+        - button "Move up" [ref=e165]
+        - button "Move down" [ref=e166]
+        - button "Remove section" [ref=e167]
+        - LabelText
+        - textbox [ref=e168]: TEAM PERFORMANCE SUMMARY (KPIs)
+        - LabelText
+        - combobox [expanded=false, ref=e169]: KPI metrics table
+          - generic [ref=e338] clickable [onclick]
+        - LabelText
+        - textbox [ref=e170]: Enter the team totals/averages for today — variance against target is calculated automatically.
+        - LabelText
+        - combobox [expanded=false, ref=e171]: Optional
+          - generic [ref=e339] clickable [onclick]
+        - StaticText "KPI ROWS (TARGET EDITABLE BY THE TEAM LEAD)"
+        - textbox "Metric label" [ref=e172]: Total Calls Made (Team)
+        - spinbutton "Target" [ref=e173]: 240
+        - combobox [expanded=false, ref=e174]: count
+          - generic [ref=e340] clickable [onclick]
+        - button [ref=e175]
+        - textbox "Metric label" [ref=e176]: Calls Connected (Team)
+        - spinbutton "Target" [ref=e177]: 200
+        - combobox [expanded=false, ref=e178]: count
+          - generic [ref=e341] clickable [onclick]
+        - button [ref=e179]
+        - textbox "Metric label" [ref=e180]: Team Contact Rate (%)
+        - spinbutton "Target" [ref=e181]: 100
+        - combobox [expanded=false, ref=e182]: percent
+          - generic [ref=e342] clickable [onclick]
+        - button [ref=e183]
+        - textbox "Metric label" [ref=e184]: Team Conversion Rate (%)
+        - spinbutton "Target" [ref=e185]: 2
+        - combobox [expanded=false, ref=e186]: percent
+          - generic [ref=e343] clickable [onclick]
+        - button [ref=e187]
+        - textbox "Metric label" [ref=e188]: Leads Generated (HOT / WARM)
+        - spinbutton "Target" [ref=e189]
+        - combobox [expanded=false, ref=e190]: count
+          - generic [ref=e344] clickable [onclick]
+        - button [ref=e191]
+        - textbox "Metric label" [ref=e192]: Callbacks Scheduled (Team)
+        - spinbutton "Target" [ref=e193]
+        - combobox [expanded=false, ref=e194]: count
+          - generic [ref=e345] clickable [onclick]
+        - button [ref=e195]
+        - textbox "Metric label" [ref=e196]: Tasks Completed (Team)
+        - spinbutton "Target" [ref=e197]
+        - combobox [expanded=false, ref=e198]: count
+          - generic [ref=e346] clickable [onclick]
+        - button [ref=e199]
+        - textbox "Metric label" [ref=e200]: Escalations Received
+        - spinbutton "Target" [ref=e201]: 0
+        - combobox [expanded=false, ref=e202]: count
+          - generic [ref=e347] clickable [onclick]
+        - button [ref=e203]
+        - textbox "Metric label" [ref=e204]: SLA Adherence (%)
+        - spinbutton "Target" [ref=e205]: 95
+        - combobox [expanded=false, ref=e206]: percent
+          - generic [ref=e348] clickable [onclick]
+        - button [ref=e207]
+        - button "Add metric row" [ref=e208]
+      - generic
+        - heading "Section 3" [level=3, ref=e209]
+        - paragraph
+        - button "Move up" [ref=e210]
+        - button "Move down" [ref=e211]
+        - button "Remove section" [ref=e212]
+        - LabelText
+        - textbox [ref=e213]: AGENT PERFORMANCE HIGHLIGHTS
+        - LabelText
+        - combobox [expanded=false, ref=e214]: Dynamic table
+          - generic [ref=e349] clickable [onclick]
+        - LabelText
+        - textbox [ref=e215]: Call out your best and lowest performers today.
+        - LabelText
+        - combobox [expanded=false, ref=e216]: Optional
+          - generic [ref=e350] clickable [onclick]
+        - StaticText "COLUMNS"
+        - textbox "Column label" [ref=e217]: Agent Name
+        - combobox [expanded=false, ref=e218]: text
+          - generic [ref=e351] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e219]
+        - button [ref=e220]
+        - textbox "Column label" [ref=e221]: Highlight / Observation
+        - combobox [expanded=false, ref=e222]: text
+          - generic [ref=e352] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e223]
+        - button [ref=e224]
+        - textbox "Column label" [ref=e225]: Notes
+        - combobox [expanded=false, ref=e226]: text
+          - generic [ref=e353] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e227]
+        - button [ref=e228]
+        - button "Add column" [ref=e229]
+        - LabelText
+          - spinbutton "Minimum rows:" [ref=e354]: 3
+        - checkbox "Allow the team lead to add extra rows" [checked=true, ref=e230]
+      - generic
+        - heading "Section 4" [level=3, ref=e231]
+        - paragraph
+        - button "Move up" [ref=e232]
+        - button "Move down" [ref=e233]
+        - button "Remove section" [ref=e234]
+        - LabelText
+        - textbox [ref=e235]: TASKS ASSIGNED & COMPLETED
+        - LabelText
+        - combobox [expanded=false, ref=e236]: Dynamic table
+          - generic [ref=e355] clickable [onclick]
+        - LabelText
+        - textbox [ref=e237]: Track the tasks you assigned or followed up on today.
+        - LabelText
+        - combobox [expanded=false, ref=e238]: Optional
+          - generic [ref=e356] clickable [onclick]
+        - StaticText "COLUMNS"
+        - textbox "Column label" [ref=e239]: Task / Activity
+        - combobox [expanded=false, ref=e240]: text
+          - generic [ref=e357] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e241]
+        - button [ref=e242]
+        - textbox "Column label" [ref=e243]: Assigned To
+        - combobox [expanded=false, ref=e244]: text
+          - generic [ref=e358] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e245]
+        - button [ref=e246]
+        - textbox "Column label" [ref=e247]: Status
+        - combobox [expanded=false, ref=e248]: select
+          - generic [ref=e359] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e249]: Completed, In Progress, Pending, Blocked, Not Started
+        - button [ref=e250]
+        - textbox "Column label" [ref=e251]: Remarks
+        - combobox [expanded=false, ref=e252]: text
+          - generic [ref=e360] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e253]
+        - button [ref=e254]
+        - button "Add column" [ref=e255]
+        - LabelText
+          - spinbutton "Minimum rows:" [ref=e361]: 4
+        - checkbox "Allow the team lead to add extra rows" [checked=true, ref=e256]
+      - generic
+        - heading "Section 5" [level=3, ref=e257]
+        - paragraph
+        - button "Move up" [ref=e258]
+        - button "Move down" [ref=e259]
+        - button "Remove section" [ref=e260]
+        - LabelText
+        - textbox [ref=e261]: CHALLENGES / BLOCKERS
+        - LabelText
+        - combobox [expanded=false, ref=e262]: Free text
+          - generic [ref=e362] clickable [onclick]
+        - LabelText
+        - textbox [ref=e263]: What slowed the team down today?
+        - LabelText
+        - combobox [expanded=false, ref=e264]: Optional
+          - generic [ref=e363] clickable [onclick]
+      - generic
+        - heading "Section 6" [level=3, ref=e265]
+        - paragraph
+        - button "Move up" [ref=e266]
+        - button "Move down" [ref=e267]
+        - button "Remove section" [ref=e268]
+        - LabelText
+        - textbox [ref=e269]: ESCALATIONS REQUIRING SUPERVISOR ATTENTION
+        - LabelText
+        - combobox [expanded=false, ref=e270]: Free text
+          - generic [ref=e364] clickable [onclick]
+        - LabelText
+        - textbox [ref=e271]: Issues that must be escalated — supervisors are alerted instantly on submit.
+        - LabelText
+        - combobox [expanded=false, ref=e272]: Optional
+          - generic [ref=e365] clickable [onclick]
+      - generic
+        - heading "Section 7" [level=3, ref=e273]
+        - paragraph
+        - button "Move up" [ref=e274]
+        - button "Move down" [ref=e275]
+        - button "Remove section" [ref=e276]
+        - LabelText
+        - textbox [ref=e277]: COACHING & SUPPORT GIVEN
+        - LabelText
+        - combobox [expanded=false, ref=e278]: Dynamic table
+          - generic [ref=e366] clickable [onclick]
+        - LabelText
+        - textbox [ref=e279]
+        - LabelText
+        - combobox [expanded=false, ref=e280]: Optional
+          - generic [ref=e367] clickable [onclick]
+        - StaticText "COLUMNS"
+        - textbox "Column label" [ref=e281]: Agent
+        - combobox [expanded=false, ref=e282]: text
+          - generic [ref=e368] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e283]
+        - button [ref=e284]
+        - textbox "Column label" [ref=e285]: Area Coached
+        - combobox [expanded=false, ref=e286]: text
+          - generic [ref=e369] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e287]
+        - button [ref=e288]
+        - textbox "Column label" [ref=e289]: Outcome / Next Step
+        - combobox [expanded=false, ref=e290]: text
+          - generic [ref=e370] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e291]
+        - button [ref=e292]
+        - button "Add column" [ref=e293]
+        - LabelText
+          - spinbutton "Minimum rows:" [ref=e371]: 2
+        - checkbox "Allow the team lead to add extra rows" [checked=true, ref=e294]
+      - generic
+        - heading "Section 8" [level=3, ref=e295]
+        - paragraph
+        - button "Move up" [ref=e296]
+        - button "Move down" [ref=e297]
+        - button "Remove section" [ref=e298]
+        - LabelText
+        - textbox [ref=e299]: ACTION PLAN FOR NEXT DAY
+        - LabelText
+        - combobox [expanded=false, ref=e300]: Dynamic table
+          - generic [ref=e372] clickable [onclick]
+        - LabelText
+        - textbox [ref=e301]: Add as many activities as you need — not limited to six.
+        - LabelText
+        - combobox [expanded=false, ref=e302]: Optional
+          - generic [ref=e373] clickable [onclick]
+        - StaticText "COLUMNS"
+        - textbox "Column label" [ref=e303]: Activity / Focus Area
+        - combobox [expanded=false, ref=e304]: text
+          - generic [ref=e374] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e305]
+        - button [ref=e306]
+        - textbox "Column label" [ref=e307]: Owner
+        - combobox [expanded=false, ref=e308]: text
+          - generic [ref=e375] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e309]
+        - button [ref=e310]
+        - textbox "Column label" [ref=e311]: Expected Outcome
+        - combobox [expanded=false, ref=e312]: text
+          - generic [ref=e376] clickable [onclick]
+        - textbox "Options (comma-separated, for select)" [ref=e313]
+        - button [ref=e314]
+        - button "Add column" [ref=e315]
+        - LabelText
+          - spinbutton "Minimum rows:" [ref=e377]: 5
+        - checkbox "Allow the team lead to add extra rows" [checked=true, ref=e316]
+      - generic
+        - heading "Section 9" [level=3, ref=e317]
+        - paragraph
+        - button "Move up" [ref=e318]
+        - button "Move down" [ref=e319]
+        - button "Remove section" [ref=e320]
+        - LabelText
+        - textbox [ref=e321]: ADDITIONAL COMMENTS
+        - LabelText
+        - combobox [expanded=false, ref=e322]: Free text
+          - generic [ref=e378] clickable [onclick]
+        - LabelText
+        - textbox [ref=e323]
+        - LabelText
+        - combobox [expanded=false, ref=e324]: Optional
+          - generic [ref=e379] clickable [onclick]
+      - button "Add section" [ref=e117]
+  - region "Notifications (F8)" [ref=e1]
+    - list [ref=e626] clickable [onclick]
+  - button "Open Next.js Dev Tools" [expanded=false, ref=e2]

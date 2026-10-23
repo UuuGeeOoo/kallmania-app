@@ -471,3 +471,18 @@ Work Log:
 
 Stage Summary:
 - GitHub repo UuuGeeOoo/kallmania-app now up to date with all Task 25-27 work; Supabase schema already in sync from Task 27 (prisma db push)
+
+---
+Task ID: 28
+Agent: main (Z.ai)
+Task: Metric field in KPI configuration (individual + centre/team) becomes a combobox — choose from the known options or type a brand-new metric
+
+Work Log:
+- New shared MetricCombobox (src/components/kallmania/shared.tsx): typeable input + filtered suggestion dropdown (label or key match), explicit "Use “X” as a new metric" row for non-matching text, closes on outside click/Escape/selection; MetricOption type {key,label,unit?,category?}
+- Individual editor (member-kpi-editor.tsx): replaced the fixed metric Select with the combobox over the department catalogue. Exact label/key match reuses the canonical entry (key/unit shown as hint); any other text becomes a custom metric — slugified key preview + unit selector (count/percent/minutes) appears; department switch resets the form; save resolves existing vs custom
+- Centre/team view (admin-views.tsx KpiConfigView): GET now stores the returned catalog; metric options = current dept rows + catalogue-only entries (deduped by key). Replaced "New metric label" free input with the combobox. Context-aware hint: "Updates the existing metric (key X)" when a row exists (re-picking updates in place — preserves the row's mandatory/active/category instead of resetting, e.g. Total Calls Made stays Required), "Adds the standard metric …" for catalogue entries with no row yet, "New custom metric — key X" for typed names. add() now uses the resolved key/category/mandatory
+- Verified in browser (admin): individual custom "LinkedIn Connections" (linkedin_connections) saved APPROVED target 15 + removed; individual existing pick "Saves"→key saves APPROVED 40 + removed; centre pick "Link Clicks" created row target 60, re-pick showed update hint and re-target to 61 in place (no duplicate); centre custom "LinkedIn Connections" added target 12; BPO pick "Total Calls Made" inherited mandatory=Required. tsc clean for touched files; no console errors
+- Cleanup: removed all 3 test rows (incl. stale "E2E Metric" leftover from earlier e2e runs) — centre SOCIAL table back to empty; no data changes remain
+
+Stage Summary:
+- Both KPI configuration surfaces (individual per-member and centre/team metrics) now accept any metric: pick from the standard options or type a new custom one, with units for custom metrics and in-place re-targeting of existing ones without duplicates

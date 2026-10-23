@@ -1,0 +1,526 @@
+- button "K Kallmania" [ref=e9]
+- button "Notify / escalate" [ref=e10]
+- button "Switch to light theme" [ref=e11]
+- button "Notifications" [ref=e12]
+- button "EC" [expanded=false, ref=e13]
+- button "Dashboard Overview" [expanded=false, ref=e50]
+- button "Home" [ref=e51]
+- button "Reports" [expanded=false, ref=e52]
+- button "Team" [expanded=false, ref=e53]
+- button "Tasks & Assignments" [ref=e54]
+- button "Configuration" [expanded=false, ref=e55]
+- button "My Daily Report" [ref=e56]
+- button "Notice Board" [ref=e57]
+- heading "KPI Configuration" [level=2, ref=e89]
+- heading "Individual KPI Configuration — per member" [level=3, ref=e92]
+- combobox [expanded=false, ref=e93]: Otubelu Peace Chidiebube — Social Media & Campaign · SOCIAL
+  - generic "Otubelu Peace Chidiebube — Social Media & Campaign · SOCIAL" [ref=e325] clickable [onclick]
+- combobox [expanded=false, ref=e611]: Social Media
+  - generic "Social Media" [ref=e614] clickable [onclick]
+- textbox "Pick a metric or type a new one" [ref=e615]
+- spinbutton "blank = none" [ref=e612]
+- button "Set individual target" [disabled, ref=e613]
+- combobox [expanded=false, ref=e90]: BPO & Outbound Call Centre
+  - generic "BPO & Outbound Call Centre" [ref=e94] clickable [onclick]
+- combobox [expanded=false, ref=e91]: All centres — global defaults
+  - generic "All centres — global defaults" [ref=e95] clickable [onclick]
+- heading "Metrics — Outbound Call Centre · All centres (default)" [level=3, ref=e118]
+- columnheader "Metric" [ref=e552]
+- columnheader "Key" [ref=e553]
+- columnheader "Category" [ref=e554]
+- columnheader "Unit" [ref=e555]
+- columnheader "Default target" [ref=e556]
+- columnheader "Mandatory" [ref=e557]
+- cell "Total Calls Made" [ref=e380]
+- cell "totalCallsMade" [ref=e381]
+- cell "CUSTOM" [ref=e382]
+- cell "count" [ref=e383]
+- cell "30" [ref=e384]
+  - textbox [ref=e558]: 30
+- cell "required" [ref=e385]
+- cell "Total Mails Sent" [ref=e386]
+- cell "totalMailsSent" [ref=e387]
+- cell "CORE TEMPLATE" [ref=e388]
+- cell "count" [ref=e389]
+- cell "10" [ref=e390]
+  - textbox [ref=e559]: 10
+- cell "required" [ref=e391]
+- cell "Calls Connected" [ref=e392]
+- cell "callsConnected" [ref=e393]
+- cell "CORE TEMPLATE" [ref=e394]
+- cell "count" [ref=e395]
+- cell "25" [ref=e396]
+  - textbox [ref=e560]: 25
+- cell "required" [ref=e397]
+- cell "Successful Mails Sent" [ref=e398]
+- cell "successfulMailsSent" [ref=e399]
+- cell "CORE TEMPLATE" [ref=e400]
+- cell "count" [ref=e401]
+- cell "8" [ref=e402]
+  - textbox [ref=e561]: 8
+- cell "optional" [ref=e403]
+- cell "Remove" [ref=e404]
+  - button "Remove" [ref=e562]
+- cell "Contact Rate (%)" [ref=e405]
+- cell "contactRate" [ref=e406]
+- cell "CORE TEMPLATE" [ref=e407]
+- cell "percent" [ref=e408]
+- cell "100" [ref=e409]
+  - textbox [ref=e563]: 100
+- cell "optional" [ref=e410]
+- cell "Remove" [ref=e411]
+  - button "Remove" [ref=e564]
+- cell "Conversion Rate (%)" [ref=e412]
+- cell "conversionRate" [ref=e413]
+- cell "CORE TEMPLATE" [ref=e414]
+- cell "percent" [ref=e415]
+- cell "2" [ref=e416]
+  - textbox [ref=e565]: 2
+- cell "optional" [ref=e417]
+- cell "Remove" [ref=e418]
+  - button "Remove" [ref=e566]
+- cell "Avg. Talk Time (mins)" [ref=e419]
+- cell "avgTalkTime" [ref=e420]
+- cell "CORE TEMPLATE" [ref=e421]
+- cell "minutes" [ref=e422]
+- textbox [ref=e567]
+- cell "optional" [ref=e423]
+- cell "Remove" [ref=e424]
+  - button "Remove" [ref=e568]
+- cell "Avg. Hold Time (mins)" [ref=e425]
+- cell "avgHoldTime" [ref=e426]
+- cell "CORE TEMPLATE" [ref=e427]
+- cell "minutes" [ref=e428]
+- textbox [ref=e569]
+- cell "optional" [ref=e429]
+- cell "Remove" [ref=e430]
+  - button "Remove" [ref=e570]
+- cell "Callbacks Scheduled" [ref=e431]
+- cell "callbacksScheduled" [ref=e432]
+- cell "CORE TEMPLATE" [ref=e433]
+- cell "count" [ref=e434]
+- textbox [ref=e571]
+- cell "optional" [ref=e435]
+- cell "Remove" [ref=e436]
+  - button "Remove" [ref=e572]
+- cell "Leads Generated (HOT / WARM)" [ref=e437]
+- cell "leadsGenerated" [ref=e438]
+- cell "CORE TEMPLATE" [ref=e439]
+- cell "count" [ref=e440]
+- textbox [ref=e573]
+- cell "optional" [ref=e441]
+- cell "Remove" [ref=e442]
+  - button "Remove" [ref=e574]
+- cell "— Hot Leads" [ref=e443]
+- cell "hotLeads" [ref=e444]
+- cell "LEADS EXTENSION" [ref=e445]
+- cell "count" [ref=e446]
+- textbox [ref=e575]
+- cell "optional" [ref=e447]
+- cell "Remove" [ref=e448]
+  - button "Remove" [ref=e576]
+- cell "— Warm Leads" [ref=e449]
+- cell "warmLeads" [ref=e450]
+- cell "LEADS EXTENSION" [ref=e451]
+- cell "count" [ref=e452]
+- textbox [ref=e577]
+- cell "optional" [ref=e453]
+- cell "Remove" [ref=e454]
+  - button "Remove" [ref=e578]
+- cell "Positive Dispositions" [ref=e455]
+- cell "positiveDispositions" [ref=e456]
+- cell "CORE TEMPLATE" [ref=e457]
+- cell "count" [ref=e458]
+- textbox [ref=e579]
+- cell "optional" [ref=e459]
+- cell "Remove" [ref=e460]
+  - button "Remove" [ref=e580]
+- cell "Not Interested / Declined" [ref=e461]
+- cell "notInterested" [ref=e462]
+- cell "CORE TEMPLATE" [ref=e463]
+- cell "count" [ref=e464]
+- textbox [ref=e581]
+- cell "optional" [ref=e465]
+- cell "Remove" [ref=e466]
+  - button "Remove" [ref=e582]
+- cell "Wrap-Up / After-Call Work (mins)" [ref=e467]
+- cell "wrapUpTime" [ref=e468]
+- cell "CORE TEMPLATE" [ref=e469]
+- cell "minutes" [ref=e470]
+- cell "20" [ref=e471]
+  - textbox [ref=e583]: 20
+- cell "optional" [ref=e472]
+- cell "Remove" [ref=e473]
+  - button "Remove" [ref=e584]
+- cell "Bounced Emails" [ref=e474]
+- cell "bouncedEmails" [ref=e475]
+- cell "EMAIL EXTENSION" [ref=e476]
+- cell "count" [ref=e477]
+- textbox [ref=e585]
+- cell "optional" [ref=e478]
+- cell "Remove" [ref=e479]
+  - button "Remove" [ref=e586]
+- cell "Follow-up Emails Sent" [ref=e480]
+- cell "followUpEmails" [ref=e481]
+- cell "EMAIL EXTENSION" [ref=e482]
+- cell "count" [ref=e483]
+- textbox [ref=e587]
+- cell "optional" [ref=e484]
+- cell "Remove" [ref=e485]
+  - button "Remove" [ref=e588]
+- cell "Personalized Outreach Emails" [ref=e486]
+- cell "personalizedOutreach" [ref=e487]
+- cell "EMAIL EXTENSION" [ref=e488]
+- cell "count" [ref=e489]
+- textbox [ref=e589]
+- cell "optional" [ref=e490]
+- cell "Remove" [ref=e491]
+  - button "Remove" [ref=e590]
+- cell "Campaign Emails Sent" [ref=e492]
+- cell "campaignEmails" [ref=e493]
+- cell "EMAIL EXTENSION" [ref=e494]
+- cell "count" [ref=e495]
+- textbox [ref=e591]
+- cell "optional" [ref=e496]
+- cell "Remove" [ref=e497]
+  - button "Remove" [ref=e592]
+- cell "Replies Received" [ref=e498]
+- cell "repliesReceived" [ref=e499]
+- cell "EMAIL EXTENSION" [ref=e500]
+- cell "count" [ref=e501]
+- textbox [ref=e593]
+- cell "optional" [ref=e502]
+- cell "Remove" [ref=e503]
+  - button "Remove" [ref=e594]
+- cell "Positive Replies" [ref=e504]
+- cell "positiveReplies" [ref=e505]
+- cell "EMAIL EXTENSION" [ref=e506]
+- cell "count" [ref=e507]
+- textbox [ref=e595]
+- cell "optional" [ref=e508]
+- cell "Remove" [ref=e509]
+  - button "Remove" [ref=e596]
+- cell "Negative Replies" [ref=e510]
+- cell "negativeReplies" [ref=e511]
+- cell "EMAIL EXTENSION" [ref=e512]
+- cell "count" [ref=e513]
+- textbox [ref=e597]
+- cell "optional" [ref=e514]
+- cell "Remove" [ref=e515]
+  - button "Remove" [ref=e598]
+- cell "Interested Prospects" [ref=e516]
+- cell "interestedProspects" [ref=e517]
+- cell "EMAIL EXTENSION" [ref=e518]
+- cell "count" [ref=e519]
+- textbox [ref=e599]
+- cell "optional" [ref=e520]
+- cell "Remove" [ref=e521]
+  - button "Remove" [ref=e600]
+- cell "Hot Leads via Email" [ref=e522]
+- cell "emailHotLeads" [ref=e523]
+- cell "EMAIL EXTENSION" [ref=e524]
+- cell "count" [ref=e525]
+- textbox [ref=e601]
+- cell "optional" [ref=e526]
+- cell "Remove" [ref=e527]
+  - button "Remove" [ref=e602]
+- cell "Warm Leads via Email" [ref=e528]
+- cell "emailWarmLeads" [ref=e529]
+- cell "EMAIL EXTENSION" [ref=e530]
+- cell "count" [ref=e531]
+- textbox [ref=e603]
+- cell "optional" [ref=e532]
+- cell "Remove" [ref=e533]
+  - button "Remove" [ref=e604]
+- cell "Meetings Booked via Email" [ref=e534]
+- cell "meetingsBookedEmail" [ref=e535]
+- cell "EMAIL EXTENSION" [ref=e536]
+- cell "count" [ref=e537]
+- textbox [ref=e605]
+- cell "optional" [ref=e538]
+- cell "Remove" [ref=e539]
+  - button "Remove" [ref=e606]
+- cell "Email-related Tasks Completed" [ref=e540]
+- cell "emailTasksCompleted" [ref=e541]
+- cell "EMAIL EXTENSION" [ref=e542]
+- cell "count" [ref=e543]
+- textbox [ref=e607]
+- cell "optional" [ref=e544]
+- cell "Remove" [ref=e545]
+  - button "Remove" [ref=e608]
+- cell "Outstanding Email Follow-ups" [ref=e546]
+- cell "outstandingFollowUps" [ref=e547]
+- cell "EMAIL EXTENSION" [ref=e548]
+- cell "count" [ref=e549]
+- textbox [ref=e609]
+- cell "optional" [ref=e550]
+- cell "Remove" [ref=e551]
+  - button "Remove" [ref=e610]
+- textbox "Pick a metric or type a new one" [ref=e326]: LinkedIn Connections
+- spinbutton [ref=e119]
+- combobox [expanded=false, ref=e120]: count
+  - generic "count" [ref=e327] clickable [onclick]
+- combobox [expanded=false, ref=e121]: Optional
+  - generic "Optional" [ref=e328] clickable [onclick]
+- button "Add metric" [ref=e122]
+- heading "Team Lead Report Templates" [level=2, ref=e112]
+- combobox [expanded=false, ref=e113]: Outbound Call Centre — Team Lead
+  - generic "Outbound Call Centre — Team Lead" [ref=e123] clickable [onclick]
+- button "Preview form" [ref=e114]
+- button "Reset to default" [ref=e115]
+- button "Save template" [ref=e116]
+- heading "Report identity" [level=3, ref=e124]
+- textbox [ref=e125]: Outbound Call Centre — Team Lead Daily Report Template
+- textbox [ref=e126]: DAILY REPORT — OUTBOUND CALL CENTRE TEAM LEAD
+- heading "Section 1" [level=3, ref=e127]
+- button "Move up" [ref=e128]
+- button "Move down" [ref=e129]
+- button "Remove section" [ref=e130]
+- textbox [ref=e131]: STAFF INFORMATION
+- combobox [expanded=false, ref=e132]: Info fields (grid)
+  - generic "Info fields (grid)" [ref=e329] clickable [onclick]
+- textbox [ref=e133]
+- combobox [expanded=false, ref=e134]: Optional
+  - generic "Optional" [ref=e330] clickable [onclick]
+- textbox "Field label" [ref=e135]: Team / Squad
+- combobox [expanded=false, ref=e136]: text
+  - generic "text" [ref=e331] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e137]
+- button [ref=e138]
+- textbox "Field label" [ref=e139]: Shift Time
+- combobox [expanded=false, ref=e140]: text
+  - generic "text" [ref=e332] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e141]
+- button [ref=e142]
+- textbox "Field label" [ref=e143]: Clock-In Time
+- combobox [expanded=false, ref=e144]: time
+  - generic "time" [ref=e333] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e145]
+- button [ref=e146]
+- textbox "Field label" [ref=e147]: Clock-Out Time
+- combobox [expanded=false, ref=e148]: time
+  - generic "time" [ref=e334] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e149]
+- button [ref=e150]
+- textbox "Field label" [ref=e151]: Attendance Status
+- combobox [expanded=false, ref=e152]: select
+  - generic "select" [ref=e335] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e153]: Present, Late, Absent
+- button [ref=e154]
+- textbox "Field label" [ref=e155]: Lateness (mins)
+- combobox [expanded=false, ref=e156]: number
+  - generic "number" [ref=e336] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e157]
+- button [ref=e158]
+- textbox "Field label" [ref=e159]: Agents on Duty
+- combobox [expanded=false, ref=e160]: number
+  - generic "number" [ref=e337] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e161]
+- button [ref=e162]
+- button "Add field" [ref=e163]
+- heading "Section 2" [level=3, ref=e164]
+- button "Move up" [ref=e165]
+- button "Move down" [ref=e166]
+- button "Remove section" [ref=e167]
+- textbox [ref=e168]: TEAM PERFORMANCE SUMMARY (KPIs)
+- combobox [expanded=false, ref=e169]: KPI metrics table
+  - generic "KPI metrics table" [ref=e338] clickable [onclick]
+- textbox [ref=e170]: Enter the team totals/averages for today — variance against target is calculated automatically.
+- combobox [expanded=false, ref=e171]: Optional
+  - generic "Optional" [ref=e339] clickable [onclick]
+- textbox "Metric label" [ref=e172]: Total Calls Made (Team)
+- spinbutton "Target" [ref=e173]: 240
+- combobox [expanded=false, ref=e174]: count
+  - generic "count" [ref=e340] clickable [onclick]
+- button [ref=e175]
+- textbox "Metric label" [ref=e176]: Calls Connected (Team)
+- spinbutton "Target" [ref=e177]: 200
+- combobox [expanded=false, ref=e178]: count
+  - generic "count" [ref=e341] clickable [onclick]
+- button [ref=e179]
+- textbox "Metric label" [ref=e180]: Team Contact Rate (%)
+- spinbutton "Target" [ref=e181]: 100
+- combobox [expanded=false, ref=e182]: percent
+  - generic "percent" [ref=e342] clickable [onclick]
+- button [ref=e183]
+- textbox "Metric label" [ref=e184]: Team Conversion Rate (%)
+- spinbutton "Target" [ref=e185]: 2
+- combobox [expanded=false, ref=e186]: percent
+  - generic "percent" [ref=e343] clickable [onclick]
+- button [ref=e187]
+- textbox "Metric label" [ref=e188]: Leads Generated (HOT / WARM)
+- spinbutton "Target" [ref=e189]
+- combobox [expanded=false, ref=e190]: count
+  - generic "count" [ref=e344] clickable [onclick]
+- button [ref=e191]
+- textbox "Metric label" [ref=e192]: Callbacks Scheduled (Team)
+- spinbutton "Target" [ref=e193]
+- combobox [expanded=false, ref=e194]: count
+  - generic "count" [ref=e345] clickable [onclick]
+- button [ref=e195]
+- textbox "Metric label" [ref=e196]: Tasks Completed (Team)
+- spinbutton "Target" [ref=e197]
+- combobox [expanded=false, ref=e198]: count
+  - generic "count" [ref=e346] clickable [onclick]
+- button [ref=e199]
+- textbox "Metric label" [ref=e200]: Escalations Received
+- spinbutton "Target" [ref=e201]: 0
+- combobox [expanded=false, ref=e202]: count
+  - generic "count" [ref=e347] clickable [onclick]
+- button [ref=e203]
+- textbox "Metric label" [ref=e204]: SLA Adherence (%)
+- spinbutton "Target" [ref=e205]: 95
+- combobox [expanded=false, ref=e206]: percent
+  - generic "percent" [ref=e348] clickable [onclick]
+- button [ref=e207]
+- button "Add metric row" [ref=e208]
+- heading "Section 3" [level=3, ref=e209]
+- button "Move up" [ref=e210]
+- button "Move down" [ref=e211]
+- button "Remove section" [ref=e212]
+- textbox [ref=e213]: AGENT PERFORMANCE HIGHLIGHTS
+- combobox [expanded=false, ref=e214]: Dynamic table
+  - generic "Dynamic table" [ref=e349] clickable [onclick]
+- textbox [ref=e215]: Call out your best and lowest performers today.
+- combobox [expanded=false, ref=e216]: Optional
+  - generic "Optional" [ref=e350] clickable [onclick]
+- textbox "Column label" [ref=e217]: Agent Name
+- combobox [expanded=false, ref=e218]: text
+  - generic "text" [ref=e351] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e219]
+- button [ref=e220]
+- textbox "Column label" [ref=e221]: Highlight / Observation
+- combobox [expanded=false, ref=e222]: text
+  - generic "text" [ref=e352] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e223]
+- button [ref=e224]
+- textbox "Column label" [ref=e225]: Notes
+- combobox [expanded=false, ref=e226]: text
+  - generic "text" [ref=e353] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e227]
+- button [ref=e228]
+- button "Add column" [ref=e229]
+- spinbutton "Minimum rows:" [ref=e354]: 3
+- checkbox "Allow the team lead to add extra rows" [checked=true, ref=e230]
+- heading "Section 4" [level=3, ref=e231]
+- button "Move up" [ref=e232]
+- button "Move down" [ref=e233]
+- button "Remove section" [ref=e234]
+- textbox [ref=e235]: TASKS ASSIGNED & COMPLETED
+- combobox [expanded=false, ref=e236]: Dynamic table
+  - generic "Dynamic table" [ref=e355] clickable [onclick]
+- textbox [ref=e237]: Track the tasks you assigned or followed up on today.
+- combobox [expanded=false, ref=e238]: Optional
+  - generic "Optional" [ref=e356] clickable [onclick]
+- textbox "Column label" [ref=e239]: Task / Activity
+- combobox [expanded=false, ref=e240]: text
+  - generic "text" [ref=e357] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e241]
+- button [ref=e242]
+- textbox "Column label" [ref=e243]: Assigned To
+- combobox [expanded=false, ref=e244]: text
+  - generic "text" [ref=e358] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e245]
+- button [ref=e246]
+- textbox "Column label" [ref=e247]: Status
+- combobox [expanded=false, ref=e248]: select
+  - generic "select" [ref=e359] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e249]: Completed, In Progress, Pending, Blocked, Not Started
+- button [ref=e250]
+- textbox "Column label" [ref=e251]: Remarks
+- combobox [expanded=false, ref=e252]: text
+  - generic "text" [ref=e360] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e253]
+- button [ref=e254]
+- button "Add column" [ref=e255]
+- spinbutton "Minimum rows:" [ref=e361]: 4
+- checkbox "Allow the team lead to add extra rows" [checked=true, ref=e256]
+- heading "Section 5" [level=3, ref=e257]
+- button "Move up" [ref=e258]
+- button "Move down" [ref=e259]
+- button "Remove section" [ref=e260]
+- textbox [ref=e261]: CHALLENGES / BLOCKERS
+- combobox [expanded=false, ref=e262]: Free text
+  - generic "Free text" [ref=e362] clickable [onclick]
+- textbox [ref=e263]: What slowed the team down today?
+- combobox [expanded=false, ref=e264]: Optional
+  - generic "Optional" [ref=e363] clickable [onclick]
+- heading "Section 6" [level=3, ref=e265]
+- button "Move up" [ref=e266]
+- button "Move down" [ref=e267]
+- button "Remove section" [ref=e268]
+- textbox [ref=e269]: ESCALATIONS REQUIRING SUPERVISOR ATTENTION
+- combobox [expanded=false, ref=e270]: Free text
+  - generic "Free text" [ref=e364] clickable [onclick]
+- textbox [ref=e271]: Issues that must be escalated — supervisors are alerted instantly on submit.
+- combobox [expanded=false, ref=e272]: Optional
+  - generic "Optional" [ref=e365] clickable [onclick]
+- heading "Section 7" [level=3, ref=e273]
+- button "Move up" [ref=e274]
+- button "Move down" [ref=e275]
+- button "Remove section" [ref=e276]
+- textbox [ref=e277]: COACHING & SUPPORT GIVEN
+- combobox [expanded=false, ref=e278]: Dynamic table
+  - generic "Dynamic table" [ref=e366] clickable [onclick]
+- textbox [ref=e279]
+- combobox [expanded=false, ref=e280]: Optional
+  - generic "Optional" [ref=e367] clickable [onclick]
+- textbox "Column label" [ref=e281]: Agent
+- combobox [expanded=false, ref=e282]: text
+  - generic "text" [ref=e368] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e283]
+- button [ref=e284]
+- textbox "Column label" [ref=e285]: Area Coached
+- combobox [expanded=false, ref=e286]: text
+  - generic "text" [ref=e369] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e287]
+- button [ref=e288]
+- textbox "Column label" [ref=e289]: Outcome / Next Step
+- combobox [expanded=false, ref=e290]: text
+  - generic "text" [ref=e370] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e291]
+- button [ref=e292]
+- button "Add column" [ref=e293]
+- spinbutton "Minimum rows:" [ref=e371]: 2
+- checkbox "Allow the team lead to add extra rows" [checked=true, ref=e294]
+- heading "Section 8" [level=3, ref=e295]
+- button "Move up" [ref=e296]
+- button "Move down" [ref=e297]
+- button "Remove section" [ref=e298]
+- textbox [ref=e299]: ACTION PLAN FOR NEXT DAY
+- combobox [expanded=false, ref=e300]: Dynamic table
+  - generic "Dynamic table" [ref=e372] clickable [onclick]
+- textbox [ref=e301]: Add as many activities as you need — not limited to six.
+- combobox [expanded=false, ref=e302]: Optional
+  - generic "Optional" [ref=e373] clickable [onclick]
+- textbox "Column label" [ref=e303]: Activity / Focus Area
+- combobox [expanded=false, ref=e304]: text
+  - generic "text" [ref=e374] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e305]
+- button [ref=e306]
+- textbox "Column label" [ref=e307]: Owner
+- combobox [expanded=false, ref=e308]: text
+  - generic "text" [ref=e375] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e309]
+- button [ref=e310]
+- textbox "Column label" [ref=e311]: Expected Outcome
+- combobox [expanded=false, ref=e312]: text
+  - generic "text" [ref=e376] clickable [onclick]
+- textbox "Options (comma-separated, for select)" [ref=e313]
+- button [ref=e314]
+- button "Add column" [ref=e315]
+- spinbutton "Minimum rows:" [ref=e377]: 5
+- checkbox "Allow the team lead to add extra rows" [checked=true, ref=e316]
+- heading "Section 9" [level=3, ref=e317]
+- button "Move up" [ref=e318]
+- button "Move down" [ref=e319]
+- button "Remove section" [ref=e320]
+- textbox [ref=e321]: ADDITIONAL COMMENTS
+- combobox [expanded=false, ref=e322]: Free text
+  - generic "Free text" [ref=e378] clickable [onclick]
+- textbox [ref=e323]
+- combobox [expanded=false, ref=e324]: Optional
+  - generic "Optional" [ref=e379] clickable [onclick]
+- button "Add section" [ref=e117]
+- region "Notifications (F8)" [ref=e1]
+- button "Open Next.js Dev Tools" [expanded=false, ref=e2]

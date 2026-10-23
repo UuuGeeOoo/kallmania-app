@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { api, fmtDate, fmtDateTime, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, type UserDTO, type NotificationDTO, type SessionUser } from "@/lib/client";
-import { PageHeader, EmptyState, StatusBadge, SectionCard, Field, inputCls } from "@/components/kallmania/shared";
+import { PageHeader, EmptyState, StatusBadge, SectionCard, Field, inputCls, MetricCombobox, type MetricOption } from "@/components/kallmania/shared";
 import { EMPLOYMENT_LABELS, WORKDAY_SHORT, FULL_TIME_DEFAULT, formatWorkDays, shiftHours, includesWeekend, weeklyHours, type EmploymentType } from "@/lib/schedule";
 import { UserKpiDialog } from "@/components/kallmania/user-kpi-dialog";
 import { MemberKpiConfigCard } from "@/components/kallmania/member-kpi-editor";
@@ -410,6 +410,7 @@ export function KpiConfigView({ user }: { user: SessionUser }) {
   const isSupervisor = user.role === "SUPERVISOR";
   const [configs, setConfigs] = useState<KpiConfigDTO[]>([]);
   const [centres, setCentres] = useState<CentreDTO[]>([]);
+  const [catalog, setCatalog] = useState<Record<string, MetricOption[]>>({});
   const [loading, setLoading] = useState(true);
   const [deptFilter, setDeptFilter] = useState("BPO");
   // Selected scope: ALL/ALL = global defaults (administrator only);
@@ -426,9 +427,10 @@ export function KpiConfigView({ user }: { user: SessionUser }) {
     setLoading(true);
     try {
       const qs = centreSelected ? `?centreCountry=${encodeURIComponent(centreCountry)}&centreState=${encodeURIComponent(centreState)}` : "";
-      const { configs, centres } = await api<{ configs: KpiConfigDTO[]; centres?: CentreDTO[] }>(`/api/kpi-config${qs}`);
+      const { configs, centres, catalog: cat } = await api<{ configs: KpiConfigDTO[]; centres?: CentreDTO[]; catalog?: Record<string, MetricOption[]> }>(`/api/kpi-config${qs}`);
       setConfigs(configs);
       if (centres) setCentres(centres);
+      if (cat) setCatalog(cat);
     } finally {
       setLoading(false);
     }
@@ -436,14 +438,20 @@ export function KpiConfigView({ user }: { user: SessionUser }) {
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [centreCountry, centreState]);
 
   const add = async () => {
-    if (!form.key || !form.label) return;
+    if (!typedMetricText) return;
     setSaving(true);
     try {
+      // Re-picking an existing metric updates it in place — preserve its
+      // mandatory/active flags instead of resetting them.
+      const existingRow = existingRowForKey;
       await api("/api/kpi-config", {
         method: "POST",
         body: JSON.stringify({
-          department: deptFilter, key: form.key.trim().replace(/\s+/g, "_").toLowerCase(), label: form.label,
-          defaultTarget: form.defaultTarget, unit: form.unit, mandatory: isInbound ? false : form.mandatory, category: "CUSTOM",
+          department: deptFilter, key: resolvedMetricKey, label: typedMetricText,
+          defaultTarget: form.defaultTarget, unit: form.unit,
+          mandatory: isInbound ? false : existingRow ? existingRow.mandatory : form.mandatory,
+          active: existingRow ? existingRow.active : true,
+          category: existingRow ? existingRow.category : metricTypedMatch?.category || "CUSTOM",
           centreCountry: centreSelected ? centreCountry : undefined, centreState: centreSelected ? centreState : undefined,
         }),
       });
@@ -474,6 +482,30 @@ export function KpiConfigView({ user }: { user: SessionUser }) {
   const visible = configs.filter((c) => c.department === deptFilter);
   const isInbound = deptFilter === "INBOUND";
   const isManager = isAdmin || isSupervisor;
+
+  // Metric combobox state — choose one of the known metrics or type a new one.
+  const metricOptions: MetricOption[] = (() => {
+    const seen = new Set<string>();
+    const opts: MetricOption[] = [];
+    for (const r of visible) {
+      if (!seen.has(r.key)) { seen.add(r.key); opts.push({ key: r.key, label: r.label, unit: r.unit, category: r.category }); }
+    }
+    for (const m of catalog[deptFilter] || []) {
+      if (!seen.has(m.key)) { seen.add(m.key); opts.push(m); }
+    }
+    return opts;
+  })();
+  const typedMetricText = form.label.trim();
+  const metricTypedMatch = typedMetricText
+    ? metricOptions.find((o) => o.label.toLowerCase() === typedMetricText.toLowerCase() || o.key === typedMetricText)
+    : undefined;
+  const resolvedMetricKey = metricTypedMatch ? metricTypedMatch.key : typedMetricText ? typedMetricText.replace(/\s+/g, "_").toLowerCase() : "";
+  const isCustomMetric = !!typedMetricText && !metricTypedMatch;
+  const existingRowForKey = resolvedMetricKey ? visible.find((r) => r.key === resolvedMetricKey) : undefined;
+  const saveUnit = (o: MetricOption) => {
+    const row = visible.find((r) => r.key === o.key);
+    setForm({ ...form, label: o.label, key: o.key, unit: row?.unit || o.unit || form.unit, mandatory: row ? row.mandatory : form.mandatory });
+  };
   // Only the outbound BPO template locks its three core template rows — Inbound rows are all editable/deletable.
   const isProtected = (c: KpiConfigDTO) => !centreSelected && deptFilter === "BPO" && ["totalCallsMade", "totalMailsSent", "callsConnected"].includes(c.key);
 
@@ -610,7 +642,24 @@ export function KpiConfigView({ user }: { user: SessionUser }) {
           </div>
 
           <div className="mt-4 grid grid-cols-2 items-end gap-3 border-t border-white/10 pt-4 sm:grid-cols-5">
-            <Field label="New metric label"><Input className={inputCls} value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value, key: e.target.value })} placeholder="e.g. LinkedIn Connections" /></Field>
+            <Field
+              label="Metric"
+              hint={isCustomMetric
+                ? `New custom metric — key ${resolvedMetricKey}`
+                : existingRowForKey
+                  ? `Updates the existing metric (key ${existingRowForKey.key})`
+                  : metricTypedMatch
+                    ? `Adds the standard metric “${metricTypedMatch.label}” (key ${metricTypedMatch.key})`
+                    : undefined}
+            >
+              <MetricCombobox
+                options={metricOptions}
+                text={form.label}
+                onSelect={saveUnit}
+                onText={(t) => setForm({ ...form, label: t, key: t })}
+                placeholder="Pick a metric or type a new one"
+              />
+            </Field>
             <Field label="Default target"><Input type="number" className={`${inputCls} tabular-nums`} value={form.defaultTarget} onChange={(e) => setForm({ ...form, defaultTarget: e.target.value })} /></Field>
             <Field label="Unit">
               <Select value={form.unit} onValueChange={(v) => setForm({ ...form, unit: v })}>
@@ -628,7 +677,7 @@ export function KpiConfigView({ user }: { user: SessionUser }) {
                 <SelectContent><SelectItem value="no">Optional</SelectItem><SelectItem value="yes">Required</SelectItem></SelectContent>
               </Select>
             </Field>
-            <Button disabled={saving || !form.label} onClick={add} className="bg-[#6c5ce7] hover:bg-[#5b4bd4]">
+            <Button disabled={saving || !typedMetricText} onClick={add} className="bg-[#6c5ce7] hover:bg-[#5b4bd4]">
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Settings2 className="mr-2 h-4 w-4" />}
               {centreSelected ? "Add for this centre" : "Add metric"}
             </Button>

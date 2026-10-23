@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, ROLE_LABELS, type UserDTO } from "@/lib/client";
-import { EmptyState } from "@/components/kallmania/shared";
+import { EmptyState, MetricCombobox, type MetricOption } from "@/components/kallmania/shared";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Target, Trash2, Check, X, Plus, Clock4 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -50,10 +50,12 @@ export function MemberKpiEditor({ staff, me, onChanged }: { staff: { id: string;
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<Record<string, string>>({});
-  // Add-metric form
+  // Add-metric form. The metric field is a combobox: pick one of the known
+  // options or type a brand-new custom metric name.
   const [newDept, setNewDept] = useState("BPO");
-  const [newKey, setNewKey] = useState("");
+  const [newLabel, setNewLabel] = useState("");
   const [newTarget, setNewTarget] = useState("");
+  const [newUnit, setNewUnit] = useState("count");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,7 +84,7 @@ export function MemberKpiEditor({ staff, me, onChanged }: { staff: { id: string;
           ? `“${label}” now waits for a supervisor or administrator to approve it.`
           : `“${label}” applies to ${staff.fullName} immediately.`,
       });
-      setNewKey(""); setNewTarget("");
+      resetMetricForm();
       await load();
       onChanged?.();
     } catch (e) {
@@ -121,6 +123,17 @@ export function MemberKpiEditor({ staff, me, onChanged }: { staff: { id: string;
 
   const pendingCount = configs.filter((c) => c.status === "PENDING").length;
   const catalogEntries = cat[newDept] || [];
+
+  // Resolve what the typed metric text means: an exact catalogue match keeps
+  // its canonical key/label/unit; anything else becomes a new custom metric.
+  const typedText = newLabel.trim();
+  const typedMatch = typedText
+    ? catalogEntries.find((m) => m.label.toLowerCase() === typedText.toLowerCase() || m.key === typedText)
+    : undefined;
+  const resolvedKey = typedMatch ? typedMatch.key : typedText ? typedText.replace(/\s+/g, "_").toLowerCase() : "";
+  const isCustomMetric = !!typedText && !typedMatch;
+
+  const resetMetricForm = () => { setNewLabel(""); setNewTarget(""); setNewUnit("count"); };
 
   return (
     <div className="space-y-3">
@@ -220,7 +233,7 @@ export function MemberKpiEditor({ staff, me, onChanged }: { staff: { id: string;
         <div className="grid grid-cols-2 items-end gap-2 rounded-lg border border-white/10 bg-white/[0.02] p-3 sm:grid-cols-4">
           <div className="space-y-1">
             <label className="text-[10px] font-medium text-slate-400">Department</label>
-            <Select value={newDept} onValueChange={setNewDept}>
+            <Select value={newDept} onValueChange={(v) => { setNewDept(v); resetMetricForm(); }}>
               <SelectTrigger className="h-8 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="BPO">Outbound Call Centre</SelectItem>
@@ -232,14 +245,28 @@ export function MemberKpiEditor({ staff, me, onChanged }: { staff: { id: string;
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-medium text-slate-400">Metric</label>
-            <Select value={newKey || undefined} onValueChange={setNewKey}>
-              <SelectTrigger className="h-8 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><SelectValue placeholder="Pick a metric" /></SelectTrigger>
-              <SelectContent className="max-h-56">
-                {catalogEntries.map((m) => (
-                  <SelectItem key={m.key} value={m.key}>{m.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <MetricCombobox
+              options={catalogEntries as MetricOption[]}
+              text={newLabel}
+              onSelect={(o) => { setNewLabel(o.label); setNewUnit(o.unit || "count"); }}
+              onText={setNewLabel}
+              placeholder="Pick a metric or type a new one"
+            />
+            {isCustomMetric ? (
+              <div className="space-y-1">
+                <Select value={newUnit} onValueChange={setNewUnit}>
+                  <SelectTrigger className="h-7 border-slate-600/50 bg-[#1b2a3b] text-[11px] text-slate-200"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="count">count</SelectItem>
+                    <SelectItem value="percent">percent</SelectItem>
+                    <SelectItem value="minutes">minutes</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[9px] text-slate-500">New custom metric — key <span className="font-mono">{resolvedKey}</span></p>
+              </div>
+            ) : typedMatch ? (
+              <p className="text-[9px] text-slate-500">key <span className="font-mono">{typedMatch.key}</span></p>
+            ) : null}
           </div>
           <div className="space-y-1">
             <label className="text-[10px] font-medium text-slate-400">Daily target</label>
@@ -247,13 +274,13 @@ export function MemberKpiEditor({ staff, me, onChanged }: { staff: { id: string;
           </div>
           <Button
             className="h-8 bg-[#6c5ce7] text-xs hover:bg-[#5b4bd4]"
-            disabled={!newKey || busy === newKey}
+            disabled={!typedText || busy !== null}
             onClick={() => {
-              const m = catalogEntries.find((x) => x.key === newKey);
-              if (m) save(newDept, m.key, m.label, newTarget, m.unit || "count");
+              if (typedMatch) save(newDept, typedMatch.key, typedMatch.label, newTarget, typedMatch.unit || "count");
+              else if (typedText) save(newDept, resolvedKey, typedText, newTarget, newUnit);
             }}
           >
-            {busy === newKey ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Plus className="mr-1.5 h-3.5 w-3.5" />}
+            {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Plus className="mr-1.5 h-3.5 w-3.5" />}
             Set individual target
           </Button>
         </div>
