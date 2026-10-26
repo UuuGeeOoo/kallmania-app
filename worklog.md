@@ -693,3 +693,18 @@ Work Log:
 
 Stage Summary:
 - The text draft is now a real document: previewable in-app (paper page, same Open-vs-Download split as everywhere else) and downloadable as a clean DOCX — generated on the fly so it works forever after the original file is discarded, with the discarded-status audited inside the document itself
+
+---
+Task ID: 37 (delivery verification addendum)
+Agent: main (Z.ai)
+Task: Confirm Task 37 deliverables are fully shipped — user asked "hope it is updated in supabase"
+
+Work Log:
+- Supabase: prisma db push reports "The database is already in sync with the Prisma schema" (Task 37 added no schema fields; Task 36's fileDiscarded/discardedAt columns were already pushed earlier)
+- Git: remote HEAD = 9abf3e4 ("Text draft export: clean DOCX generated on the fly") = local HEAD; working tree clean
+- Build: draftdocx37 tarball (20:17:49) + platform preview build 1793046018 (20:20:51) both present; newest artifact smoke-tested standalone (bun server.js, port 3100): GET / 200, POST /api/auth login 200
+- draft-export + draft-preview route files confirmed present inside the deployed build tarball
+- Dev server restored and healthy on :3000 (200); smoke server cleaned up
+
+Stage Summary:
+- Task 37 fully delivered and verified end-to-end: code on GitHub, Supabase in sync, preview build smoke-tested, dev environment running — nothing pending
