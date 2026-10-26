@@ -606,3 +606,16 @@ Work Log:
 
 Stage Summary:
 - The Abuja location filter pill (and its country sibling, plus the KPI-panel twins) now grows to fit its value and never overlays the neighbouring date pill; truncation remains as an in-pill safety net only
+
+---
+Task ID: 33-b
+Agent: main (Z.ai)
+Task: Push Task 33 to GitHub (first PAT expired/revoked, user supplied a fresh one)
+
+Work Log:
+- First push attempt failed: previous PAT rejected ("Invalid username or token") — remote stayed at 42aea87
+- New PAT from user: pushed 42aea87..cd54ca2 in one go (token masked in output, never persisted); verified remote HEAD == cd54ca2 == local HEAD
+- Supabase was already confirmed in sync during Task 33 (UI-only change, no schema)
+
+Stage Summary:
+- GitHub fully up to date (cd54ca2) with the Abuja pill fix; all three surfaces (preview pillfit33, Supabase, GitHub) aligned
