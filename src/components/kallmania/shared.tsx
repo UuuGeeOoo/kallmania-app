@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { STATUS_COLORS } from "@/lib/client";
+import { REPORT_SECTION_INVENTORY } from "@/lib/template-config";
 import { type ReactNode, useState } from "react";
 import { CheckCircle2, Hourglass, Undo2, ShieldCheck, Eye, EyeOff, ChevronDown, Plus } from "lucide-react";
 
@@ -190,6 +191,57 @@ export function MetricCombobox({
             <p className="px-3 pb-1.5 text-[10px] text-slate-500">Press the orange row above to use it, or click away to keep typing.</p>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ───────────────────────── Report sections panel ─────────────────────────
+// Shows the full section structure of a department's daily report — the
+// "other sections" beyond the KPI metrics table (agent information, call log
+// summary, challenges, escalations, …) — so admins/supervisors see them inside
+// the KPI Configuration page instead of only in the team-lead template editor.
+
+const DEPT_INVENTORY_KEY: Record<string, string> = {
+  BPO: "AGENT_OUTBOUND",
+  INBOUND: "AGENT_INBOUND",
+  WEB_DEV: "AGENT_TECH",
+  SOCIAL_MEDIA: "AGENT_SOCIAL",
+};
+
+const KIND_BADGE: Record<string, string> = {
+  fields: "bg-sky-500/12 text-sky-300",
+  metrics: "bg-violet-500/15 text-[#b3a5ff]",
+  table: "bg-emerald-500/12 text-emerald-300",
+  textarea: "bg-amber-500/12 text-amber-300",
+};
+
+export function DeptReportSections({ department, compact }: { department: string; compact?: boolean }) {
+  const inv = REPORT_SECTION_INVENTORY.find((r) => r.key === DEPT_INVENTORY_KEY[department]);
+  if (!inv) return null;
+  return (
+    <div>
+      <p className={cn("font-semibold text-slate-300", compact ? "text-[10px] uppercase tracking-wide" : "text-[11px]")}>
+        Other sections in the {inv.label} report
+      </p>
+      <div className={cn("flex flex-wrap gap-1.5", compact ? "mt-1.5" : "mt-2")}>
+        {inv.sections.map((s) => (
+          <span
+            key={s.title}
+            title={`${s.kind === "metrics" ? "KPI rows configurable in the metrics table above" : s.detail}`}
+            className="flex max-w-full items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] text-slate-300"
+          >
+            <span className="truncate">{s.title}</span>
+            <span className={cn("shrink-0 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide", KIND_BADGE[s.kind] || "bg-white/[0.06] text-slate-400")}>
+              {s.kind === "metrics" ? "KPI table" : s.kind}
+            </span>
+          </span>
+        ))}
+      </div>
+      {!compact && (
+        <p className="mt-2 text-[10px] text-slate-500">
+          The KPI table rows (targets, labels, mandatory flags) are configured in the table above — add or remove metrics there. The other sections are fixed parts of the report form the agents fill in every day; the call log rows, challenges and escalations appear exactly like the original report template.
+        </p>
       )}
     </div>
   );

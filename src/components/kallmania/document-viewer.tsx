@@ -24,13 +24,24 @@ interface PreviewPayload {
   mimeType: string;
   sizeBytes: number;
   unsupportedMessage?: string;
+  viaMaster?: boolean;
 }
 
 const KIND_LABEL: Record<string, string> = { pdf: "PDF", image: "Image", text: "Text", docx: "Word document", sheet: "Spreadsheet", unsupported: "File" };
 
 const fileUrl = (id: string) => `/api/uploads/file?id=${encodeURIComponent(id)}`;
 
-export function DocumentViewerModal({ uploadId, name, onClose }: { uploadId: string; name: string; onClose: () => void }) {
+export function DocumentViewerModal({
+  uploadId, name, onClose, previewUrl, downloadHref,
+}: {
+  uploadId?: string;
+  name: string;
+  onClose: () => void;
+  /** Alternate preview endpoint (e.g. generated report: /api/export/preview?id=…). */
+  previewUrl?: string;
+  /** Explicit download action (e.g. /api/export?format=docx&id=…). */
+  downloadHref?: string;
+}) {
   const [data, setData] = useState<PreviewPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +55,8 @@ export function DocumentViewerModal({ uploadId, name, onClose }: { uploadId: str
     setError(null);
     setData(null);
     try {
-      const res = await fetch(`/api/uploads/preview?id=${encodeURIComponent(uploadId)}`);
+      const url = previewUrl || `/api/uploads/preview?id=${encodeURIComponent(uploadId || "")}`;
+      const res = await fetch(url);
       const json = await res.json();
       if (!res.ok || json?.error) throw new Error(json?.error || "The document could not be opened");
       setData(json as PreviewPayload);
@@ -53,7 +65,7 @@ export function DocumentViewerModal({ uploadId, name, onClose }: { uploadId: str
     } finally {
       setLoading(false);
     }
-  }, [uploadId]);
+  }, [uploadId, previewUrl]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -72,7 +84,15 @@ export function DocumentViewerModal({ uploadId, name, onClose }: { uploadId: str
     }
   };
 
-  const download = () => { window.location.href = `${fileUrl(uploadId)}&download=1`; };
+  const download = () => {
+    if (downloadHref) window.location.href = downloadHref;
+    else window.location.href = `${fileUrl(uploadId || "")}&download=1`;
+  };
+  const openNewTab = () => {
+    if (uploadId) window.open(fileUrl(uploadId), "_blank");
+    else if (downloadHref) window.open(downloadHref, "_blank");
+  };
+  const fileSrc = uploadId ? fileUrl(uploadId) : "";
   const ext = (name.split(".").pop() || "").toUpperCase();
   const kind = data?.kind;
 
@@ -86,6 +106,7 @@ export function DocumentViewerModal({ uploadId, name, onClose }: { uploadId: str
             <p className="truncate text-sm font-semibold text-white">{name}</p>
             <p className="text-[11px] text-slate-500">
               {kind ? KIND_LABEL[kind] : "Document"} · {ext || "?"} · {data ? `${(data.sizeBytes / 1024).toFixed(0)} KB` : ""}
+              {data?.viaMaster && <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300">original template design</span>}
             </p>
           </div>
           {kind === "image" && (
@@ -99,7 +120,7 @@ export function DocumentViewerModal({ uploadId, name, onClose }: { uploadId: str
           <Button size="sm" variant="ghost" className="h-8 text-[11px] text-slate-300" onClick={toggleFullscreen} title={fullscreen ? "Exit full screen" : "Full screen"}>
             {fullscreen ? <Minimize2 className="mr-1.5 h-3.5 w-3.5" /> : <Maximize2 className="mr-1.5 h-3.5 w-3.5" />} {fullscreen ? "Exit" : "Full screen"}
           </Button>
-          <Button size="sm" variant="ghost" className="h-8 text-[11px] text-slate-300" onClick={() => window.open(fileUrl(uploadId), "_blank")} title="Open in a new browser tab">
+          <Button size="sm" variant="ghost" className="h-8 text-[11px] text-slate-300" onClick={openNewTab} title="Open in a new browser tab">
             <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> New tab
           </Button>
           <Button size="sm" variant="outline" className="h-8 border-[#8b7ff5]/40 text-[11px] text-[#b3a5ff]" onClick={download} title="Download the original file to your device">
@@ -129,12 +150,12 @@ export function DocumentViewerModal({ uploadId, name, onClose }: { uploadId: str
           {!loading && !error && data && (
             <>
               {kind === "pdf" && (
-                <iframe src={fileUrl(uploadId)} title={name} className="h-full min-h-[60vh] w-full border-0 bg-white" />
+                <iframe src={fileSrc} title={name} className="h-full min-h-[60vh] w-full border-0 bg-white" />
               )}
               {kind === "image" && (
                 <div className="flex min-h-full items-center justify-center p-4">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={fileUrl(uploadId)} alt={name} style={{ transform: `scale(${zoom})` }} className="max-h-none max-w-full origin-center transition-transform" />
+                  <img src={fileSrc} alt={name} style={{ transform: `scale(${zoom})` }} className="max-h-none max-w-full origin-center transition-transform" />
                 </div>
               )}
               {kind === "text" && (

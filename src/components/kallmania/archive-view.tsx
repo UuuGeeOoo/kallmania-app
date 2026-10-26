@@ -7,8 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { api, fmtDate, fmtDateTime, REPORT_TYPE_LABELS, DEPT_LABELS, type ReportDTO, type SessionUser } from "@/lib/client";
 import { PageHeader, EmptyState, StatusBadge } from "@/components/kallmania/shared";
 import { ReportDetailDialog } from "@/components/kallmania/reports-view";
+import { DocumentViewerModal } from "@/components/kallmania/document-viewer";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Eye, Loader2, FileDown, FileSpreadsheet, FileText, Archive, DatabaseZap } from "lucide-react";
+import { Eye, Loader2, FileDown, FileSpreadsheet, FileText, Archive, DatabaseZap, BookOpen } from "lucide-react";
 
 /**
  * Reports Archive — every submitted report is stored online (server database +
@@ -29,6 +30,7 @@ export default function ReportsArchiveView({ user }: { user: SessionUser }) {
   const [status, setStatus] = useState("ALL");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [docPreview, setDocPreview] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     api<{ reports: ReportDTO[] }>("/api/reports")
@@ -149,6 +151,9 @@ export default function ReportsArchiveView({ user }: { user: SessionUser }) {
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-slate-100" onClick={() => setSelected(r)} title="View full report">
                         <Eye className="h-3.5 w-3.5" />
                       </Button>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-teal-300" onClick={() => setDocPreview({ id: r.id, name: `${r.ref}.docx` })} title="Preview the generated report document (original template design)">
+                        <BookOpen className="h-3.5 w-3.5" />
+                      </Button>
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-[#8b7ff5]" onClick={() => download(r.id, "docx")} title="Download Word">
                         <FileText className="h-3.5 w-3.5" />
                       </Button>
@@ -168,6 +173,14 @@ export default function ReportsArchiveView({ user }: { user: SessionUser }) {
       )}
 
       <ReportDetailDialog report={selected} open={!!selected} onClose={() => setSelected(null)} />
+      {docPreview && (
+        <DocumentViewerModal
+          name={docPreview.name}
+          previewUrl={`/api/export/preview?id=${docPreview.id}`}
+          downloadHref={`/api/export?format=docx&id=${docPreview.id}`}
+          onClose={() => setDocPreview(null)}
+        />
+      )}
     </div>
   );
 }

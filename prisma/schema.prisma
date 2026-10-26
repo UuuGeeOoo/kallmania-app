@@ -175,6 +175,24 @@ model ReportTemplate {
   updatedAt   DateTime @updatedAt
 }
 
+// Master report templates — the ORIGINAL uploaded Word documents that serve as
+// the design foundation for generated/downloaded reports. One active master per
+// report type (AGENT_BPO | SUPERVISOR | TECH | SOCIAL | TEAM_LEAD). Generating a
+// report fills a COPY of the master; the master file itself is never modified.
+model ReportMasterTemplate {
+  id            String   @id @default(cuid())
+  reportType    String   @unique
+  storedName    String   // file inside uploads-storage/
+  originalName  String
+  mimeType      String   @default("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+  sizeBytes     Int
+  fileHash      String   // sha256 of the master — proves the master is untouched
+  updatedById   String?
+  updatedByName String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 model Task {
   id          String   @id @default(cuid())
   title       String

@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, isSupervisorLike } from "@/lib/auth";
 import { handle, fail, safeParse } from "@/lib/api-utils";
-import { buildAgentDocx, buildSupervisorDocx, buildGenericDocx, buildSocialDocx, buildTeamLeadDocx } from "@/lib/word-export";
+import { generateReportDocx } from "@/lib/report-docx";
 import { TECH_SUMMARY_METRICS, SOCIAL_SUMMARY_METRICS } from "@/lib/template-config";
 import { audit } from "@/lib/notify";
 
@@ -97,78 +97,10 @@ export async function GET(req: NextRequest) {
     if (!report) return fail("Report id is required");
 
     if (format === "docx") {
-      let buf: Buffer;
-      let filename: string;
-      if (report.type === "AGENT_BPO") {
-        buf = await buildAgentDocx(report as never);
-        filename = `Daily_Report_${report.user.fullName.replace(/\s+/g, "_")}_${new Date(report.reportDate).toISOString().slice(0, 10)}.docx`;
-      } else if (report.type === "SUPERVISOR") {
-        buf = await buildSupervisorDocx(report as never);
-        filename = `Supervisor_Daily_Report_${new Date(report.reportDate).toISOString().slice(0, 10)}.docx`;
-      } else if (report.type === "TEAM_LEAD") {
-        // render from the currently configured Team Lead template (falls back to the shipped default)
-        const tplRow = await db.reportTemplate.findUnique({ where: { key: "TEAM_LEAD" } });
-        let definition = null;
-        if (tplRow) { try { definition = JSON.parse(tplRow.definition); } catch {} }
-        buf = await buildTeamLeadDocx({
-          reportDate: report.reportDate,
-          userName: report.user.fullName,
-          employeeId: report.user.employeeId,
-          department: report.department,
-          teamName: report.teamName,
-          payload: report.payload,
-          status: report.status,
-          sourceType: report.sourceType,
-          verificationStatus: report.verificationStatus,
-          supervisorFeedback: report.supervisorFeedback,
-          reviewerName: report.reviewer?.fullName || null,
-          definition,
-        });
-        filename = `Team_Lead_Daily_Report_${report.user.fullName.replace(/\s+/g, "_")}_${new Date(report.reportDate).toISOString().slice(0, 10)}.docx`;
-      } else if (report.type === "SOCIAL") {
-        buf = await buildSocialDocx({
-          reportDate: report.reportDate,
-          userName: report.user.fullName,
-          department: report.department,
-          teamName: report.teamName,
-          shiftTime: report.shiftTime,
-          clockIn: report.clockIn,
-          clockOut: report.clockOut,
-          attendanceStatus: report.attendanceStatus,
-          latenessMins: report.latenessMins,
-          kpiMetrics: report.kpiMetrics,
-          workEntries: report.workEntries,
-          challenges: report.challenges,
-          escalations: report.escalations,
-          supervisorFeedback: report.supervisorFeedback,
-          reviewerName: report.reviewer?.fullName || null,
-          status: report.status,
-        });
-        filename = `Daily_Report_Social_Media_${report.user.fullName.replace(/\s+/g, "_")}_${new Date(report.reportDate).toISOString().slice(0, 10)}.docx`;
-      } else {
-        const title = report.type === "TECH" ? "DAILY REPORT — WEB DEVELOPMENT & TECHNICAL TEAM" : "DAILY REPORT — SOCIAL MEDIA TEAM";
-        buf = await buildGenericDocx({
-          title,
-          reportDate: report.reportDate,
-          userName: report.user.fullName,
-          employeeId: report.user.employeeId,
-          department: report.department,
-          shiftTime: report.shiftTime,
-          attendanceStatus: report.attendanceStatus,
-          workEntries: report.workEntries,
-          metricsSummary: report.metricsSummary,
-          metricLabels: report.type === "TECH" ? TECH_SUMMARY_METRICS : SOCIAL_SUMMARY_METRICS,
-          challenges: report.challenges,
-          escalations: report.escalations,
-          additionalActivities: report.additionalActivities,
-          status: report.status,
-          sourceType: report.sourceType,
-          verificationStatus: report.verificationStatus,
-          supervisorFeedback: report.supervisorFeedback,
-        });
-        filename = `Daily_Report_${report.user.fullName.replace(/\s+/g, "_")}_${new Date(report.reportDate).toISOString().slice(0, 10)}.docx`;
-      }
-      await audit({ userId: me.id, actorName: me.fullName, action: "EXPORT_REPORT", entity: "Report", entityId: report.id, details: `${report.ref} docx` });
+      // Template-preserving generation first (fills a copy of the original
+      // uploaded master document); falls back to the built-in builders.
+      const { buffer: buf, filename, viaMaster } = await generateReportDocx(report);
+      await audit({ userId: me.id, actorName: me.fullName, action: "EXPORT_REPORT", entity: "Report", entityId: report.id, details: `${report.ref} docx${viaMaster ? " (original master template)" : " (built-in builder)"}` });
       return new Response(new Uint8Array(buf), {
         headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Content-Disposition": `attachment; filename="${filename}"` },
       });

@@ -7,8 +7,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, fmtDate, fmtDateTime, REPORT_TYPE_LABELS, DEPT_LABELS, type ReportDTO, type KpiMetric, type SessionUser } from "@/lib/client";
 import { PageHeader, EmptyState, StatusBadge, SectionCard, inputCls } from "@/components/kallmania/shared";
+import { DocumentViewerModal } from "@/components/kallmania/document-viewer";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Eye, Loader2, CheckCircle2, Undo2, FileDown, FileSpreadsheet, FileText, ClipboardCheck } from "lucide-react";
+import { Eye, Loader2, CheckCircle2, Undo2, FileDown, FileSpreadsheet, FileText, ClipboardCheck, BookOpen } from "lucide-react";
 
 function parseKpis(r: ReportDTO): KpiMetric[] {
   try { return r.kpiMetrics ? JSON.parse(r.kpiMetrics) : []; } catch { return []; }
@@ -217,6 +218,8 @@ export function MyReportsView({ user }: { user: SessionUser }) {
     api<{ reports: ReportDTO[] }>("/api/reports?mine=1").then(({ reports }) => setReports(reports)).finally(() => setLoading(false));
   }, []);
 
+  const [docPreview, setDocPreview] = useState<{ id: string; name: string } | null>(null);
+
   const download = (id: string, format: string) => {
     window.open(`/api/export?format=${format}&id=${id}`, "_blank");
   };
@@ -252,7 +255,8 @@ export function MyReportsView({ user }: { user: SessionUser }) {
                   <TableCell className="py-2.5">
                     <div className="flex items-center gap-1">
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-slate-100" onClick={() => setSelected(r)} title="View"><Eye className="h-3.5 w-3.5" /></Button>
-                      <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-[#8b7ff5]" onClick={() => download(r.id, "docx")} title="Export Word"><FileText className="h-3.5 w-3.5" /></Button>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-teal-300" onClick={() => setDocPreview({ id: r.id, name: `${r.ref}.docx` })} title="Preview the generated report document (original template design)"><BookOpen className="h-3.5 w-3.5" /></Button>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-[#8b7ff5]" onClick={() => download(r.id, "docx")} title="Download Word"><FileText className="h-3.5 w-3.5" /></Button>
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-emerald-300" onClick={() => download(r.id, "xlsx")} title="Export Excel"><FileSpreadsheet className="h-3.5 w-3.5" /></Button>
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-amber-300" onClick={() => download(r.id, "csv")} title="Export CSV"><FileDown className="h-3.5 w-3.5" /></Button>
                     </div>
@@ -264,6 +268,14 @@ export function MyReportsView({ user }: { user: SessionUser }) {
         </div>
       )}
       <ReportDetailDialog report={selected} open={!!selected} onClose={() => setSelected(null)} />
+      {docPreview && (
+        <DocumentViewerModal
+          name={docPreview.name}
+          previewUrl={`/api/export/preview?id=${docPreview.id}`}
+          downloadHref={`/api/export?format=docx&id=${docPreview.id}`}
+          onClose={() => setDocPreview(null)}
+        />
+      )}
     </div>
   );
 }
@@ -277,6 +289,7 @@ export function ReviewView({ user, focusReportId }: { user: SessionUser; focusRe
   const [feedback, setFeedback] = useState("");
   const [working, setWorking] = useState(false);
   const [statusFilter, setStatusFilter] = useState("SUBMITTED");
+  const [docPreview, setDocPreview] = useState<{ id: string; name: string } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -346,6 +359,9 @@ export function ReviewView({ user, focusReportId }: { user: SessionUser; focusRe
                     <FileText className="mr-1 h-3.5 w-3.5" /> Source doc
                   </Button>
                 )}
+                <Button size="sm" variant="outline" className="border-slate-600 text-xs text-slate-300 hover:bg-white/10" onClick={() => setDocPreview({ id: r.id, name: `${r.ref}.docx` })}>
+                  <BookOpen className="mr-1 h-3.5 w-3.5" /> Preview document
+                </Button>
                 <Button size="sm" variant="outline" className="border-slate-600 text-xs text-slate-300 hover:bg-white/10" onClick={() => setSelected(r)}>
                   <Eye className="mr-1 h-3.5 w-3.5" /> Inspect
                 </Button>
@@ -372,6 +388,9 @@ export function ReviewView({ user, focusReportId }: { user: SessionUser; focusRe
               <ReportSummary report={selected} />
               <div className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 p-3">
                 <p className="mr-auto text-xs font-semibold text-slate-300">Download this report (stored online)</p>
+                <Button size="sm" variant="outline" className="border-slate-600 text-xs text-slate-300" onClick={() => setDocPreview({ id: selected.id, name: `${selected.ref}.docx` })}>
+                  <BookOpen className="mr-1 h-3.5 w-3.5" /> Preview document
+                </Button>
                 <Button size="sm" variant="outline" className="border-slate-600 text-xs text-slate-300" onClick={() => download(selected.id, "docx")}>
                   <FileText className="mr-1 h-3.5 w-3.5" /> Word
                 </Button>
@@ -410,6 +429,14 @@ export function ReviewView({ user, focusReportId }: { user: SessionUser; focusRe
           )}
         </DialogContent>
       </Dialog>
+      {docPreview && (
+        <DocumentViewerModal
+          name={docPreview.name}
+          previewUrl={`/api/export/preview?id=${docPreview.id}`}
+          downloadHref={`/api/export?format=docx&id=${docPreview.id}`}
+          onClose={() => setDocPreview(null)}
+        />
+      )}
     </div>
   );
 }

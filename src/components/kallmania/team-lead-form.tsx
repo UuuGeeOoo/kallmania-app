@@ -348,6 +348,144 @@ export default function TeamLeadReportForm({ user, date, onDone }: { user: Sessi
   );
 }
 
+/** ───────────────────────── MASTER REPORT TEMPLATES (Word) ───────────────────────── */
+
+interface MasterTemplateRow {
+  reportType: string;
+  label: string;
+  originalName: string | null;
+  sizeBytes: number | null;
+  fileHash: string | null;
+  updatedByName: string | null;
+  updatedAt: string | null;
+  isBundled: boolean;
+}
+
+/**
+ * Shows the ORIGINAL uploaded Word document backing each report type —
+ * generated & downloaded reports are filled into a copy of it, so the original
+ * design (logos, fonts, colours, tables, headers/footers, margins) is kept.
+ * Administrators can replace a master; supervisors can download it.
+ */
+export function MasterTemplatesCard() {
+  const [masters, setMasters] = useState<MasterTemplateRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [replaceType, setReplaceType] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const { masters } = await api<{ masters: MasterTemplateRow[] }>("/api/report-templates/master");
+      setMasters(masters);
+    } catch {
+      setMasters([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    api<{ user: { role: string } | null }>("/api/auth").then(({ user }) => setIsAdmin(user?.role === "ADMIN")).catch(() => {});
+  }, []);
+
+  const pickFile = (reportType: string) => {
+    setReplaceType(reportType);
+    setMessage(null); setError(null);
+    fileRef.current?.click();
+  };
+
+  const upload = async (file: File) => {
+    if (!replaceType) return;
+    setBusy(replaceType);
+    try {
+      const form = new FormData();
+      form.append("reportType", replaceType);
+      form.append("file", file);
+      const res = await fetch("/api/report-templates/master", { method: "POST", body: form });
+      const json = await res.json();
+      if (!res.ok || json?.error) throw new Error(json?.error || "Upload failed");
+      setMasters(json.masters);
+      setMessage(`Master template replaced — new ${replaceType.replace(/_/g, " ")} reports will use “${file.name}” as their design foundation. Previously generated reports stay unchanged.`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+      setReplaceType(null);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  return (
+    <SectionCard
+      title="Master report templates (Word)"
+      subtitle="The original SBTS documents every generated report is filled into — a copy is edited, the master is never modified"
+    >
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".docx"
+        className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }}
+      />
+      {message && <div className="mb-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">{message}</div>}
+      {error && <div className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</div>}
+      {loading ? (
+        <div className="flex justify-center py-6 text-slate-400"><Loader2 className="h-5 w-5 animate-spin" /></div>
+      ) : (
+        <div className="space-y-2">
+          {masters.map((m) => (
+            <div key={m.reportType} className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-200">
+                  {m.label}
+                  {m.originalName ? (
+                    <span className="rounded bg-emerald-500/12 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300">design foundation</span>
+                  ) : (
+                    <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-500">built-in generator</span>
+                  )}
+                </p>
+                <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                  {m.originalName
+                    ? `${m.originalName}${m.sizeBytes ? ` · ${(m.sizeBytes / 1024).toFixed(0)} KB` : ""}${m.updatedByName ? ` · updated by ${m.updatedByName}` : ""}${m.fileHash ? ` · sha256 ${m.fileHash.slice(0, 8)}` : ""}`
+                    : "No Word master — team-lead reports use the dynamic in-app template"}
+                </p>
+              </div>
+              {m.originalName && (
+                <Button
+                  size="sm" variant="ghost" className="h-7 text-[11px] text-slate-300"
+                  title="Download the current master template"
+                  onClick={() => window.location.href = `/api/report-templates/master/file?reportType=${m.reportType}`}
+                >
+                  <Save className="mr-1 h-3 w-3" /> Download
+                </Button>
+              )}
+              {isAdmin && (
+                <Button
+                  size="sm" variant="outline"
+                  className="h-7 border-[#8b7ff5]/40 text-[11px] text-[#b3a5ff]"
+                  disabled={busy === m.reportType}
+                  title="Replace this master with an uploaded .docx — new reports adopt its design"
+                  onClick={() => pickFile(m.reportType)}
+                >
+                  {busy === m.reportType ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Plus className="mr-1 h-3 w-3" />}
+                  Replace
+                </Button>
+              )}
+            </div>
+          ))}
+          <p className="text-[10px] text-slate-600">
+            Report generation copies the master, inserts the validated report data into the existing sections and table cells, and never touches the master file — its sha256 fingerprint is stored so the original can always be verified.
+          </p>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
 /** ───────────────────────── TEMPLATE EDITOR (admin & supervisor) ───────────────────────── */
 export function TeamLeadTemplateEditor() {
   // One editor for every team's template — pick the team, edit its format.
@@ -432,6 +570,7 @@ export function TeamLeadTemplateEditor() {
 
   return (
     <div className="space-y-5">
+      <MasterTemplatesCard />
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="flex items-center gap-2 text-lg font-bold text-white"><FileCog className="h-5 w-5 text-[#8b7ff5]" /> Report Templates &amp; Sections</h2>

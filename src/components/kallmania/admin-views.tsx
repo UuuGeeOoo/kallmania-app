@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { api, fmtDate, fmtDateTime, ROLE_LABELS, DEPT_LABELS, TEAM_LABELS, type UserDTO, type NotificationDTO, type SessionUser } from "@/lib/client";
-import { PageHeader, EmptyState, StatusBadge, SectionCard, Field, inputCls, MetricCombobox, type MetricOption } from "@/components/kallmania/shared";
+import { PageHeader, EmptyState, StatusBadge, SectionCard, Field, inputCls, MetricCombobox, DeptReportSections, type MetricOption } from "@/components/kallmania/shared";
 import { EMPLOYMENT_LABELS, WORKDAY_SHORT, FULL_TIME_DEFAULT, formatWorkDays, shiftHours, includesWeekend, weeklyHours, type EmploymentType } from "@/lib/schedule";
 import { UserKpiDialog } from "@/components/kallmania/user-kpi-dialog";
 import { MemberKpiConfigCard } from "@/components/kallmania/member-kpi-editor";
@@ -683,6 +683,11 @@ export function KpiConfigView({ user }: { user: SessionUser }) {
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Settings2 className="mr-2 h-4 w-4" />}
               {centreSelected ? "Add for this centre" : "Add metric"}
             </Button>
+          </div>
+
+          {/* The other report sections (beyond the KPI metrics table) — full report structure visibility */}
+          <div className="mt-4 border-t border-white/10 pt-4">
+            <DeptReportSections department={deptFilter} />
           </div>
         </SectionCard>
       )}

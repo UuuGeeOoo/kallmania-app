@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, ROLE_LABELS, type UserDTO } from "@/lib/client";
-import { EmptyState, MetricCombobox, type MetricOption } from "@/components/kallmania/shared";
+import { EmptyState, MetricCombobox, DeptReportSections, type MetricOption } from "@/components/kallmania/shared";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Target, Trash2, Check, X, Plus, Clock4 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -285,6 +285,11 @@ export function MemberKpiEditor({ staff, me, onChanged }: { staff: { id: string;
           </Button>
         </div>
       )}
+
+      {/* Other report sections for this member's department — full structure visibility */}
+      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+        <DeptReportSections department={newDept} compact />
+      </div>
     </div>
   );
 }
