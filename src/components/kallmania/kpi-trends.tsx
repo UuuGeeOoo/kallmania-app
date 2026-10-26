@@ -138,14 +138,14 @@ export default function PeriodKpiPanel({ role, userRole }: { role: string; userR
           {isAdmin && (
             <>
               <Select value={country || undefined} onValueChange={(v) => { setCountry(v === "__all__" ? "" : v); setState(""); }}>
-                <SelectTrigger className="h-8 w-40 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><Globe2 className="mr-2 h-3.5 w-3.5 text-[#eda06a]" />{country ? allCountries.find((c) => c.isoCode === country)?.name : "All countries"}</SelectTrigger>
+                <SelectTrigger className="h-8 w-auto min-w-36 max-w-72 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><Globe2 className="mr-2 h-3.5 w-3.5 shrink-0 text-[#eda06a]" /><span className="truncate">{country ? allCountries.find((c) => c.isoCode === country)?.name : "All countries"}</span></SelectTrigger>
                 <SelectContent className="max-h-64">
                   <SelectItem value="__all__">All countries</SelectItem>
                   {allCountries.map((c) => <SelectItem key={c.isoCode} value={c.isoCode}>{c.name}</SelectItem>)}
                 </SelectContent>
               </Select>
               <Select value={state || undefined} onValueChange={(v) => setState(v === "__all__" ? "" : v)} disabled={!country}>
-                <SelectTrigger className="h-8 w-36 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><MapPin className="mr-2 h-3.5 w-3.5 text-[#eda06a]" />{state || "All states"}</SelectTrigger>
+                <SelectTrigger className="h-8 w-auto min-w-36 max-w-72 border-slate-600/50 bg-[#1b2a3b] text-xs text-slate-200"><MapPin className="mr-2 h-3.5 w-3.5 shrink-0 text-[#eda06a]" /><span className="truncate">{state || "All states"}</span></SelectTrigger>
                 <SelectContent className="max-h-64">
                   <SelectItem value="__all__">All states</SelectItem>
                   {(country ? State.getStatesOfCountry(country) : []).map((s) => <SelectItem key={s.isoCode} value={s.name}>{s.name}</SelectItem>)}

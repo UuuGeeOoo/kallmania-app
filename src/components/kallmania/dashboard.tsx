@@ -98,14 +98,14 @@ export default function Dashboard({ user, onNavigate }: { user: SessionUser; onN
             {user.role === "ADMIN" && (
               <>
                 <Select value={country || undefined} onValueChange={(v) => { setCountry(v === "__all__" ? "" : v); setState(""); }}>
-                  <SelectTrigger className="w-44 border-white/12 bg-white/[0.055] text-xs text-slate-200 backdrop-blur"><Globe2 className="mr-2 h-3.5 w-3.5 text-[#eda06a]" />{country ? allCountries.find((c) => c.isoCode === country)?.name : "All countries"}</SelectTrigger>
+                  <SelectTrigger className="w-auto min-w-40 max-w-72 border-white/12 bg-white/[0.055] text-xs text-slate-200 backdrop-blur"><Globe2 className="mr-2 h-3.5 w-3.5 shrink-0 text-[#eda06a]" /><span className="truncate">{country ? allCountries.find((c) => c.isoCode === country)?.name : "All countries"}</span></SelectTrigger>
                   <SelectContent className="max-h-64">
                     <SelectItem value="__all__">All countries</SelectItem>
                     {allCountries.map((c) => <SelectItem key={c.isoCode} value={c.isoCode}>{c.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={state || undefined} onValueChange={(v) => setState(v === "__all__" ? "" : v)} disabled={!country}>
-                  <SelectTrigger className="w-40 border-white/12 bg-white/[0.055] text-xs text-slate-200 backdrop-blur"><MapPin className="mr-2 h-3.5 w-3.5 text-[#eda06a]" />{state || "All states"}</SelectTrigger>
+                  <SelectTrigger className="w-auto min-w-40 max-w-72 border-white/12 bg-white/[0.055] text-xs text-slate-200 backdrop-blur"><MapPin className="mr-2 h-3.5 w-3.5 shrink-0 text-[#eda06a]" /><span className="truncate">{state || "All states"}</span></SelectTrigger>
                   <SelectContent className="max-h-64">
                     <SelectItem value="__all__">All states</SelectItem>
                     {(country ? State.getStatesOfCountry(country) : []).map((s) => <SelectItem key={s.isoCode} value={s.name}>{s.name}</SelectItem>)}

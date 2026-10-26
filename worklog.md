@@ -592,3 +592,17 @@ Work Log:
 
 Stage Summary:
 - Login page is clean of em dashes everywhere and of asterisks on Email/Password, with all sentence rewrites reading naturally; register-mode required markers untouched
+
+---
+Task ID: 33
+Agent: main (Z.ai)
+Task: "for the Abuja, make it to sit within the bar as it tends to overlay" — location pill overflowing its capsule in the header filters
+
+Work Log:
+- Root cause: the admin dashboard's country/state filter SelectTriggers used fixed widths (w-44/w-40) while the country-state-city library names Nigeria's FCT exactly "Abuja Federal Capital Territory" (~240px at text-xs + icon + chevron). whitespace-nowrap + fixed width made the text spill past the pill border and the neighbouring date pill painted over it (the "overlay" in the user's screenshot); the chevron was pushed out of the pill entirely. Orange border in the screenshot = theme focus ring (--ring: #d97a35)
+- Fix (dashboard.tsx header): country + state pills now auto-size to content — w-auto min-w-40 max-w-72, icons shrink-0, value wrapped in a truncate span (safety net so extreme names ellipsize INSIDE the pill instead of spilling)
+- Same fix applied to the identical filter pair inside the embedded KPI panel (kpi-trends.tsx, denser h-8 row: w-auto min-w-36 max-w-72) — the Abuja value appears there too
+- Verified in browser (admin, dev :3000): selected Nigeria → Abuja Federal Capital Territory in both filter sets; both pills measure 264px with fullTextShown=true (scrollWidth<=clientWidth), chevron back inside, 8px clean gap to the date picker, overlap=false; screenshots confirm the full name sits within the capsule in the header bar and the Performance panel; zero page errors; tsc clean for touched files
+
+Stage Summary:
+- The Abuja location filter pill (and its country sibling, plus the KPI-panel twins) now grows to fit its value and never overlays the neighbouring date pill; truncation remains as an in-pill safety net only
