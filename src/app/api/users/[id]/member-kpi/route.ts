@@ -23,8 +23,11 @@ import { AGENT_KPI_DEFS, TECH_SUMMARY_METRICS, SOCIAL_SUMMARY_METRICS } from "@/
  */
 
 function catalog() {
+  // BPO and inbound agents fill the same KPI table (inbound only makes rows optional)
+  const bpoDefs = AGENT_KPI_DEFS.map((d) => ({ key: d.key, label: d.label, category: d.category, unit: d.unit }));
   return {
-    BPO: AGENT_KPI_DEFS.map((d) => ({ key: d.key, label: d.label, category: d.category, unit: d.unit })),
+    BPO: bpoDefs,
+    INBOUND: bpoDefs,
     WEB_DEV: TECH_SUMMARY_METRICS,
     SOCIAL_MEDIA: SOCIAL_SUMMARY_METRICS,
   };

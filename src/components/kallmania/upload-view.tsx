@@ -8,8 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Progress } from "@/components/ui/progress";
 import { api, fmtDateTime, type ExtractedField, type KpiMetric, type SessionUser, type UploadDTO } from "@/lib/client";
 import { SectionCard, Field, inputCls, StatusBadge, EmptyState } from "@/components/kallmania/shared";
+import { DocumentViewerModal } from "@/components/kallmania/document-viewer";
 import { KpiTable } from "@/components/kallmania/report-forms";
-import { Upload as UploadIcon, FileUp, ScanSearch, CheckCircle2, AlertTriangle, XCircle, Loader2, FileText, ShieldAlert, Send, Save } from "lucide-react";
+import { Upload as UploadIcon, FileUp, ScanSearch, CheckCircle2, AlertTriangle, XCircle, Loader2, FileText, ShieldAlert, Send, Save, Eye } from "lucide-react";
 
 const SUPPORTED = "PDF, DOCX, XLSX, CSV, TXT, PNG, JPEG up to 15 MB";
 
@@ -36,6 +37,8 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
   const [additional, setAdditional] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [confirmed, setConfirmed] = useState<{ ref: string; submitted: boolean } | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [uploadedName, setUploadedName] = useState<string | null>(null);
 
   const reset = () => {
     setFile(null); setUploadId(null); setExtraction(null); setMetrics([]); setSections({}); setAdditional(""); setConfirmed(null); setError(null);
@@ -53,6 +56,7 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
       if (campaign) fd.append("campaign", campaign);
       const { upload } = await api<{ upload: UploadDTO }>("/api/uploads", { method: "POST", body: fd });
       setUploadId(upload.id);
+      setUploadedName(file.name);
       await runExtraction(upload.id);
     } catch (e) {
       setError((e as Error).message);
@@ -82,7 +86,7 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
           notes: found?.needsReview ? "Extracted — please verify" : "",
         };
       });
-      setMetrics(seeded);
+      setMetrics(seeded as KpiMetric[]);
       setSections(ext.sections || {});
       setAdditional(ext.sections?.additionalActivities || "");
     } catch (e) {
@@ -158,7 +162,14 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
         </button>
 
         <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
-          {uploadId && !confirmed && <Button variant="ghost" size="sm" onClick={reset} className="text-slate-400">Start over</Button>}
+          {uploadId && !confirmed && (
+            <>
+              <Button variant="ghost" size="sm" onClick={reset} className="text-slate-400">Start over</Button>
+              <Button variant="outline" size="sm" onClick={() => setPreviewing(true)} className="border-[#8b7ff5]/40 text-[#b3a5ff]">
+                <Eye className="mr-1.5 h-4 w-4" /> Preview document
+              </Button>
+            </>
+          )}
           <Button onClick={doUpload} disabled={!file || uploading || extracting} className="bg-[#6c5ce7] hover:bg-[#5b4bd4]">
             {uploading || extracting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ScanSearch className="mr-2 h-4 w-4" />}
             {uploading ? "Uploading…" : extracting ? "Extracting fields…" : "Upload & Extract"}
@@ -242,6 +253,7 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
           </SectionCard>
         </>
       )}
+      {previewing && uploadId && <DocumentViewerModal uploadId={uploadId} name={uploadedName || "document"} onClose={() => setPreviewing(false)} />}
     </div>
   );
 }

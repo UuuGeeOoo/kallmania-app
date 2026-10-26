@@ -11,12 +11,13 @@ import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner } from "@/
 import { cn } from "@/lib/utils";
 import {
   Save, Send, Loader2, Plus, Trash2, FileCog, RotateCcw, GripVertical, LayoutTemplate,
-  PencilLine, Eye, ArrowUp, ArrowDown, Settings2, ListPlus, CalendarClock,
+  PencilLine, Eye, ArrowUp, ArrowDown, Settings2, ListPlus, CalendarClock, ChevronDown, Lock, Target,
 } from "lucide-react";
 import {
   TEAM_LEAD_TEMPLATE_KEY, TEAM_LEAD_TEMPLATES, defaultTeamLeadTemplate, teamTemplateMeta, tlTemplateKeyFor, tlVariance,
   type TlDefinition, type TlSection, type TlSectionValue, type TlTemplateKey,
 } from "@/lib/team-lead-template";
+import { REPORT_SECTION_INVENTORY, type SectionInventoryItem } from "@/lib/template-config";
 
 interface TemplateResponse {
   template: { key: string; name: string; description?: string | null; definition: TlDefinition };
@@ -360,6 +361,8 @@ export function TeamLeadTemplateEditor() {
   const [name, setName] = useState("");
   const [def, setDef] = useState<TlDefinition | null>(null);
   const [preview, setPreview] = useState(false);
+  const [showInventory, setShowInventory] = useState(false);
+  const [invReport, setInvReport] = useState(REPORT_SECTION_INVENTORY[0].key);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -431,9 +434,9 @@ export function TeamLeadTemplateEditor() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="flex items-center gap-2 text-lg font-bold text-white"><FileCog className="h-5 w-5 text-[#8b7ff5]" /> Team Lead Report Templates</h2>
+          <h2 className="flex items-center gap-2 text-lg font-bold text-white"><FileCog className="h-5 w-5 text-[#8b7ff5]" /> Report Templates &amp; Sections</h2>
           <p className="mt-0.5 text-xs text-slate-400">
-            Pick a team and design the daily report its team lead fills in — outbound, inbound, social media and web &amp; technical leads each get their own format{isCustom ? " · custom format in effect" : " · shipped default format"}.
+            Pick a team and design the daily report its team lead fills in, or browse the full section structure of every report type in the app{isCustom ? " · custom format in effect" : " · shipped default format"}.
           </p>
         </div>
         <Select value={tplKey} onValueChange={(v) => { setMessage(null); setError(null); setPreview(false); setTplKey(v as TlTemplateKey); }}>
@@ -629,6 +632,67 @@ export function TeamLeadTemplateEditor() {
           </Button>
         </>
       )}
+
+      {/* Full report section inventory — every report type in the app */}
+      <div className="rounded-xl border border-white/10 bg-white/[0.02]">
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 px-4 py-3 text-left"
+          onClick={() => setShowInventory(!showInventory)}
+        >
+          <LayoutTemplate className="h-4 w-4 shrink-0 text-[#eda06a]" />
+          <span className="text-sm font-semibold text-slate-100">All report sections in the app</span>
+          <span className="text-[11px] text-slate-500">— the complete structure of every report type, including the built-in agent &amp; supervisor forms</span>
+          <ChevronDown className={cn("ml-auto h-4 w-4 shrink-0 text-slate-400 transition-transform", showInventory && "rotate-180")} />
+        </button>
+        {showInventory && (
+          <div className="space-y-4 border-t border-white/10 px-4 py-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {REPORT_SECTION_INVENTORY.map((r) => (
+                <button
+                  key={r.key}
+                  type="button"
+                  onClick={() => setInvReport(r.key)}
+                  className={cn(
+                    "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                    invReport === r.key ? "border-[#8b7ff5] bg-[#6c5ce7]/20 text-white" : "border-white/12 text-slate-300 hover:border-slate-500"
+                  )}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            {REPORT_SECTION_INVENTORY.filter((r) => r.key === invReport).map((r) => (
+              <div key={r.key} className="space-y-2">
+                <p className="text-[11px] text-slate-500"><span className="font-semibold text-slate-300">Who fills it:</span> {r.audience}</p>
+                {r.sections.map((s: SectionInventoryItem, i: number) => (
+                  <div key={i} className="flex flex-wrap items-start gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-xs">
+                    <span className="mt-0.5 w-5 shrink-0 text-center font-mono text-[10px] text-slate-600">{i + 1}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="font-semibold text-slate-200">{s.title}</span>
+                      <span className="ml-2 rounded bg-white/[0.06] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#b3a5ff]">{s.kind}</span>
+                      {s.configurableViaKpi && (
+                        <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-[#eda06a]/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#f0b285]" title="Metric rows inside this section are managed in KPI Configuration">
+                          <Target className="h-2.5 w-2.5" /> KPI-configurable
+                        </span>
+                      )}
+                      <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">{s.detail}</span>
+                    </span>
+                    {!r.key.startsWith("TL_") && (
+                      <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded border border-white/10 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500" title="Built-in form structure — its metric rows are configured under KPI Configuration">
+                        <Lock className="h-2.5 w-2.5" /> Built-in
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+            <p className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-slate-500">
+              Team-lead reports above are fully editable: reorder, rename, retype or remove any section and add brand-new ones, then save. The built-in agent and supervisor forms keep their proven structure — the metric rows inside them (targets, labels, mandatory flags, additions and deletions) are configured under <span className="font-semibold text-slate-300">KPI Configuration</span>, per centre and per individual.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

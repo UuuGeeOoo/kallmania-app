@@ -386,3 +386,12 @@ html:not(.dark) .bg-white\/\[0\.055\]:not(.k-btn-glass) { background-color: rgba
     @apply bg-background text-foreground;
   }
 }
+
+/* In-app DOCX preview (mammoth HTML) — paper look inside the document viewer */
+.docx-preview h1 { font-size: 1.35rem; font-weight: 700; margin: 1rem 0 0.5rem; }
+.docx-preview h2 { font-size: 1.15rem; font-weight: 700; margin: 0.9rem 0 0.4rem; }
+.docx-preview h3 { font-size: 1rem; font-weight: 600; margin: 0.8rem 0 0.35rem; }
+.docx-preview p { margin: 0.45rem 0; }
+.docx-preview table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; }
+.docx-preview td, .docx-preview th { border: 1px solid #cbd5e1; padding: 0.35rem 0.5rem; vertical-align: top; }
+.docx-preview ul, .docx-preview ol { margin: 0.5rem 0 0.5rem 1.4rem; list-style: revert; }

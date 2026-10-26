@@ -46,7 +46,7 @@ export function navForRole(role: string): NavItem[] {
     { key: "supervisor-report", label: "My Daily Report", icon: FileText },
     { key: "team-tasks", label: "Tasks & Assignments", icon: ListTodo },
     { key: "uploads-admin", label: "Uploaded Files", icon: Upload },
-    { key: "tl-template", label: "TL Report Template", icon: FileCog },
+    { key: "tl-template", label: "Report Templates", icon: FileCog },
     { key: "kpi-config", label: "KPI Configuration", icon: Target },
     { key: "notifications", label: "Notifications", icon: Bell },
     { key: "profile", label: "My Profile", icon: UserCircle2 },

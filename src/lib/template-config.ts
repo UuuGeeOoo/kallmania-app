@@ -94,6 +94,7 @@ export const ATTENDANCE_ROWS = [
 export const DISPOSITION_OPTIONS = [
   "Interested",
   "Callback Requested",
+  "Requested for Email",
   "Not Interested",
   "No Answer",
   "Busy / Unreachable",
@@ -206,6 +207,98 @@ export const SUPERVISOR_ACTIVITY_TYPES = [
 export function getKpiDef(key: string): KpiDef | undefined {
   return AGENT_KPI_DEFS.find((k) => k.key === key);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REPORT SECTION INVENTORY — the full structure of every report type in the
+// app, for the admin/supervisor "Report sections" reference in the template
+// editor. Built-in (hard-coded) sections are clearly marked so admins can see
+// what is editable (team-lead templates) vs fixed structure whose metric rows
+// are configurable through KPI Configuration.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SectionInventoryItem {
+  title: string;
+  kind: "fields" | "metrics" | "table" | "textarea";
+  detail: string;
+  configurableViaKpi?: boolean;
+}
+
+export interface ReportInventory {
+  key: string;
+  label: string;
+  audience: string;
+  sections: SectionInventoryItem[];
+}
+
+export const REPORT_SECTION_INVENTORY: ReportInventory[] = [
+  {
+    key: "AGENT_OUTBOUND",
+    label: "BPO Agent — Outbound Calls",
+    audience: "Call centre agents (outbound) · submitted daily",
+    sections: [
+      { title: "Agent Information", kind: "fields", detail: "Agent name, department/team, reporting date, campaign" },
+      { title: "Key Performance Metrics (KPIs)", kind: "metrics", detail: "Core call/mail KPIs + email & lead extensions — targets, actuals, variance", configurableViaKpi: true },
+      { title: "Call Log Summary", kind: "table", detail: "Lead / contact name, outcome (Interested, Callback Requested, Requested for Email, Not Interested, No Answer, Busy / Unreachable, Wrong Number, Voicemail, Meeting Booked, Hot Lead, Warm Lead), follow-up required, notes" },
+      { title: "Challenges / Blockers", kind: "textarea", detail: "What slowed the agent down today" },
+      { title: "Escalations", kind: "textarea", detail: "Issues needing supervisor or management attention" },
+      { title: "Additional Activities", kind: "textarea", detail: "Other work performed beyond assigned tasks" },
+    ],
+  },
+  {
+    key: "AGENT_INBOUND",
+    label: "BPO Agent — Inbound Calls",
+    audience: "Call centre agents (inbound) · same structure, KPI rows optional",
+    sections: [
+      { title: "Agent Information", kind: "fields", detail: "Agent name, department/team, reporting date, campaign" },
+      { title: "Key Performance Metrics (KPIs)", kind: "metrics", detail: "Same KPI table as outbound — every row optional for inbound shifts", configurableViaKpi: true },
+      { title: "Call Log Summary", kind: "table", detail: "Caller / contact name, outcome, follow-up required, notes" },
+      { title: "Challenges / Blockers", kind: "textarea", detail: "What slowed the agent down today" },
+      { title: "Escalations", kind: "textarea", detail: "Issues needing supervisor or management attention" },
+      { title: "Additional Activities", kind: "textarea", detail: "Other work performed beyond assigned tasks" },
+    ],
+  },
+  {
+    key: "AGENT_TECH",
+    label: "Web Development & Technical",
+    audience: "Developers / technical staff · submitted daily",
+    sections: [
+      { title: "Attendance", kind: "fields", detail: "Shift time, clock-in / clock-out, attendance status, lateness" },
+      { title: "Activity Log", kind: "table", detail: "Task title, project / website, category (Website Development, Bug Fixing, API Integration, …), status, deliverable, repo / ticket" },
+      { title: "Key Metrics", kind: "metrics", detail: "Tasks completed, bugs resolved, tickets resolved, deployments, test cases, milestones, code reviews", configurableViaKpi: true },
+      { title: "Challenges / Blockers", kind: "textarea", detail: "What slowed the work down today" },
+      { title: "Escalations", kind: "textarea", detail: "Issues needing supervisor or management attention" },
+    ],
+  },
+  {
+    key: "AGENT_SOCIAL",
+    label: "Social Media Team",
+    audience: "Social media staff · submitted daily",
+    sections: [
+      { title: "Staff Information", kind: "fields", detail: "Name, team, shift time, clock-in / clock-out, attendance status" },
+      { title: "Key Performance Metrics (KPIs)", kind: "metrics", detail: "Posts, reach, impressions, engagement, follower growth, campaign leads", configurableViaKpi: true },
+      { title: "Tasks Assigned & Completed", kind: "table", detail: "One row per task — platform, content format, status, notes" },
+      { title: "Challenges / Blockers", kind: "textarea", detail: "What slowed the work down today" },
+      { title: "Escalations", kind: "textarea", detail: "Issues needing supervisor or management attention" },
+    ],
+  },
+  {
+    key: "SUPERVISOR",
+    label: "BPO Supervisor",
+    audience: "Centre supervisors · consolidated daily oversight report",
+    sections: [
+      { title: "Supervisor's Information", kind: "fields", detail: "Name, centre, reporting date, shift" },
+      { title: "Team Attendance Summary", kind: "table", detail: "Agents on shift, present & on-time, late arrivals, absent (excused / unexcused), early departures" },
+      { title: "Team Performance Summary (KPI Averages)", kind: "metrics", detail: "Team calls, contact & conversion rates, talk time, SLA / schedule adherence, leads", configurableViaKpi: true },
+      { title: "Coaching & Feedback Provided", kind: "table", detail: "Agent coached, topic, outcome" },
+      { title: "Issues Escalated to Management", kind: "table", detail: "Issue, severity, action taken" },
+      { title: "Quality Assurance Observations", kind: "textarea", detail: "QA notes from monitored calls / work" },
+      { title: "Highlights", kind: "textarea", detail: "What went well today" },
+      { title: "Lowlights", kind: "textarea", detail: "What needs improvement" },
+      { title: "Supervisor's Own Activities", kind: "textarea", detail: "Meetings, coaching, task allocation, reviews, escalations handled, client communications, admin work" },
+      { title: "Manager Review", kind: "textarea", detail: "Reserved for the BPO Manager's review comments" },
+    ],
+  },
+];
 
 /** Build the default KPI metric rows for a new agent report (template order + targets). */
 export function buildDefaultKpiMetrics(overrides?: Record<string, { target?: number | null }>) {

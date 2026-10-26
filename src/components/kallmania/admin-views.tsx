@@ -13,11 +13,12 @@ import { UserKpiDialog } from "@/components/kallmania/user-kpi-dialog";
 import { MemberKpiConfigCard } from "@/components/kallmania/member-kpi-editor";
 import { EscalationsPanel } from "@/components/kallmania/escalation-center";
 import { TeamLeadTemplateEditor } from "@/components/kallmania/team-lead-form";
+import { DocumentViewerModal } from "@/components/kallmania/document-viewer";
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Country } from "country-state-city";
-import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2, Loader2, Bell, Settings2, ScrollText, Info, MapPin, CalendarClock } from "lucide-react";
+import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2, Loader2, Bell, Settings2, ScrollText, Info, MapPin, CalendarClock, Download } from "lucide-react";
 
 const ALL_ROLES = ["AGENT_BPO", "TEAM_LEAD", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR", "ADMIN"];
 const ALL_TEAMS = ["OUTBOUND", "INBOUND", "EMAIL", "SOCIAL", "TECH"];
@@ -896,6 +897,7 @@ export function NotificationsView({ user, onNavigate }: { user: { id: string; ro
 export function UploadsAdminView() {
   const [uploads, setUploads] = useState<{ id: string; originalName: string; sizeBytes: number; extractStatus: string; reportDate: string | null; department: string | null; reportId: string | null; user?: { fullName: string }; createdAt: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [viewing, setViewing] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     api<{ uploads: typeof uploads }>("/api/uploads").then(({ uploads }) => setUploads(uploads)).finally(() => setLoading(false));
@@ -931,7 +933,8 @@ export function UploadsAdminView() {
                   <TableCell className="py-2.5"><StatusBadge status={u.extractStatus} /></TableCell>
                   <TableCell className="py-2.5">
                     <div className="flex gap-1">
-                      <Button size="sm" variant="ghost" className="h-7 text-[11px] text-slate-300" onClick={() => window.open(`/api/uploads/file?id=${u.id}`, "_blank")}>Open</Button>
+                      <Button size="sm" variant="ghost" className="h-7 text-[11px] text-[#b3a5ff]" onClick={() => setViewing({ id: u.id, name: u.originalName })}>Preview</Button>
+                      <Button size="sm" variant="ghost" className="h-7 text-[11px] text-slate-300" title="Download the original file" onClick={() => { window.location.href = `/api/uploads/file?id=${u.id}&download=1`; }}><Download className="mr-1 h-3 w-3" />Download</Button>
                       {u.reportId && <Button size="sm" variant="ghost" className="h-7 text-[11px] text-[#8b7ff5]" onClick={() => window.open(`/api/export?format=docx&id=${u.reportId}`, "_blank")}>Report</Button>}
                     </div>
                   </TableCell>
@@ -941,6 +944,7 @@ export function UploadsAdminView() {
           </Table>
         </div>
       )}
+      {viewing && <DocumentViewerModal uploadId={viewing.id} name={viewing.name} onClose={() => setViewing(null)} />}
     </div>
   );
 }

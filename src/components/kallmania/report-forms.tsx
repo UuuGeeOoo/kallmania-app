@@ -12,7 +12,7 @@ import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner } from "@/
 import { cn } from "@/lib/utils";
 import { ChevronDown, Save, Send, Calculator, Loader2, FileDown, Plus, Trash2, CalendarClock } from "lucide-react";
 
-export const DISPOSITIONS = ["Interested", "Callback Requested", "Not Interested", "No Answer", "Busy / Unreachable", "Wrong Number", "Voicemail", "Meeting Booked", "Hot Lead", "Warm Lead"];
+export const DISPOSITIONS = ["Interested", "Callback Requested", "Requested for Email", "Not Interested", "No Answer", "Busy / Unreachable", "Wrong Number", "Voicemail", "Meeting Booked", "Hot Lead", "Warm Lead"];
 const CALL_LOG_ROWS = 8;
 
 /** A row of the administrator-managed KPI catalogue (see KPI Configuration). */

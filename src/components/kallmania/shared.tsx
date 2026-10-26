@@ -167,7 +167,10 @@ export function MetricCombobox({
               onMouseDown={(e) => { e.preventDefault(); onSelect(o); setOpen(false); }}
             >
               <span className="truncate">{o.label}</span>
-              <span className="shrink-0 font-mono text-[9px] text-slate-500">{o.unit || "count"}</span>
+              <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                {o.category && <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-400">{o.category.replace(/_/g, " ").toLowerCase()}</span>}
+                <span className="font-mono text-[9px] text-slate-500">{o.unit || "count"}</span>
+              </span>
             </button>
           ))}
           {isCustomText && (
