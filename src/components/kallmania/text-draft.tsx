@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, X, Copy, Check, Trash2, AlertTriangle, FileText, ShieldCheck } from "lucide-react";
+import { Loader2, X, Copy, Check, Trash2, AlertTriangle, FileText, ShieldCheck, Download, Eye } from "lucide-react";
 import { api } from "@/lib/client";
+import { DocumentViewerModal } from "@/components/kallmania/document-viewer";
 
 /**
  * Text draft viewer — shows the full text extracted from an uploaded document
@@ -54,6 +55,9 @@ export function TextDraftModal({
   const [copied, setCopied] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [discarding, setDiscarding] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const previewingRef = useRef(false);
+  previewingRef.current = previewing;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,7 +74,9 @@ export function TextDraftModal({
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !previewingRef.current) onClose();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -130,6 +136,12 @@ export function TextDraftModal({
               {discarded && <span className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-300">file discarded — text only</span>}
             </p>
           </div>
+          <Button size="sm" variant="ghost" className="h-8 text-[11px] text-slate-300" title="Preview the draft as a formatted document" disabled={!hasText} onClick={() => setPreviewing(true)}>
+            <Eye className="mr-1.5 h-3.5 w-3.5" /> Preview as document
+          </Button>
+          <Button size="sm" variant="outline" disabled={!hasText} className="h-8 border-[#8b7ff5]/40 text-[11px] text-[#b3a5ff]" title="Download the draft as a .docx document" onClick={() => { window.location.href = `/api/uploads/draft-export?id=${encodeURIComponent(uploadId)}&download=1`; }}>
+            <Download className="mr-1.5 h-3.5 w-3.5" /> DOCX
+          </Button>
           <Button size="sm" variant="outline" disabled={!hasText || copied} className="h-8 border-[#8b7ff5]/40 text-[11px] text-[#b3a5ff]" onClick={copyText}>
             {copied ? <Check className="mr-1.5 h-3.5 w-3.5 text-emerald-400" /> : <Copy className="mr-1.5 h-3.5 w-3.5" />} {copied ? "Copied" : "Copy text"}
           </Button>
@@ -189,6 +201,15 @@ export function TextDraftModal({
           )}
         </div>
       </div>
+      {/* Stacked on top of the text modal (later in DOM, same z-index) — Esc closes this first */}
+      {previewing && (
+        <DocumentViewerModal
+          name={`text-draft-${name.replace(/\.[^.]+$/, "")}.docx`}
+          previewUrl={`/api/uploads/draft-preview?id=${encodeURIComponent(uploadId)}`}
+          downloadHref={`/api/uploads/draft-export?id=${encodeURIComponent(uploadId)}&download=1`}
+          onClose={() => setPreviewing(false)}
+        />
+      )}
     </div>
   );
 }

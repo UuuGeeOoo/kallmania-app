@@ -676,3 +676,20 @@ Work Log:
 
 Stage Summary:
 - Uploads now support text-only mode: draft the full text (view/copy anytime), then permanently discard the original file — the record, text draft and extracted fields survive, the physical file does not; guards make preview/download/re-extraction fail honestly (410) instead of mysteriously
+
+---
+Task ID: 37
+Agent: main (Z.ai)
+Task: Text draft export as a document — user confirmed "yes do it" (DOCX). Draft must become previewable in-app and downloadable.
+
+Work Log:
+- src/lib/draft-docx.ts buildDraftDocxBuffer — clean standalone DOCX (docx v9): TEXT DRAFT eyebrow + original filename title, meta block (report date, department, extraction status, source-file retained/discarded + discarded-at), divider, full rawText body in Consolas (column-style raw text stays aligned), italic audit footer ("exported from Kallmania on … by …"); draftFileName() → sanitized "text-draft-<name>.docx"
+- GET /api/uploads/draft-export?id= — builds the DOCX on the fly (nothing stored), inline disposition default, ?download=1 → attachment; auth identical to file endpoint; 400 when no draft yet; works after the original file was discarded (draft lives in the DB)
+- GET /api/uploads/draft-preview?id= — same buffer → mammoth HTML → PreviewPayload JSON (kind docx, viaDraft) for the in-app viewer
+- text-draft.tsx TextDraftModal header gained "Preview as document" (Eye) + "DOCX" download buttons (disabled without text); viewer modal stacks on top (later DOM order, same z-index); Escape now only closes the topmost modal (previewingRef)
+- E2E (scripts/test-draft-export.sh, all passed): export 200 + PK zip magic (10 KB), attachment filename text-draft-km-dx-report.docx, preview JSON kind=docx with content, and after discard BOTH export and preview still 200 with the "text-only copy retained" note in the document
+- Browser-verified on admin Uploaded Files: new buttons render in the modal; Preview as document opens the stacked viewer showing the formatted draft page (TEXT DRAFT heading, meta block, discarded note, footer) with Full screen/New tab/Download; zero page errors; tsc clean for touched files
+- Test record purged; real uploads and masters untouched
+
+Stage Summary:
+- The text draft is now a real document: previewable in-app (paper page, same Open-vs-Download split as everywhere else) and downloadable as a clean DOCX — generated on the fly so it works forever after the original file is discarded, with the discarded-status audited inside the document itself
