@@ -654,3 +654,25 @@ Work Log:
 
 Stage Summary:
 - Reports now download as the ORIGINAL uploaded Word template with the report data inserted into its designated cells — logos/fonts/colours/tables/headers/footers/margins/embedded fonts preserved, masters provably unmodified (sha256), admins can replace masters per report type, and generated reports preview in-app; KPI Configuration for admin/supervisor (and individual member config) now shows the other report sections that were previously only visible in the team-lead template editor
+
+---
+Task ID: 36
+Agent: main (Z.ai)
+Task: "is there a way to draft only the text from an uploaded doc and discard the file" — text-only mode: keep the extracted text draft, permanently remove the original file
+
+Work Log:
+- Answer: extraction already drafted the full text into the DB (rawText + extractedData) but the original file was always kept forever and there was no UI to view/copy the full draft — both gaps now closed
+- Schema: UploadedFile gained fileDiscarded (default false) + discardedAt; prisma db push to Supabase + client regenerated (dev server restarted so it loaded the new client)
+- New POST /api/uploads/discard { id } — owner or supervisor/admin; requires a text draft to exist (400 otherwise: "discarding now would leave nothing behind"); idempotent when already discarded; unlinks the physical file from uploads-storage (tolerates missing file), sets flag + timestamp, audits DISCARD_UPLOAD_FILE
+- New GET /api/uploads/text?id= — full text draft straight from the DB (works even after the file is gone), same authorization as the file endpoint
+- 410 guards with clear messages: file serving, preview and re-extraction all refuse when fileDiscarded ("only the text draft is kept" / "re-upload to extract again")
+- New src/components/kallmania/text-draft.tsx TextDraftModal — full text in a scrollable mono pane, char count + status header, Copy text (clipboard + execCommand fallback with "Copied" feedback), "Keep text only — discard file" with a two-step inline confirm ("Delete the original file permanently? Cancel / Yes, discard file"), after-discard state shows badge "file discarded — text only" + exact discarded-at timestamp; Esc/backdrop close
+- upload-view.tsx: new "Text draft" button next to Preview document; after discard the amber banner explains the state with an inline link, Preview document hides (Text draft remains); review/confirm flow unaffected (confirm never needed the file)
+- UploadsAdminView: "FILE DISCARDED — TEXT ONLY" badge on the file cell; Preview/Download hidden for discarded rows; new per-row "Text draft" button opens the modal so supervisors can read/copy extracted text of any upload (and discard eligible ones); local state updates after discard without refetch
+- client.ts UploadDTO gained fileDiscarded/discardedAt
+- Verified e2e (scripts/test-discard-e2e.sh, 10/10): login → upload txt → early discard correctly 400 → extract (5 fields, aiChecked) → text endpoint 313 chars → discard 200 + file physically gone → file/preview/re-extract all 410 → text draft intact (flag+timestamp set) → list flag true
+- Verified in browser as a temp agent (created, then deleted): upload flow → Text draft modal renders (313 chars, Copy → "Copied"), two-step discard, amber banner shown, Preview document gone; as admin: Uploaded Files shows the badge + only-Text-draft row actions and the discarded upload's text is readable; zero page errors; tsc — only the documented pre-existing errors remain
+- Test data purged (upload record + temp user); masters and real uploads untouched
+
+Stage Summary:
+- Uploads now support text-only mode: draft the full text (view/copy anytime), then permanently discard the original file — the record, text draft and extracted fields survive, the physical file does not; guards make preview/download/re-extraction fail honestly (410) instead of mysteriously

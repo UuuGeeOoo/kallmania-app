@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
     if (!upload) return fail("Upload not found", 404);
     if (upload.userId !== me.id && !["SUPERVISOR", "ADMIN"].includes(me.role)) return fail("Not authorized", 403);
     if (upload.extractStatus === "SUBMITTED") return fail("This upload has already been confirmed and submitted");
+    if (upload.fileDiscarded) return fail("The original file was already discarded — re-upload the document if you need to extract again.", 410);
 
     await db.uploadedFile.update({ where: { id }, data: { extractStatus: "PROCESSING", extractError: null } });
 

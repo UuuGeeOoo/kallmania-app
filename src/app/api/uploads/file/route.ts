@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
     const upload = await db.uploadedFile.findUnique({ where: { id } });
     if (!upload) return fail("Upload not found", 404);
     if (upload.userId !== me.id && !isSupervisorLike(me)) return fail("Not authorized", 403);
+    if (upload.fileDiscarded) return fail("The original file was discarded after extraction — only the text draft is kept.", 410);
     try {
       const buffer = await readFile(path.join(STORAGE_DIR, upload.storedName));
       const ext = (upload.storedName.split(".").pop() || "").toLowerCase();

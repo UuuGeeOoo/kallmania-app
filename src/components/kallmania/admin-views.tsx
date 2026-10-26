@@ -14,6 +14,7 @@ import { MemberKpiConfigCard } from "@/components/kallmania/member-kpi-editor";
 import { EscalationsPanel } from "@/components/kallmania/escalation-center";
 import { TeamLeadTemplateEditor } from "@/components/kallmania/team-lead-form";
 import { DocumentViewerModal } from "@/components/kallmania/document-viewer";
+import { TextDraftModal } from "@/components/kallmania/text-draft";
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -900,9 +901,10 @@ export function NotificationsView({ user, onNavigate }: { user: { id: string; ro
 // ───────────────────────── UPLOADS (supervisor view) ─────────────────────────
 
 export function UploadsAdminView() {
-  const [uploads, setUploads] = useState<{ id: string; originalName: string; sizeBytes: number; extractStatus: string; reportDate: string | null; department: string | null; reportId: string | null; user?: { fullName: string }; createdAt: string }[]>([]);
+  const [uploads, setUploads] = useState<{ id: string; originalName: string; sizeBytes: number; extractStatus: string; reportDate: string | null; department: string | null; reportId: string | null; fileDiscarded?: boolean; user?: { fullName: string }; createdAt: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewing, setViewing] = useState<{ id: string; name: string } | null>(null);
+  const [drafting, setDrafting] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     api<{ uploads: typeof uploads }>("/api/uploads").then(({ uploads }) => setUploads(uploads)).finally(() => setLoading(false));
@@ -931,15 +933,16 @@ export function UploadsAdminView() {
             <TableBody>
               {uploads.map((u) => (
                 <TableRow key={u.id} className="border-white/5">
-                  <TableCell className="max-w-48 truncate py-2.5 text-xs text-slate-200">{u.originalName} <span className="text-slate-600">({(u.sizeBytes / 1024).toFixed(0)} KB)</span></TableCell>
+                  <TableCell className="max-w-48 truncate py-2.5 text-xs text-slate-200">{u.originalName} <span className="text-slate-600">({(u.sizeBytes / 1024).toFixed(0)} KB)</span>{u.fileDiscarded && <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-300">file discarded — text only</span>}</TableCell>
                   <TableCell className="py-2.5 text-xs text-slate-300">{u.user?.fullName}</TableCell>
                   <TableCell className="py-2.5 text-[11px] text-slate-500">{DEPT_LABELS[u.department || ""] || u.department || "—"}</TableCell>
                   <TableCell className="py-2.5 text-xs text-slate-400">{u.reportDate ? fmtDate(u.reportDate) : "—"}</TableCell>
                   <TableCell className="py-2.5"><StatusBadge status={u.extractStatus} /></TableCell>
                   <TableCell className="py-2.5">
                     <div className="flex gap-1">
-                      <Button size="sm" variant="ghost" className="h-7 text-[11px] text-[#b3a5ff]" onClick={() => setViewing({ id: u.id, name: u.originalName })}>Preview</Button>
-                      <Button size="sm" variant="ghost" className="h-7 text-[11px] text-slate-300" title="Download the original file" onClick={() => { window.location.href = `/api/uploads/file?id=${u.id}&download=1`; }}><Download className="mr-1 h-3 w-3" />Download</Button>
+                      {!u.fileDiscarded && <Button size="sm" variant="ghost" className="h-7 text-[11px] text-[#b3a5ff]" onClick={() => setViewing({ id: u.id, name: u.originalName })}>Preview</Button>}
+                      <Button size="sm" variant="ghost" className="h-7 text-[11px] text-slate-300" title="View or copy the extracted text draft" onClick={() => setDrafting({ id: u.id, name: u.originalName })}><ScrollText className="mr-1 h-3 w-3" />Text draft</Button>
+                      {!u.fileDiscarded && <Button size="sm" variant="ghost" className="h-7 text-[11px] text-slate-300" title="Download the original file" onClick={() => { window.location.href = `/api/uploads/file?id=${u.id}&download=1`; }}><Download className="mr-1 h-3 w-3" />Download</Button>}
                       {u.reportId && <Button size="sm" variant="ghost" className="h-7 text-[11px] text-[#8b7ff5]" onClick={() => window.open(`/api/export?format=docx&id=${u.reportId}`, "_blank")}>Report</Button>}
                     </div>
                   </TableCell>
@@ -950,6 +953,7 @@ export function UploadsAdminView() {
         </div>
       )}
       {viewing && <DocumentViewerModal uploadId={viewing.id} name={viewing.name} onClose={() => setViewing(null)} />}
+      {drafting && <TextDraftModal uploadId={drafting.id} name={drafting.name} onClose={() => setDrafting(null)} onDiscarded={() => setUploads((prev) => prev.map((u) => (u.id === drafting.id ? { ...u, fileDiscarded: true } : u)))} />}
     </div>
   );
 }

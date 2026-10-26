@@ -292,6 +292,10 @@ model UploadedFile {
   user          User      @relation(fields: [userId], references: [id])
   confirmedAt   DateTime?
   createdAt     DateTime  @default(now())
+  // Text-only mode: the original file was deleted from storage after
+  // extraction — rawText + extractedData remain as the permanent draft.
+  fileDiscarded Boolean   @default(false)
+  discardedAt   DateTime?
 
   @@index([userId])
   @@index([fileHash])

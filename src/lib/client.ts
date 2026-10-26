@@ -121,6 +121,8 @@ export interface UploadDTO {
   user?: { id: string; fullName: string; role: string; department: string };
   createdAt: string;
   confirmedAt?: string | null;
+  fileDiscarded?: boolean;
+  discardedAt?: string | null;
 }
 
 export interface NotificationDTO {

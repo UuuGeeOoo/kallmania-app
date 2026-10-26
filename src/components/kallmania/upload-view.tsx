@@ -9,8 +9,9 @@ import { Progress } from "@/components/ui/progress";
 import { api, fmtDateTime, type ExtractedField, type KpiMetric, type SessionUser, type UploadDTO } from "@/lib/client";
 import { SectionCard, Field, inputCls, StatusBadge, EmptyState } from "@/components/kallmania/shared";
 import { DocumentViewerModal } from "@/components/kallmania/document-viewer";
+import { TextDraftModal } from "@/components/kallmania/text-draft";
 import { KpiTable } from "@/components/kallmania/report-forms";
-import { Upload as UploadIcon, FileUp, ScanSearch, CheckCircle2, AlertTriangle, XCircle, Loader2, FileText, ShieldAlert, Send, Save, Eye } from "lucide-react";
+import { Upload as UploadIcon, FileUp, ScanSearch, CheckCircle2, AlertTriangle, XCircle, Loader2, FileText, ShieldAlert, Send, Save, Eye, ScrollText } from "lucide-react";
 
 const SUPPORTED = "PDF, DOCX, XLSX, CSV, TXT, PNG, JPEG up to 15 MB";
 
@@ -39,9 +40,11 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
   const [confirmed, setConfirmed] = useState<{ ref: string; submitted: boolean } | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [uploadedName, setUploadedName] = useState<string | null>(null);
+  const [showDraft, setShowDraft] = useState(false);
+  const [discarded, setDiscarded] = useState(false);
 
   const reset = () => {
-    setFile(null); setUploadId(null); setExtraction(null); setMetrics([]); setSections({}); setAdditional(""); setConfirmed(null); setError(null);
+    setFile(null); setUploadId(null); setExtraction(null); setMetrics([]); setSections({}); setAdditional(""); setConfirmed(null); setError(null); setDiscarded(false);
     if (fileRef.current) fileRef.current.value = "";
   };
 
@@ -128,6 +131,12 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
         </div>
       )}
+      {discarded && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+          <ScrollText className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>Original file discarded — only the text draft and extracted fields are kept. Use <button type="button" className="font-semibold underline underline-offset-2" onClick={() => setShowDraft(true)}>Text draft</button> to view or copy the text.</span>
+        </div>
+      )}
 
       <SectionCard title="Upload Report" subtitle={`Instead of re-entering everything manually, upload your existing daily report — ${SUPPORTED}`}>
         <div className="grid gap-4 md:grid-cols-3">
@@ -165,9 +174,14 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
           {uploadId && !confirmed && (
             <>
               <Button variant="ghost" size="sm" onClick={reset} className="text-slate-400">Start over</Button>
-              <Button variant="outline" size="sm" onClick={() => setPreviewing(true)} className="border-[#8b7ff5]/40 text-[#b3a5ff]">
-                <Eye className="mr-1.5 h-4 w-4" /> Preview document
+              <Button variant="outline" size="sm" onClick={() => setShowDraft(true)} className="border-[#8b7ff5]/40 text-[#b3a5ff]">
+                <ScrollText className="mr-1.5 h-4 w-4" /> Text draft
               </Button>
+              {!discarded && (
+                <Button variant="outline" size="sm" onClick={() => setPreviewing(true)} className="border-[#8b7ff5]/40 text-[#b3a5ff]">
+                  <Eye className="mr-1.5 h-4 w-4" /> Preview document
+                </Button>
+              )}
             </>
           )}
           <Button onClick={doUpload} disabled={!file || uploading || extracting} className="bg-[#6c5ce7] hover:bg-[#5b4bd4]">
@@ -253,7 +267,8 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
           </SectionCard>
         </>
       )}
-      {previewing && uploadId && <DocumentViewerModal uploadId={uploadId} name={uploadedName || "document"} onClose={() => setPreviewing(false)} />}
+      {previewing && uploadId && !discarded && <DocumentViewerModal uploadId={uploadId} name={uploadedName || "document"} onClose={() => setPreviewing(false)} />}
+      {showDraft && uploadId && <TextDraftModal uploadId={uploadId} name={uploadedName || "document"} onClose={() => setShowDraft(false)} onDiscarded={() => setDiscarded(true)} />}
     </div>
   );
 }
