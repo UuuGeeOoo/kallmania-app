@@ -790,3 +790,25 @@ Work Log:
 
 Stage Summary:
 - Site (dev :3000 and preview build) confirmed code-current with git HEAD and data-current with Supabase; masters self-healed and hash-verified end-to-end
+
+---
+Task ID: 38b
+Agent: main (Z.ai)
+Task: "Fix the loading error, scan through the code, the database and fix all errors" — preview showed "Loading Kallmania…" for long then client-side exception
+
+Work Log:
+- Diagnosis: preview server healthy (/, /api/auth, /api/bootstrap all 200; all 12 chunks 200); headless browser booted login + dashboard + all 12 admin views with zero errors → crash signature matches stale-bundle chunk failures after redeploy (old cached HTML → missing chunks → raw crash screen, no error boundary existed)
+- Fixes (commit 9da5a7b, BUILD_ID errfix38b):
+  * error.tsx + global-error.tsx friendly recovery cards; BootGuard client listener auto-reloads once per session on chunk-load failures
+  * /api/archive runtime 500 fixed: dead never-migrated StoredReport model + storedFiles include removed; honest stats from UploadedFile (13 reports, 12 retained uploads, 15.2MB); POST/download dead endpoints deleted with lib/report-files.ts and lib/otp.ts
+  * docx exports: fontSize → size half-points (27× in word-export.ts + 3× export route) — restores font sizes silently lost in generated DOCX
+  * Report create routes typed Prisma.ReportUncheckedCreateInput (Partial + cast at call site); api-utils handle() accepts Response
+  * client.ts: added flagEmoji + GeoCountryLite (code/iso2/name/flag/phone); fixed location-picker useCountryIsoMap hook; centre-agents wired to real user-kpi-dialog props
+  * tsconfig excludes vendored skills/ + examples/; fixed test script ??-after-comparison errors
+- DB (Supabase): restored lost SOCIAL_MEDIA KpiConfig catalogue (8 rows, units + default targets) → BPO=30 INBOUND=9 SOCIAL_MEDIA=8 WEB_DEV=9; added self-healing bootstrap seed (seeded_social_kpis_v1); integrity scan clean (0 orphans, 0 dup refs, 0 missing required fields); prisma db push in sync
+- Verification: tsc 64 → 0 errors; build smoke GET / 200 + auth 401 path OK; error boundary + boot-guard markers in built bundle; dev :3000 healthy; /api/archive 200; Complete pushed errfix38b preview (platform deploy propagating at worklog time — old bundle also loads clean headlessly)
+- GitHub pushed through 9da5a7b via scripts/push-main.sh
+
+Stage Summary:
+- Root cause of the user's crash: no error boundary + stale cached bundle after deploys; now auto-recovers with friendly reload UI
+- All 64 app-code type errors fixed, one live 500 endpoint repaired, one lost DB catalogue restored with self-healing; GitHub/Supabase/dev in sync
