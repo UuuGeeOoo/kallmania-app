@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireUser, requireSupervisorOrAdmin } from "@/lib/auth";
 import { handle, ok, fail, safeParse, toDateOrNull } from "@/lib/api-utils";
@@ -112,14 +113,14 @@ export async function POST(req: NextRequest) {
     const { id, submit, ...fields } = body;
     const reportDate = toDateOrNull(fields.reportDate) || new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z");
 
-    const data: Record<string, unknown> = { type: "SUPERVISOR", reportDate, department: "MANAGEMENT" };
+    const data: Partial<Prisma.ReportUncheckedCreateInput> = { type: "SUPERVISOR", reportDate, department: "MANAGEMENT" };
     for (const k of ["shiftTime", "clockIn", "clockOut", "teamName", "campusLocation", "qaObservations", "highlights", "lowlights", "managerReview"]) {
-      if (k in fields) data[k] = fields[k] || null;
+      if (k in fields) (data as Record<string, unknown>)[k] = fields[k] || null;
     }
     if ("agentsManaged" in fields) data.agentsManaged = fields.agentsManaged === "" || fields.agentsManaged === null ? null : parseInt(String(fields.agentsManaged), 10) || 0;
     if ("attendanceStatus" in fields) data.attendanceStatus = fields.attendanceStatus || null;
     for (const k of ["attendanceSummary", "teamKpiAverages", "coachingEntries", "escalatedIssues", "actionPlan"]) {
-      if (k in fields) data[k] = typeof fields[k] === "string" ? fields[k] : fields[k] ? JSON.stringify(fields[k]) : null;
+      if (k in fields) (data as Record<string, unknown>)[k] = typeof fields[k] === "string" ? fields[k] : fields[k] ? JSON.stringify(fields[k]) : null;
     }
     if ("ownActivities" in fields) data.additionalActivities = fields.ownActivities || null;
 
@@ -131,7 +132,7 @@ export async function POST(req: NextRequest) {
       report = await db.report.update({ where: { id }, data: { ...data, status: submit ? "SUBMITTED" : existing.status } });
     } else {
       report = await db.report.create({
-        data: { ...data, ref: `SUP-${Date.now().toString(36).toUpperCase()}`, userId: me.id, status: submit ? "SUBMITTED" : "DRAFT" },
+        data: { ...(data as Prisma.ReportUncheckedCreateInput), ref: `SUP-${Date.now().toString(36).toUpperCase()}`, userId: me.id, status: submit ? "SUBMITTED" : "DRAFT" },
       });
     }
     await audit({ userId: me.id, actorName: me.fullName, action: submit ? "SUBMIT_SUPERVISOR_REPORT" : "SAVE_SUPERVISOR_REPORT", entity: "Report", entityId: report.id, details: report.ref });

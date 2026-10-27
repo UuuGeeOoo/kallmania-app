@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api, ROLE_LABELS, TEAM_LABELS, flagEmoji, type UserDTO, type SessionUser } from "@/lib/client";
 import { PageHeader, EmptyState, StatusBadge, SectionCard } from "@/components/kallmania/shared";
-import { UserKpiDialog } from "@/components/kallmania/admin-views";
+import { UserKpiDialog } from "@/components/kallmania/user-kpi-dialog";
 import { useCountryIsoMap } from "@/components/kallmania/location-picker";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Users, BarChart3, Loader2, MapPin } from "lucide-react";
@@ -73,7 +73,7 @@ export default function CentreAgentsView({ user }: { user: SessionUser }) {
         </div>
       )}
 
-      <UserKpiDialog user={kpiUser} onClose={() => setKpiUser(null)} />
+      <UserKpiDialog user={kpiUser || { id: "", fullName: "", role: "" }} viewer={user} open={!!kpiUser} setOpen={(v) => !v && setKpiUser(null)} />
     </div>
   );
 }

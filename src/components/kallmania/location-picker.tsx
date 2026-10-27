@@ -15,8 +15,10 @@ function fetchCountries(): Promise<GeoCountryLite[]> {
   if (countriesCache) return Promise.resolve(countriesCache);
   if (!countriesPromise) {
     countriesPromise = api<{ countries: GeoCountryLite[] }>("/api/geo").then((d) => {
-      countriesCache = d.countries;
-      return d.countries;
+      // /api/geo returns { code, name, flag, phone } — derive the iso2 alias
+      // the pickers/UI helpers rely on.
+      countriesCache = d.countries.map((c) => ({ ...c, iso2: c.code }));
+      return countriesCache;
     });
   }
   return countriesPromise;

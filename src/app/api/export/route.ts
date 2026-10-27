@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
               columnSpan: 1,
               shading: { type: ShadingType.CLEAR, fill: "EDEAFB" },
               borders: { top: thin, bottom: thin, left: thin, right: thin },
-              children: [new Paragraph({ children: [new TextRun({ text: `CONSOLIDATED MULTI-DEPARTMENT DAILY REPORT — ${date}`, bold: true, color: "6C5CE7", fontSize: 24 })] })],
+              children: [new Paragraph({ children: [new TextRun({ text: `CONSOLIDATED MULTI-DEPARTMENT DAILY REPORT — ${date}`, bold: true, color: "6C5CE7", size: 48 })] })],
             })],
           }),
           ...sections.flatMap((s) => [
@@ -73,13 +73,13 @@ export async function GET(req: NextRequest) {
               children: [new TableCell({
                 borders: { top: thin, bottom: thin, left: thin, right: thin },
                 shading: { type: ShadingType.CLEAR, fill: "F4F2FB" },
-                children: [new Paragraph({ children: [new TextRun({ text: s.label, bold: true, fontSize: 21 })] })],
+                children: [new Paragraph({ children: [new TextRun({ text: s.label, bold: true, size: 42 })] })],
               })],
             }),
             new TableRow({
               children: [new TableCell({
                 borders: { top: thin, bottom: thin, left: thin, right: thin },
-                children: [new Paragraph({ children: [new TextRun({ text: s.lines.join("\n"), fontSize: 19 })] })],
+                children: [new Paragraph({ children: [new TextRun({ text: s.lines.join("\n"), size: 38 })] })],
               })],
             }),
           ]),

@@ -2,15 +2,13 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, isSupervisorLike } from "@/lib/auth";
 import { handle, ok, fail, toDateOrNull } from "@/lib/api-utils";
-import { storeReportFiles, type StoreFormat } from "@/lib/report-files";
-import { audit } from "@/lib/notify";
-
-const VALID_FORMATS: StoreFormat[] = ["docx", "xlsx", "csv"];
 
 /**
- * GET /api/archive — online report storage browser (supervisor/admin).
- * Every submitted & approved report is stored online here, together with any
- * generated Word/Excel/CSV file snapshots available for download anytime.
+ * GET /api/archive — report archive browser (supervisor/admin).
+ * Lists every submitted & approved report with its linked original upload
+ * (Report.sourceFileId → UploadedFile). Original files live in uploads-storage
+ * and are downloadable via /api/uploads/file; file snapshots generate
+ * on-demand via /api/export?format=docx|xlsx.
  */
 export async function GET(req: NextRequest) {
   return handle(async () => {
@@ -41,14 +39,20 @@ export async function GET(req: NextRequest) {
       include: {
         user: { select: { id: true, fullName: true, employeeId: true, department: true, role: true } },
         reviewer: { select: { id: true, fullName: true } },
-        storedFiles: {
-          select: { id: true, format: true, fileName: true, sizeBytes: true, auto: true, createdAt: true },
-          orderBy: { createdAt: "desc" },
-        },
       },
       orderBy: { reportDate: "desc" },
       take: 400,
     });
+
+    // Attach the original uploaded document for each report that has one.
+    const sourceFileIds = [...new Set(reports.map((r) => r.sourceFileId).filter((v): v is string => !!v))];
+    const uploads = sourceFileIds.length
+      ? await db.uploadedFile.findMany({
+          where: { id: { in: sourceFileIds } },
+          select: { id: true, originalName: true, sizeBytes: true, mimeType: true, createdAt: true, fileDiscarded: true },
+        })
+      : [];
+    const uploadById = new Map(uploads.map((u) => [u.id, u]));
 
     const filtered = q
       ? reports.filter((r) =>
@@ -57,53 +61,31 @@ export async function GET(req: NextRequest) {
           (r.user.employeeId || "").toLowerCase().includes(q))
       : reports;
 
-    // Storage stats
-    const agg = await db.storedReport.aggregate({ _count: { id: true }, _sum: { sizeBytes: true } });
-    const [totalOnline, approvedCount] = await Promise.all([
+    const withFiles = filtered.map((r) => {
+      const f = r.sourceFileId ? uploadById.get(r.sourceFileId) : null;
+      return {
+        ...r,
+        sourceFile: f
+          ? { id: f.id, fileName: f.originalName, sizeBytes: f.sizeBytes, mimeType: f.mimeType, createdAt: f.createdAt, discarded: f.fileDiscarded }
+          : null,
+      };
+    });
+
+    // Storage stats — reports plus the retained original uploads backing them.
+    const [totalOnline, approvedCount, uploadAgg] = await Promise.all([
       db.report.count({ where: { status: { in: ["SUBMITTED", "APPROVED"] } } }),
       db.report.count({ where: { status: "APPROVED" } }),
+      db.uploadedFile.aggregate({ where: { fileDiscarded: false }, _count: { id: true }, _sum: { sizeBytes: true } }),
     ]);
 
     return ok({
-      reports: filtered,
+      reports: withFiles,
       stats: {
         reportsOnline: totalOnline,
         approved: approvedCount,
-        archivedFiles: agg._count.id,
-        storageBytes: agg._sum.sizeBytes || 0,
+        archivedFiles: uploadAgg._count.id,
+        storageBytes: uploadAgg._sum.sizeBytes || 0,
       },
     });
-  });
-}
-
-/**
- * POST /api/archive — generate & store file snapshots online.
- * Body: { reportId, formats?: ["docx","xlsx","csv"] } (defaults to docx + xlsx)
- */
-export async function POST(req: NextRequest) {
-  return handle(async () => {
-    const me = await requireUser();
-    if (!isSupervisorLike(me)) return fail("Supervisor access required", 403);
-    const body = await req.json();
-    const { reportId, formats } = body as { reportId?: string; formats?: string[] };
-    if (!reportId) return fail("reportId is required");
-
-    const report = await db.report.findUnique({ where: { id: reportId }, select: { id: true, ref: true, status: true } });
-    if (!report) return fail("Report not found", 404);
-    if (!["SUBMITTED", "APPROVED"].includes(report.status))
-      return fail("Only submitted or approved reports can be stored online");
-
-    const wanted = (formats && formats.length ? formats : ["docx", "xlsx"])
-      .map((f) => f.toLowerCase())
-      .filter((f): f is StoreFormat => VALID_FORMATS.includes(f as StoreFormat));
-    if (!wanted.length) return fail("No valid formats requested");
-
-    const stored = await storeReportFiles(reportId, wanted, me.id, false);
-    await audit({
-      userId: me.id, actorName: me.fullName, action: "STORE_REPORT_ONLINE",
-      entity: "Report", entityId: reportId,
-      details: `${report.ref} → ${wanted.join(", ")} stored in online archive`,
-    });
-    return ok({ stored });
   });
 }

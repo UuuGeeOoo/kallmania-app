@@ -300,3 +300,23 @@ export function fmtDateTime(v: string | Date | null | undefined): string {
   if (!v) return "—";
   return new Date(v).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
+
+// ── Geo helpers (shape matches GET /api/geo countries payload) ──
+export interface GeoCountryLite {
+  code: string; // ISO-3166 alpha-2, e.g. "NG"
+  iso2: string; // alias of code — derived client-side for the location pickers
+  name: string;
+  flag: string; // emoji flag from the country dataset
+  phone: string; // international dial code, e.g. "+234"
+}
+
+/** Convert an ISO-3166 alpha-2 code to its emoji flag ("" for empty/invalid input). */
+export function flagEmoji(iso: string): string {
+  if (!iso || !/^[A-Za-z]{2}$/.test(iso.trim())) return "";
+  return iso
+    .trim()
+    .toUpperCase()
+    .split("")
+    .map((ch) => String.fromCodePoint(127397 + ch.charCodeAt(0)))
+    .join("");
+}

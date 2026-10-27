@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/kallmania/theme-provider";
+import BootGuard from "@/components/kallmania/boot-guard";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,6 +39,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
         <ThemeProvider>{children}</ThemeProvider>
+        <BootGuard />
         <Toaster />
       </body>
     </html>

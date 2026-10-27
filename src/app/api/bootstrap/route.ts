@@ -1,7 +1,19 @@
 import { db } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { handle, ok } from "@/lib/api-utils";
-import { AGENT_KPI_DEFS } from "@/lib/template-config";
+import { AGENT_KPI_DEFS, SOCIAL_TEMPLATE_KPIS } from "@/lib/template-config";
+
+// Default targets/units for the social media catalogue (editable in KPI Config).
+const SOCIAL_KPI_META: Record<string, { unit: string; defaultTarget: number }> = {
+  postsCreated: { unit: "count", defaultTarget: 4 },
+  storiesReels: { unit: "count", defaultTarget: 4 },
+  engagementRate: { unit: "percent", defaultTarget: 5 },
+  reachImpressions: { unit: "count", defaultTarget: 10000 },
+  followerGrowth: { unit: "count", defaultTarget: 50 },
+  commentsDMs: { unit: "count", defaultTarget: 30 },
+  calendarAdherence: { unit: "percent", defaultTarget: 90 },
+  graphicsDesigned: { unit: "count", defaultTarget: 4 },
+};
 
 /**
  * One-time bootstrap: seeds the administrator account (idempotent via SystemFlag).
@@ -30,6 +42,29 @@ export async function GET() {
         });
       }
       await db.systemFlag.create({ data: { key: "seeded_inbound_kpis_v1", value: new Date().toISOString() } });
+    }
+
+    // Seed the Social Media Team KPI catalogue — runs once, self-heals fresh environments.
+    const socialFlag = await db.systemFlag.findUnique({ where: { key: "seeded_social_kpis_v1" } });
+    if (!socialFlag) {
+      const existingSocial = await db.kpiConfig.count({ where: { department: "SOCIAL_MEDIA" } });
+      if (existingSocial === 0) {
+        await db.kpiConfig.createMany({
+          data: SOCIAL_TEMPLATE_KPIS.map((d, i) => ({
+            department: "SOCIAL_MEDIA",
+            key: d.key,
+            label: d.label,
+            category: "SOCIAL",
+            unit: SOCIAL_KPI_META[d.key]?.unit ?? "count",
+            direction: "HIGHER_BETTER",
+            defaultTarget: SOCIAL_KPI_META[d.key]?.defaultTarget ?? null,
+            derivedFrom: null,
+            mandatory: false,
+            sortOrder: i + 1,
+          })),
+        });
+      }
+      await db.systemFlag.create({ data: { key: "seeded_social_kpis_v1", value: new Date().toISOString() } });
     }
 
     const flag = await db.systemFlag.findUnique({ where: { key: "seeded_admin_v1" } });

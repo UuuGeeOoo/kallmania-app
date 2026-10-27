@@ -9,7 +9,7 @@ export function fail(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
-export async function handle(fn: () => Promise<NextResponse>): Promise<NextResponse> {
+export async function handle(fn: () => Promise<Response>): Promise<Response> {
   try {
     return await fn();
   } catch (e) {

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireUser, isSupervisorLike } from "@/lib/auth";
 import { handle, ok, fail, safeParse, toDateOrNull } from "@/lib/api-utils";
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
     const reportDate = toDateOrNull(fields.reportDate) || new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z");
 
     // Prepare data
-    const data: Record<string, unknown> = {
+    const data: Partial<Prisma.ReportUncheckedCreateInput> = {
       type: reportType,
       reportDate,
       department: fields.department || me.department,
@@ -79,7 +80,7 @@ export async function POST(req: NextRequest) {
 
     // Shared attendance
     for (const k of ["shiftTime", "clockIn", "clockOut", "attendanceStatus"]) {
-      if (k in fields) data[k] = fields[k] || null;
+      if (k in fields) (data as Record<string, unknown>)[k] = fields[k] || null;
     }
     if ("latenessMins" in fields) data.latenessMins = fields.latenessMins === "" || fields.latenessMins === null ? null : parseInt(String(fields.latenessMins), 10) || 0;
 
@@ -103,13 +104,13 @@ export async function POST(req: NextRequest) {
       }
     }
     for (const k of ["callLogs", "emailContext", "workEntries", "attendanceSummary", "teamKpiAverages", "coachingEntries", "escalatedIssues", "actionPlan", "payload"]) {
-      if (k in fields) data[k] = typeof fields[k] === "string" ? fields[k] : fields[k] ? JSON.stringify(fields[k]) : null;
+      if (k in fields) (data as Record<string, unknown>)[k] = typeof fields[k] === "string" ? fields[k] : fields[k] ? JSON.stringify(fields[k]) : null;
     }
     // metricsSummary: explicit values win; otherwise the SOCIAL derivation above already set it
     if ("metricsSummary" in fields) data.metricsSummary = typeof fields.metricsSummary === "string" ? fields.metricsSummary : fields.metricsSummary ? JSON.stringify(fields.metricsSummary) : null;
     else if (!("kpiMetrics" in fields) && reportType === "SOCIAL") data.metricsSummary = data.metricsSummary ?? null;
     for (const k of ["challenges", "escalations", "additionalActivities", "teamName", "campusLocation", "qaObservations", "highlights", "lowlights", "managerReview"]) {
-      if (k in fields) data[k] = fields[k] || null;
+      if (k in fields) (data as Record<string, unknown>)[k] = fields[k] || null;
     }
     if ("agentsManaged" in fields) data.agentsManaged = fields.agentsManaged === "" || fields.agentsManaged === null ? null : parseInt(String(fields.agentsManaged), 10) || 0;
 
@@ -128,7 +129,7 @@ export async function POST(req: NextRequest) {
       report = await db.report.update({ where: { id }, data: { ...data, status: submit ? "SUBMITTED" : existing.status === "REJECTED" && !submit ? "DRAFT" : existing.status } });
     } else {
       report = await db.report.create({
-        data: { ...data, ref: genRef(reportType), userId: me.id, status: submit ? "SUBMITTED" : "DRAFT" },
+        data: { ...(data as Prisma.ReportUncheckedCreateInput), ref: genRef(reportType), userId: me.id, status: submit ? "SUBMITTED" : "DRAFT" },
       });
     }
 

@@ -91,9 +91,9 @@ await editDocxCopy(filled, (doc: Doc) => {
   check("email filled", info?.[2]?.some((c) => c.includes("@sbtsgroup.com")) ?? false);
 
   const kpi = dump("key performance metrics");
-  check("KPI actual col 1 (calendar=4)", kpi?.[1]?.[2] === "4" ?? false);
-  check("KPI evidence note", JSON.stringify(kpi?.[1]).includes("calendar items signed off") ?? false);
-  check("KPI percent formatted", kpi?.[7]?.[2] === "92%" ?? false);
+  check("KPI actual col 1 (calendar=4)", kpi?.[1]?.[2] === "4");
+  check("KPI evidence note", JSON.stringify(kpi?.[1]).includes("calendar items signed off"));
+  check("KPI percent formatted", kpi?.[7]?.[2] === "92%");
 
   const tasks = dump("tasks assigned");
   check("task 1 row", JSON.stringify(tasks?.[1]).includes("Diwali carousel") ?? false);

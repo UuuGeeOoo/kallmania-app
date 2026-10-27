@@ -27,7 +27,7 @@ function sectionHeading(text: string) {
         columnSpan: 5,
         shading: { type: ShadingType.CLEAR, fill: HEADER_FILL },
         borders: cellBorders,
-        children: [new Paragraph({ children: [new TextRun({ text: `▸ ${text}`, bold: true, color: VIOLET, fontSize: 22 })] })],
+        children: [new Paragraph({ children: [new TextRun({ text: `▸ ${text}`, bold: true, color: VIOLET, size: 44 })] })],
       }),
     ],
   });
@@ -41,7 +41,7 @@ function headerRow(cells: string[]) {
         new TableCell({
           shading: { type: ShadingType.CLEAR, fill: HEADER_FILL },
           borders: cellBorders,
-          children: [new Paragraph({ children: [new TextRun({ text: c, bold: true, fontSize: 20, color: DARK })] })],
+          children: [new Paragraph({ children: [new TextRun({ text: c, bold: true, size: 40, color: DARK })] })],
         })
     ),
   });
@@ -54,7 +54,7 @@ function dataRow(cells: (string | null | undefined)[], bold = false, fill?: stri
         new TableCell({
           borders: cellBorders,
           ...(fill ? { shading: { type: ShadingType.CLEAR, fill } } : {}),
-          children: [new Paragraph({ children: [new TextRun({ text: c ?? "", bold, fontSize: 20, color: DARK })] })],
+          children: [new Paragraph({ children: [new TextRun({ text: c ?? "", bold, size: 40, color: DARK })] })],
         })
     ),
   });
@@ -68,10 +68,10 @@ function infoGrid(pairs: [string, string | null | undefined][]) {
     rows.push(
       new TableRow({
         children: [
-          new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 22, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: p1[0], bold: true, fontSize: 20 })] })] }),
-          new TableCell({ borders: cellBorders, width: { size: 28, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: p1[1] || "", fontSize: 20 })] })] }),
-          new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 22, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: p2?.[0] ?? "", bold: true, fontSize: 20 })] })] }),
-          new TableCell({ borders: cellBorders, width: { size: 28, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: p2?.[1] || "", fontSize: 20 })] })] }),
+          new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 22, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: p1[0], bold: true, size: 40 })] })] }),
+          new TableCell({ borders: cellBorders, width: { size: 28, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: p1[1] || "", size: 40 })] })] }),
+          new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 22, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: p2?.[0] ?? "", bold: true, size: 40 })] })] }),
+          new TableCell({ borders: cellBorders, width: { size: 28, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: p2?.[1] || "", size: 40 })] })] }),
         ],
       })
     );
@@ -84,12 +84,12 @@ function titleBlock(title: string) {
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 60 },
-      children: [new TextRun({ text: title, bold: true, fontSize: 30, color: DARK })],
+      children: [new TextRun({ text: title, bold: true, size: 60, color: DARK })],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 240 },
-      children: [new TextRun({ text: COMPANY_HEADER, fontSize: 22, color: VIOLET, bold: true })],
+      children: [new TextRun({ text: COMPANY_HEADER, size: 44, color: VIOLET, bold: true })],
     }),
   ];
 }
@@ -116,7 +116,7 @@ function kvTable5(heading: string, headers: string[], rows: (string | null)[][],
               new TableCell({
                 borders: cellBorders,
                 ...(firstColBold && ci === 0 ? { shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL } } : {}),
-                children: [new Paragraph({ children: [new TextRun({ text: c ?? "", bold: firstColBold && ci === 0, fontSize: 19 })] })],
+                children: [new Paragraph({ children: [new TextRun({ text: c ?? "", bold: firstColBold && ci === 0, size: 38 })] })],
               })
           ),
         })
@@ -138,7 +138,7 @@ function textSection(heading: string, content: string | null | undefined) {
         children: [
           new TableCell({
             borders: cellBorders,
-            children: [new Paragraph({ children: [new TextRun({ text: content || "", fontSize: 20 })] })],
+            children: [new Paragraph({ children: [new TextRun({ text: content || "", size: 40 })] })],
           }),
         ],
       }),
@@ -243,7 +243,7 @@ export async function buildAgentDocx(report: {
   sections.push(spacer());
 
   const provenance = `Data provenance: ${report.sourceType === "UPLOAD_EXTRACTED" ? "Extracted from uploaded document" : "Manually entered"} · Verification: ${report.verificationStatus?.replace(/_/g, " ")} · Status: ${report.status}`;
-  sections.push(new Paragraph({ children: [new TextRun({ text: provenance, italics: true, fontSize: 16, color: "6B7280" })] }));
+  sections.push(new Paragraph({ children: [new TextRun({ text: provenance, italics: true, size: 32, color: "6B7280" })] }));
 
   if (report.supervisorFeedback) {
     sections.push(spacer());
@@ -426,7 +426,7 @@ export async function buildGenericDocx(opts: {
   sections.push(textSection("ADDITIONAL ACTIVITIES", opts.additionalActivities));
 
   const provenance = `Data provenance: ${opts.sourceType === "UPLOAD_EXTRACTED" ? "Extracted from uploaded document" : "Manually entered"} · Verification: ${opts.verificationStatus?.replace(/_/g, " ")} · Status: ${opts.status}`;
-  sections.push(new Paragraph({ children: [new TextRun({ text: provenance, italics: true, fontSize: 16, color: "6B7280" })] }));
+  sections.push(new Paragraph({ children: [new TextRun({ text: provenance, italics: true, size: 32, color: "6B7280" })] }));
   if (opts.supervisorFeedback) {
     sections.push(spacer());
     sections.push(textSection("SUPERVISOR FEEDBACK", opts.supervisorFeedback));
@@ -478,17 +478,17 @@ export async function buildSocialDocx(report: {
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 80 },
-      children: [new TextRun({ text: "SBTS Group Global — Social Media Team Daily Report", bold: true, fontSize: 30, color: DARK })],
+      children: [new TextRun({ text: "SBTS Group Global — Social Media Team Daily Report", bold: true, size: 60, color: DARK })],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 60 },
-      children: [new TextRun({ text: "DAILY REPORT — SOCIAL MEDIA MANAGEMENT & CONTENT CREATION TEAM", bold: true, fontSize: 21, color: VIOLET })],
+      children: [new TextRun({ text: "DAILY REPORT — SOCIAL MEDIA MANAGEMENT & CONTENT CREATION TEAM", bold: true, size: 42, color: VIOLET })],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { after: 240 },
-      children: [new TextRun({ text: "SBTS Group Global", fontSize: 20, color: "6B7280" })],
+      children: [new TextRun({ text: "SBTS Group Global", size: 40, color: "6B7280" })],
     }),
 
     // ▸ STAFF INFORMATION
@@ -504,10 +504,10 @@ export async function buildSocialDocx(report: {
         ].map(([l1, v1, l2, v2]) =>
           new TableRow({
             children: [
-              new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 22, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: l1, bold: true, fontSize: 20 })] })] }),
-              new TableCell({ borders: cellBorders, width: { size: 28, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: v1, fontSize: 20 })] })] }),
-              new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 22, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: l2, bold: true, fontSize: 20 })] })] }),
-              new TableCell({ borders: cellBorders, width: { size: 28, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: v2, fontSize: 20 })] })] }),
+              new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 22, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: l1, bold: true, size: 40 })] })] }),
+              new TableCell({ borders: cellBorders, width: { size: 28, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: v1, size: 40 })] })] }),
+              new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 22, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: l2, bold: true, size: 40 })] })] }),
+              new TableCell({ borders: cellBorders, width: { size: 28, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: v2, size: 40 })] })] }),
             ],
           })
         ),
@@ -556,10 +556,10 @@ export async function buildSocialDocx(report: {
         ...(report.supervisorFeedback ? [dataRow([report.supervisorFeedback])] : []),
         new TableRow({
           children: [
-            new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 25, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: "Supervisor Name", bold: true, fontSize: 20 })] })] }),
-            new TableCell({ borders: cellBorders, width: { size: 25, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: report.reviewerName || "", fontSize: 20 })] })] }),
-            new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 25, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: "Signature / Date", bold: true, fontSize: 20 })] })] }),
-            new TableCell({ borders: cellBorders, width: { size: 25, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: "", fontSize: 20 })] })] }),
+            new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 25, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: "Supervisor Name", bold: true, size: 40 })] })] }),
+            new TableCell({ borders: cellBorders, width: { size: 25, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: report.reviewerName || "", size: 40 })] })] }),
+            new TableCell({ borders: cellBorders, shading: { type: ShadingType.CLEAR, fill: LIGHT_FILL }, width: { size: 25, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: "Signature / Date", bold: true, size: 40 })] })] }),
+            new TableCell({ borders: cellBorders, width: { size: 25, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [new TextRun({ text: "", size: 40 })] })] }),
           ],
         }),
       ],
@@ -568,7 +568,7 @@ export async function buildSocialDocx(report: {
 
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: "Confidential — For Internal Use Only", italics: true, fontSize: 16, color: "6B7280" })],
+      children: [new TextRun({ text: "Confidential — For Internal Use Only", italics: true, size: 32, color: "6B7280" })],
     }),
   ];
 
@@ -651,14 +651,14 @@ export async function buildTeamLeadDocx(report: {
   }
 
   const provenance = `Data provenance: ${report.sourceType === "UPLOAD_EXTRACTED" ? "Extracted from uploaded document" : "Manually entered"} · Verification: ${report.verificationStatus?.replace(/_/g, " ")} · Status: ${report.status}`;
-  out.push(new Paragraph({ children: [new TextRun({ text: provenance, italics: true, fontSize: 16, color: "6B7280" })] }));
+  out.push(new Paragraph({ children: [new TextRun({ text: provenance, italics: true, size: 32, color: "6B7280" })] }));
 
   out.push(spacer());
   out.push(
     kvTable5("REVIEW", ["Supervisor Name", "Signature / Date"], [[report.reviewerName || "", ""]], false)
   );
   out.push(spacer());
-  out.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "Confidential — For Internal Use Only", italics: true, fontSize: 16, color: "6B7280" })] }));
+  out.push(new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "Confidential — For Internal Use Only", italics: true, size: 32, color: "6B7280" })] }));
 
   return Buffer.from(await Packer.toBuffer(docShell(out)));
 }
