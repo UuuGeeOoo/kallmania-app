@@ -35,13 +35,9 @@ export async function GET(req: NextRequest) {
     };
     if (!supervisor) baseWhere.userId = me.id;
 
-    // Daily targets per department from KPI configuration
+    // Active KPI catalogue per department — the rows report forms submit
+    // against (also carries each row's default daily target)
     const configs = await db.kpiConfig.findMany({ where: { active: true } });
-    const targetsByDept: Record<string, Record<string, number | null>> = {};
-    for (const c of configs) {
-      if (!targetsByDept[c.department]) targetsByDept[c.department] = {};
-      targetsByDept[c.department][c.key] = c.defaultTarget;
-    }
 
     const fmt = (d: Date) => d.toISOString();
 
@@ -64,7 +60,7 @@ export async function GET(req: NextRequest) {
     const overview = (["daily", "weekly", "monthly"] as Period[]).map((p) => {
       const r = periodRange(date, p);
       const reports = overviewReports.filter((x) => inRange(x, r.start, r.end));
-      const secs = buildDeptSections(reports, targetsByDept, r.daysElapsed);
+      const secs = buildDeptSections(reports, configs, r.daysElapsed);
       const withData = secs.filter((s) => s.overall !== null);
       const totalKpis = secs.reduce((n, s) => n + s.kpis.length, 0);
       const tracked = secs.reduce((n, s) => n + s.kpis.filter((k) => k.achievement !== null).length, 0);
@@ -91,7 +87,7 @@ export async function GET(req: NextRequest) {
       select: { type: true, department: true, kpiMetrics: true, metricsSummary: true, reportDate: true },
     });
     const periodReports: AggReport[] = periodReportsRaw;
-    const sections = buildDeptSections(periodReports, targetsByDept, range.daysElapsed);
+    const sections = buildDeptSections(periodReports, configs, range.daysElapsed);
 
     // ── Trends (extended window ending at the selected period) ──
     const trendStart =
@@ -102,7 +98,7 @@ export async function GET(req: NextRequest) {
       where: { ...baseWhere, reportDate: { gte: new Date(trendStart + "T00:00:00.000Z") } },
       select: { type: true, department: true, kpiMetrics: true, metricsSummary: true, reportDate: true },
     });
-    const trends = buildTrends(date, period, trendReportsRaw as AggReport[], targetsByDept);
+    const trends = buildTrends(date, period, trendReportsRaw as AggReport[], configs);
 
     return ok({
       role: me.role,
