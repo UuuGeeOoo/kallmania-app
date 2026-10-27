@@ -71,16 +71,42 @@ export async function POST(req: NextRequest) {
           stats: result.stats,
           extractedAt: new Date().toISOString(),
           source: upload.originalName,
+          // Document-intelligence payload: structure map, evidence-backed
+          // findings, KPI routing trace, unmapped content, validation —
+          // kept for traceability between the source document and the report.
+          doc: result.doc
+            ? {
+                ir: result.doc.ir,
+                meta: result.doc.full.meta,
+                sections: result.doc.full.sections,
+                findings: result.doc.full.findings,
+                routed: result.doc.full.routed,
+                unmapped: result.doc.full.unmapped,
+                validation: result.doc.full.validation,
+                coverage: result.doc.full.coverage,
+                warnings: result.doc.full.warnings,
+              }
+            : null,
         }),
       },
     });
-    await audit({ userId: me.id, actorName: me.fullName, action: "EXTRACT_REPORT", entity: "UploadedFile", entityId: id, details: `${result.stats.fieldsFound} fields mapped from ${upload.originalName}` });
+    await audit({
+      userId: me.id, actorName: me.fullName, action: "EXTRACT_REPORT", entity: "UploadedFile", entityId: id,
+      details: `${result.stats.fieldsFound} fields mapped from ${upload.originalName} (format ${result.doc?.ir.format ?? "?"}, ${result.doc?.full.coverage.chunksRead ?? 0} AI chunk(s), ${result.doc?.full.unmapped.length ?? 0} unmapped item(s) preserved)`,
+    });
     return ok({
       status: "AWAITING_CONFIRMATION",
       fields: result.fields,
       sections: result.sections,
       stats: result.stats,
       rawTextPreview: result.rawText.slice(0, 3000),
+      doc: result.doc
+        ? {
+            ir: result.doc.ir,
+            full: result.doc.full,
+            markdown: result.doc.markdown,
+          }
+        : null,
     });
   });
 }

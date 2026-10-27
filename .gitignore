@@ -60,3 +60,10 @@ uploads-storage/
 tool-results/
 generated/
 scripts/push-main.sh
+
+# vendored reference repository (nirdiamant/genai_agents — non-commercial license,
+# inspected for patterns only; never committed)
+vendor/
+
+# local test evidence artifacts
+downloads/

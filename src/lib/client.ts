@@ -182,6 +182,82 @@ export interface ExtractedField {
   needsReview: boolean;
 }
 
+// ── Document-intelligence review payload (full extraction tab) ──
+
+export interface DocIntelMeta {
+  docType: string;
+  reportTypeGuess: string;
+  reportingPeriod?: string | null;
+  agentName?: string | null;
+  team?: string | null;
+  campaign?: string | null;
+  attendance?: { shiftTime?: string | null; clockIn?: string | null; clockOut?: string | null; attendanceStatus?: string | null; latenessMins?: number | null } | null;
+  departmentMismatch?: string | null;
+}
+
+export interface DocIntelFinding {
+  rawLabel: string;
+  value: number | string | null;
+  kind: "ACTUAL" | "TARGET" | "VARIANCE" | "UNKNOWN";
+  unit?: string | null;
+  evidence: string;
+  sourceRef: string;
+  confidence: number;
+  duplicateOf?: boolean;
+}
+
+export interface DocIntelRouted {
+  key: string;
+  label: string;
+  value: number | null;
+  kind: "ACTUAL" | "TARGET" | "VARIANCE" | "UNKNOWN";
+  unit: string;
+  confidence: number;
+  evidence: string;
+  sourceRef: string;
+  needsReview: boolean;
+  reviewReason?: string;
+  duplicates: number;
+  reportedVariance?: number | null;
+  reportedTarget?: number | null;
+}
+
+export interface DocIntelSection {
+  heading: string;
+  content: string;
+  sourceRef: string;
+}
+
+export interface DocIntelUnmapped {
+  label: string;
+  content: string;
+  sourceRef: string;
+  reason: string;
+}
+
+export interface DocIntelValidation {
+  severity: "ERROR" | "WARNING" | "INFO";
+  field: string;
+  message: string;
+}
+
+export interface DocIntelFull {
+  meta: DocIntelMeta;
+  sections: DocIntelSection[];
+  findings: DocIntelFinding[];
+  routed: DocIntelRouted[];
+  unmapped: DocIntelUnmapped[];
+  validation: DocIntelValidation[];
+  coverage: { fieldsMapped: number; fieldsTotal: number; sectionsCaptured: number; unmappedCount: number; chunksRead: number; aiStagesCompleted: number };
+  warnings: string[];
+}
+
+export interface DocIntelPayload {
+  ir: { format: string; routeNote: string; stats: { headings: number; tables: number; paragraphs: number; chars: number }; pages?: number; sheets?: string[] };
+  full: DocIntelFull;
+  markdown: string;
+}
+
 export async function api<T = unknown>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     headers: options?.body instanceof FormData ? undefined : { "Content-Type": "application/json" },

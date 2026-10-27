@@ -22,6 +22,10 @@ export async function POST(req: NextRequest) {
     const upload = await db.uploadedFile.findUnique({ where: { id: uploadId } });
     if (!upload) return fail("Upload not found", 404);
     if (upload.userId !== me.id) return fail("Only the uploader can confirm this extraction", 403);
+    // Duplicate-record guard: one confirmation per upload — a second submit
+    // would double-count the document's metrics in KPI dashboards.
+    if (upload.reportId) return fail("This upload was already confirmed as a report. Check your reports list — avoid submitting the same document twice.", 409);
+    if (upload.extractStatus === "SUBMITTED") return fail("This upload has already been confirmed and submitted", 409);
 
     const reportTypeByDept: Record<string, string> = { BPO: "AGENT_BPO", WEB_DEV: "TECH", SOCIAL_MEDIA: "SOCIAL" };
     const reportType = reportTypeByDept[department || upload.department || "BPO"] || "AGENT_BPO";

@@ -1,20 +1,36 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// INTELLIGENT REPORT EXTRACTION ENGINE
-// Extracts text from uploaded reports (PDF / DOCX / XLSX / CSV / TXT / images)
-// and maps content onto the master template fields. Uncertain values are
-// flagged — values are NEVER invented. Source location (page/sheet/section)
-// is recorded for supervisor verification.
+// INTELLIGENT REPORT EXTRACTION ENGINE (v2 — Document Intelligence pipeline)
+//
+// Upload → detect file type → parse (structure-preserving: tables, headings,
+// reading order) → understand (LLM, chunked full-document read) → extract
+// evidence-backed findings → route KPIs (deterministic engine, confidence-
+// gated) → validate (code) → human review → confirm.
+//
+// Patterns adapted from nirdiamant/genai_agents (Document Intake Agent:
+// "route deterministically, convert do not scrape, ground every answer";
+// One-Step Decision Router: confidence gates; Human-in-the-Loop Approval
+// Agent: code-side validation + reviewer gate). Reimplemented natively in
+// TypeScript for this stack — no repository code copied (non-commercial
+// license).
+//
+// Uncertain values are flagged — values are NEVER invented. Source location
+// (table/row/section/page/sheet) is recorded for verification. Content that
+// does not fit the template is PRESERVED in the full extraction instead of
+// being silently dropped.
 // ─────────────────────────────────────────────────────────────────────────────
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import { AGENT_KPI_DEFS, TECH_SUMMARY_METRICS, SOCIAL_SUMMARY_METRICS } from "@/lib/template-config";
+import { runDocumentIntelligence } from "./doc-intel/pipeline";
+import type { FullExtraction, DocumentIR } from "./doc-intel/types";
 
 export interface ExtractedField {
   key: string;
   label: string;
   value: number | string | null;
   confidence: "high" | "medium" | "low";
-  source: string; // e.g. "KPI table", "Section: CHALLENGES", "Sheet: Sheet1", "page 2"
+  /** e.g. "Table 2 row 3 — "Calls Made | 45" (router: exact match for "Total Calls Made")" */
+  source: string;
   needsReview: boolean;
 }
 
@@ -29,9 +45,15 @@ export interface ExtractionResult {
     additionalActivities?: string | null;
   };
   stats: { fieldsFound: number; fieldsNeedingReview: number; aiChecked: boolean; aiNote?: string };
+  /** Full document-intelligence payload (structure + findings + routing + validation) */
+  doc?: {
+    markdown: string;
+    ir: Pick<DocumentIR, "format" | "routeNote" | "stats" | "pages" | "sheets">;
+    full: FullExtraction;
+  } | null;
 }
 
-// ── Text extractors per format ──
+// ── Legacy flat-text extractors (kept for backward compatibility & fallbacks) ──
 
 export async function extractTextFromDocx(buffer: Buffer): Promise<string> {
   const { value } = await mammoth.extractRawText({ buffer });
@@ -60,42 +82,15 @@ export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   return typeof text === "string" ? text : Array.isArray(text) ? (text as string[]).join("\n") : "";
 }
 
-export async function extractTextFromImage(buffer: Buffer, mimeType: string): Promise<string> {
-  // OCR via z-ai-web-dev-sdk vision model — untrusted content treated as data only.
-  try {
-    const ZAI = (await import("z-ai-web-dev-sdk")).default;
-    const zai = await ZAI.create();
-    const b64 = buffer.toString("base64");
-    const completion = await zai.chat.completions.create({
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "Transcribe ALL text visible in this document image, preserving the reading order and table structure line by line. Keep every label and its value on the SAME line separated by ' | ' (e.g. 'Total Calls Made | 30'). Transcribe numbers exactly as printed — do not compute, round or infer anything. Output only the transcribed text, no commentary.",
-            },
-            { type: "image_url", image_url: { url: `data:${mimeType};base64,${b64}` } },
-          ],
-        },
-      ] as never,
-    });
-    const content = (completion as { choices?: { message?: { content?: string } }[] })?.choices?.[0]?.message?.content;
-    return content || "";
-  } catch (e) {
-    throw new Error("Image OCR unavailable for this file. Please use manual entry instead.");
-  }
-}
-
-// ── Field mapping ──
+// ── Deterministic label-matching fallback (runs on structured markdown) ──
 
 const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9%()/\s-]/g, " ").replace(/\s+/g, " ").trim();
 
-/** label aliases → template keys (supports the supervisor excel/csv originals + docx wording) */
+/** label aliases → template keys (deterministic belt-and-braces pass) */
 const LABEL_ALIASES: Record<string, string[]> = {
   totalCallsMade: ["total calls made", "total calls", "calls made", "outbound calls", "total outbound calls attempted"],
   totalMailsSent: ["total mails sent", "total emails sent", "emails sent", "mails sent"],
-  callsConnected: ["calls connected", "connected calls"],
+  callsConnected: ["calls connected", "connected calls", "calls answered"],
   successfulMailsSent: ["successful mails sent", "successful email deliveries", "delivered emails", "successful emails"],
   contactRate: ["contact rate"],
   conversionRate: ["conversion rate"],
@@ -125,7 +120,6 @@ const LABEL_ALIASES: Record<string, string[]> = {
   appointmentsBooked: ["appointments booked", "meetings booked"],
   prospectsContacted: ["prospects contacted"],
   followUpCalls: ["follow up calls completed", "follow-up calls"],
-  // tech summary
   tasksCompleted: ["tasks completed", "technical tasks completed"],
   bugsResolved: ["bugs resolved", "bug fixes", "bugs fixed"],
   supportTicketsResolved: ["support tickets resolved", "tickets resolved"],
@@ -133,7 +127,6 @@ const LABEL_ALIASES: Record<string, string[]> = {
   testCasesPassed: ["test cases passed"],
   milestonesDelivered: ["milestones delivered"],
   codeReviewsDone: ["code reviews done"],
-  // social summary
   postsPlanned: ["posts planned"],
   postsPublished: ["posts published"],
   reelsPublished: ["reels published", "reels videos published", "videos published"],
@@ -157,9 +150,7 @@ const SECTION_HEADINGS: { key: "challenges" | "escalations" | "additionalActivit
 ];
 
 function findNumberAfter(text: string, idx: number): { value: number; end: number } | null {
-  // Look for the first plausible number within ~120 chars after the label match
   const window = text.slice(idx, idx + 160);
-  // skip the label itself (may contain digits like "HOT / WARM")
   const m = window.match(/(:|\||\t|—|–|-|=|\s)\s*(-?\d[\d,]*(?:\.\d+)?)\s*(%|mins?|minutes)?/i);
   if (m) {
     const raw = m[2].replace(/,/g, "");
@@ -169,117 +160,17 @@ function findNumberAfter(text: string, idx: number): { value: number; end: numbe
   return null;
 }
 
-// ── Validation ──
-
-const PERCENT_KEYS = new Set(["contactRate", "conversionRate", "slaAdherence", "scheduleAdherence"]);
-
-/** Field-level sanity checks. Never alters a source value — flags it for review instead. */
-function validateField(key: string, value: number): { ok: boolean; note?: string } {
-  if (value < 0) return { ok: false, note: "negative value" };
-  if (PERCENT_KEYS.has(key) && value > 100) return { ok: false, note: "percent value above 100" };
-  if (!Number.isFinite(value)) return { ok: false, note: "not a finite number" };
-  return { ok: true };
-}
-
-// ── LLM-assisted extraction (context-aware, evidence-based) ──
-
-interface LlmField {
-  key: string;
-  value: number | string | null;
-  confidence: "high" | "medium" | "low";
-  evidence: string;
-}
-
-interface LlmExtraction {
-  documentType: string;
-  fields: LlmField[];
-  sections: { challenges?: string | null; escalations?: string | null; additionalActivities?: string | null };
-}
-
 /**
- * Second extraction stage: an LLM reads the whole document with the target
- * field list and returns evidence-backed values (or null). This catches values
- * the deterministic label-matching pass misses (different wording, tables,
- * numbers positioned before labels) and cross-checks the ones it found.
- * NEVER invents values — null means "not in the document". Failures are
- * non-fatal: the deterministic result stands on its own.
- */
-async function llmRefine(
-  rawText: string,
-  department: string,
-  defs: { key: string; label: string; unit?: string }[],
-  deterministic: Record<string, number>
-): Promise<{ llm: LlmExtraction | null; error?: string }> {
-  try {
-    const ZAI = (await import("z-ai-web-dev-sdk")).default;
-    const zai = await ZAI.create();
-    const fieldList = defs.map((d) => `- ${d.key} ("${d.label}"${d.unit ? `, unit: ${d.unit}` : ""})`).join("\n");
-    const detNotes = Object.entries(deterministic).map(([k, v]) => `${k}=${v}`).join(", ") || "none";
-    const system = [
-      "You are a precise data-extraction engine for daily staff reports.",
-      "Rules:",
-      "1. First determine the document type and its purpose (e.g. BPO outbound agent daily report, technical team report, social media report, supervisor report).",
-      "2. For EACH requested field, find its value in the document using the field's meaning, the labels/headings around it, and the table structure — never just because a number exists.",
-      "3. Distinguish the KPI summary table from other sections. Call-log rows like '2 | Florida Dept of Health - 813-307-8000 | Not Interested | No | said not interested' contain a ROW INDEX (the leading 2) and a call OUTCOME — neither is a KPI value. Phone numbers, example rows, page numbers and dates are NOT metric values.",
-      "4. Prefer a value stated in the KPI/summary table for that exact metric. When a metric is derived (e.g. a rate), extract it only if explicitly stated — do not calculate it.",
-      "5. If a value is genuinely absent, return null. NEVER guess or invent. Never reuse another field's value.",
-      "6. evidence = the exact text snippet (≤120 chars) that supports the value.",
-      "7. confidence: high = explicit label+value pair in a summary/KPI table; medium = clear contextual match; low = ambiguous.",
-      "Respond with STRICT JSON only, no markdown fences, in this exact shape:",
-      '{"documentType":"...","fields":[{"key":"...","value":123,"confidence":"high","evidence":"..."}],"sections":{"challenges":"... or null","escalations":"... or null","additionalActivities":"... or null"}}',
-      "sections text must be verbatim from the document (≤600 chars each), null when the section does not exist.",
-    ].join("\n");
-    const user = [
-      `Department context: ${department}`,
-      `A deterministic pass already extracted (may contain mistakes): ${detNotes}`,
-      `Requested fields:\n${fieldList}`,
-      "Document text:",
-      rawText.slice(0, 14000),
-    ].join("\n\n");
-
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: "assistant", content: system },
-        { role: "user", content: user },
-      ] as never,
-      thinking: { type: "disabled" },
-    });
-    const content = (completion as { choices?: { message?: { content?: string } }[] })?.choices?.[0]?.message?.content || "";
-    const cleaned = content.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start < 0 || end <= start) return { llm: null, error: "AI response was not JSON" };
-    const parsed = JSON.parse(cleaned.slice(start, end + 1)) as LlmExtraction;
-    if (!parsed || !Array.isArray(parsed.fields)) return { llm: null, error: "AI response had no fields" };
-    return { llm: parsed };
-  } catch (e) {
-    if (process.env.KALLMANIA_EXTRACT_DEBUG) console.error("[extract] llmRefine failed:", (e as Error).message);
-    return { llm: null, error: (e as Error).message };
-  }
-}
-
-/**
- * Map raw text onto template fields.
- * Strategy: for each KPI definition, scan alias labels; take the nearest number after the label.
- * Confidence high when label + number on same line; medium across lines; flagged otherwise.
+ * Deterministic fallback mapping on structured markdown (pipe tables keep
+ * "label | value" pairs on one line, so same-line matching is reliable).
+ * TABLE-AWARE: markdown tables are parsed as matrices and matched in two
+ * layouts — metrics-as-columns (XLSX exports) and metrics-as-rows with
+ * Target/Actual/Variance headers (the master template's own KPI table).
+ * Targets/actuals/variances are never confused with each other.
  */
 export function mapTextToFields(rawText: string, department: string): { fields: ExtractedField[]; sections: ExtractionResult["sections"] } {
   const lines = rawText.split(/\r?\n/);
   const normLines = lines.map((l) => normalize(l));
-  // Call-log rows (leading row index + pipes + phone numbers / disposition
-  // wording) poison the flat-text CONTEXT pass — the next row's index looks
-  // like the metric value (e.g. "... | Not Interested | No | ..." followed by
-  // "3 | East Lake Dental" reads as notInterested=3). They are excluded from
-  // the context text; the SAME-LINE pass above still reads every line, so real
-  // KPI tables in pipe format keep working.
-  const isCallLogRow = (l: string) =>
-    /^\s*\d+\s*\|/.test(l) &&
-    (/\d{3}[-\s]\d{3}[-\s]\d{4}/.test(l) || /(interested|callback|no answer|busy|wrong number|voicemail|meeting booked|hot lead|warm lead|requested for email)/i.test(l));
-  const contextText = lines.filter((l) => !isCallLogRow(l)).join("\n");
-  const flatNorm = normalize(contextText);
-  const fields: ExtractedField[] = [];
-  const claimed: [number, number][] = []; // char ranges consumed
-
   const relevantDefs =
     department === "WEB_DEV"
       ? TECH_SUMMARY_METRICS.map((m) => ({ key: m.key, label: m.label }))
@@ -287,16 +178,162 @@ export function mapTextToFields(rawText: string, department: string): { fields: 
         ? SOCIAL_SUMMARY_METRICS.map((m) => ({ key: m.key, label: m.label }))
         : AGENT_KPI_DEFS.map((d) => ({ key: d.key, label: d.label }));
 
+  const fields: ExtractedField[] = [];
+  const claimedKeys = new Set<string>();
+
+  const pushField = (f: ExtractedField) => {
+    if (claimedKeys.has(f.key)) return;
+    claimedKeys.add(f.key);
+    fields.push(f);
+  };
+
+  const parseNumCell = (s: string): number | null => {
+    const t = s.replace(/,/g, "").trim();
+    const m = /^(-?\d+(?:\.\d+)?)\s*(%|mins?|minutes)?$/i.exec(t);
+    if (!m) return null;
+    const v = parseFloat(m[1]);
+    return Number.isNaN(v) ? null : v;
+  };
+
+  type MdTable = { header: string[]; rows: string[][]; ref: string };
+  const tables: MdTable[] = [];
+  let i = 0;
+  let tableNo = 0;
+  while (i < lines.length) {
+    if (/^\s*\|.*\|\s*$/.test(lines[i])) {
+      const block: string[] = [];
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) block.push(lines[i].trim()), i++;
+      const cells = (l: string) => l.replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      const header = cells(block[0]);
+      const body = block.slice(1).filter((l) => !/^\|(\s*:?-+:?\s*\|)+$/.test(l));
+      if (header.length >= 2) {
+        tableNo++;
+        tables.push({ header, rows: body.map(cells), ref: `Table ${tableNo}` });
+      }
+      continue;
+    }
+    i++;
+  }
+
+  const SOFT_EXTRA = new Set(["total", "the", "of", "and", "for", "to", "in", "per", "a", "an", "your", "all", "overall", "no", "of"]);
+  const aliasHit = (cellText: string, alias: string): number => {
+    const c = normalize(cellText);
+    const a = normalize(alias);
+    if (!c || !a) return 0;
+    if (c === a) return 1;
+    if (c.includes(a)) return 0.85; // cell is a more specific phrase containing the alias
+    if (a.includes(c)) {
+      // alias contains the cell — only acceptable when the extra alias words are
+      // soft qualifiers ("total", "no"). A distinguishing qualifier (e.g. "via
+      // email" in "hot leads via email" vs cell "Hot Leads") must NOT match.
+      const extra = a.replace(c, " ").split(/\s+/).filter(Boolean);
+      if (extra.length && extra.every((t) => SOFT_EXTRA.has(t))) return 0.85;
+      return 0;
+    }
+    return 0;
+  };
+
+  for (const table of tables) {
+    const normHeader = table.header.map((h) => normalize(h));
+    const targetCol = normHeader.findIndex((h) => /^target\b/.test(h) || h === "target");
+    const varianceCol = normHeader.findIndex((h) => h.includes("variance") || h.includes("var."));
+    const actualCol =
+      normHeader.findIndex((h) => /^actual/.test(h) || h === "achieved" || h === "result" || h === "value");
+    const metricsAsRows = targetCol >= 0 || varianceCol >= 0 || actualCol >= 0;
+    const claimedCols = new Set<number>();
+    const claimedRows = new Set<number>();
+
+    for (const def of relevantDefs) {
+      const aliases = LABEL_ALIASES[def.key] || [normalize(def.label)];
+      let best: { field: ExtractedField; score: number; row?: number; col?: number } | null = null;
+
+      if (metricsAsRows) {
+        // Layout B: first column holds metric names; Target/Actual/Variance columns hold values
+        const labelCol = 0;
+        for (let r = 0; r < table.rows.length; r++) {
+          if (claimedRows.has(r)) continue;
+          const rowCells = table.rows[r];
+          const rowLabel = rowCells[labelCol] || "";
+          for (const alias of aliases) {
+            const hit = aliasHit(rowLabel, alias);
+            if (hit <= 0) continue;
+            const aCol = actualCol >= 0 ? actualCol : rowCells.length - 1;
+            const aRaw = parseNumCell(rowCells[aCol] ?? "");
+            if (aRaw === null) continue;
+            const tRaw = targetCol >= 0 ? parseNumCell(rowCells[targetCol] ?? "") : null;
+            const vRaw = varianceCol >= 0 ? parseNumCell(rowCells[varianceCol] ?? "") : null;
+            const bits = [`${table.ref} row ${r + 1} ("${rowLabel.slice(0, 40)}")`, `Actual column "${table.header[aCol]}"`];
+            if (tRaw !== null) bits.push(`document target: ${tRaw}`);
+            if (vRaw !== null) bits.push(`document variance: ${vRaw}`);
+            const field: ExtractedField = {
+              key: def.key,
+              label: def.label,
+              value: aRaw,
+              confidence: hit === 1 ? "high" : "medium",
+              source: bits.join(" · "),
+              needsReview: hit !== 1,
+            };
+            if (!best || hit > best.score) best = { field, score: hit, row: r };
+            break;
+          }
+        }
+      } else {
+        // Layout A: header cells hold metric names; data rows hold values
+        for (let c = 0; c < table.header.length; c++) {
+          if (claimedCols.has(c)) continue;
+          for (const alias of aliases) {
+            const hit = aliasHit(table.header[c], alias);
+            if (hit <= 0) continue;
+            for (const rowCells of table.rows) {
+              const vRaw = parseNumCell(rowCells[c] ?? "");
+              if (vRaw === null) continue;
+              const field: ExtractedField = {
+                key: def.key,
+                label: def.label,
+                value: vRaw,
+                confidence: hit === 1 ? "high" : "medium",
+                source: `${table.ref}, column "${table.header[c].slice(0, 40)}"`,
+                needsReview: hit !== 1,
+              };
+              if (!best || hit > best.score) best = { field, score: hit, col: c };
+              break;
+            }
+            break;
+          }
+        }
+      }
+
+      // Claim the winning row/column even when this def was already covered by
+      // the AI-routed pass — otherwise a later alias (e.g. "hot leads via email")
+      // steals the same row and produces a false duplicate field.
+      if (best) {
+        if (metricsAsRows && best.row !== undefined) claimedRows.add(best.row);
+        else if (best.col !== undefined) claimedCols.add(best.col);
+        if (!claimedKeys.has(def.key)) pushField(best.field);
+      }
+    }
+  }
+
+  // ── Pass 2: same-line matching on non-table lines ──
+  const isTableLine = (l: string) => /^\s*\|.*\|\s*$/.test(l);
+  const isCallLogRow = (l: string) =>
+    /^\s*\d+\s*\|/.test(l) &&
+    (/\d{3}[-\s]\d{3}[-\s]\d{4}/.test(l) || /(interested|callback|no answer|busy|wrong number|voicemail|meeting booked|hot lead|warm lead|requested for email)/i.test(l));
+  const contextText = lines.filter((l) => !isCallLogRow(l) && !isTableLine(l)).join("\n");
+  const flatNorm = normalize(contextText);
+  const claimed: [number, number][] = [];
+
   for (const def of relevantDefs) {
+    if (claimedKeys.has(def.key)) continue;
     const aliases = LABEL_ALIASES[def.key] || [normalize(def.label)];
     let found: ExtractedField | null = null;
     for (const alias of aliases) {
-      // 1) same-line match: "label ... number" within one line
-      for (let i = 0; i < lines.length; i++) {
-        const nl = normLines[i];
+      for (let li = 0; li < lines.length; li++) {
+        if (isTableLine(lines[li]) || isCallLogRow(lines[li])) continue;
+        const nl = normLines[li];
         if (!nl.includes(alias)) continue;
-        const numMatch = lines[i].match(/(-?\d[\d,]*(?:\.\d+)?)\s*(%|mins?|minutes)?\s*$/i) ||
-          lines[i].match(/[:|\t]\s*(-?\d[\d,]*(?:\.\d+)?)/);
+        const numMatch = lines[li].match(/(-?\d[\d,]*(?:\.\d+)?)\s*(%|mins?|minutes)?\s*$/i) ||
+          lines[li].match(/[:|\t]\s*(-?\d[\d,]*(?:\.\d+)?)/);
         if (numMatch) {
           const v = parseFloat(numMatch[1].replace(/,/g, ""));
           if (!Number.isNaN(v)) {
@@ -305,7 +342,7 @@ export function mapTextToFields(rawText: string, department: string): { fields: 
               label: def.label,
               value: v,
               confidence: "high",
-              source: `Line ${i + 1}: "${lines[i].trim().slice(0, 80)}"`,
+              source: `Line ${li + 1}: "${lines[li].trim().slice(0, 80)}"`,
               needsReview: false,
             };
             break;
@@ -313,7 +350,6 @@ export function mapTextToFields(rawText: string, department: string): { fields: 
         }
       }
       if (found) break;
-      // 2) flat-text match: label followed by a number
       const idx = flatNorm.indexOf(alias);
       if (idx >= 0) {
         const overlap = claimed.some(([s, e]) => idx >= s && idx < e);
@@ -334,19 +370,18 @@ export function mapTextToFields(rawText: string, department: string): { fields: 
         }
       }
     }
-    if (found) fields.push(found);
+    if (found) pushField(found);
   }
 
-  // Sections: challenges / escalations / additional activities
+  // ── Pass 3: narrative sections ──
   const sections: ExtractionResult["sections"] = {};
   for (const heading of SECTION_HEADINGS) {
-    for (let i = 0; i < lines.length; i++) {
-      const nl = normLines[i];
+    for (let li = 0; li < lines.length; li++) {
+      const nl = normLines[li];
       const hit = heading.aliases.some((a) => nl.includes(normalize(a)));
       if (!hit) continue;
-      // capture following non-empty lines until next section-like heading or blank gap
       const buf: string[] = [];
-      for (let j = i + 1; j < Math.min(i + 15, lines.length); j++) {
+      for (let j = li + 1; j < Math.min(li + 15, lines.length); j++) {
         const line = lines[j].trim();
         if (!line) {
           if (buf.length) break;
@@ -365,144 +400,93 @@ export function mapTextToFields(rawText: string, department: string): { fields: 
   return { fields, sections };
 }
 
+// ── Main entry: the document-intelligence pipeline ──
+
+const confBand = (c: number): ExtractedField["confidence"] => (c >= 0.85 ? "high" : c >= 0.6 ? "medium" : "low");
+
 export async function extractReport(
   buffer: Buffer,
   mimeType: string,
   originalName: string,
   department: string
 ): Promise<ExtractionResult> {
-  const ext = (originalName.split(".").pop() || "").toLowerCase();
-  let rawText = "";
-  let sourceNote = "file";
+  const empty = (error?: string): ExtractionResult => ({
+    ok: false,
+    error,
+    rawText: "",
+    fields: [],
+    sections: {},
+    stats: { fieldsFound: 0, fieldsNeedingReview: 0, aiChecked: false },
+    doc: null,
+  });
 
-  try {
-    if (ext === "docx" || mimeType.includes("wordprocessingml")) {
-      rawText = await extractTextFromDocx(buffer);
-      sourceNote = "DOCX document";
-    } else if (ext === "xlsx" || ext === "xls" || ext === "csv" || mimeType.includes("spreadsheetml") || mimeType.includes("excel") || mimeType.includes("csv")) {
-      const r = await extractTextFromXlsx(buffer);
-      rawText = r.text;
-      sourceNote = `Excel workbook (${r.sheetNames.join(", ")})`;
-    } else if (ext === "pdf" || mimeType === "application/pdf") {
-      rawText = await extractTextFromPdf(buffer);
-      sourceNote = "PDF document";
-    } else if (ext === "txt" || ext === "md" || mimeType.startsWith("text/")) {
-      rawText = buffer.toString("utf8");
-      sourceNote = "Text file";
-    } else if (mimeType.startsWith("image/") || ["png", "jpg", "jpeg", "webp"].includes(ext)) {
-      rawText = await extractTextFromImage(buffer, mimeType || "image/png");
-      sourceNote = "Image document (OCR)";
-    } else {
-      return { ok: false, error: `Unsupported file type: .${ext || mimeType}. Supported: PDF, DOCX, XLSX, CSV, TXT, PNG, JPEG.`, rawText: "", fields: [], sections: {}, stats: { fieldsFound: 0, fieldsNeedingReview: 0, aiChecked: false } };
-    }
-  } catch (e) {
-    return {
-      ok: false,
-      error: (e as Error).message || "Could not read the document. The file may be corrupted, handwritten, or a poor-quality scan — please use manual entry.",
-      rawText: "",
-      fields: [],
-      sections: {},
-      stats: { fieldsFound: 0, fieldsNeedingReview: 0, aiChecked: false },
-    };
+  const { ok, error, ir, full } = await runDocumentIntelligence(buffer, mimeType, originalName, department);
+  if (!ok || !ir || !full) return empty(error);
+
+  const markdown = ir.markdown.slice(0, 60000);
+
+  // Routed ACTUAL values → template fields (TARGET/VARIANCE kinds stay informational)
+  const routedFields: ExtractedField[] = full.routed
+    .filter((r) => r.kind === "ACTUAL" && r.value !== null)
+    .map((r) => {
+      const bits: string[] = [r.sourceRef];
+      if (r.evidence) bits.push(`"${r.evidence.slice(0, 80)}"`);
+      bits.push(`router: ${r.confidence >= 0.85 ? "confident" : "needs verification"} match`);
+      if (r.reportedTarget !== null && r.reportedTarget !== undefined) bits.push(`document target: ${r.reportedTarget}`);
+      if (r.reportedVariance !== null && r.reportedVariance !== undefined) bits.push(`document variance: ${r.reportedVariance}`);
+      if (r.duplicates > 0) bits.push(`seen ${r.duplicates + 1}× in document`);
+      return {
+        key: r.key,
+        label: r.label,
+        value: r.value,
+        confidence: confBand(r.confidence),
+        source: bits.join(" · "),
+        needsReview: r.needsReview,
+      } satisfies ExtractedField;
+    });
+
+  // Deterministic fallback for keys the AI/routing pass did not cover
+  const det = mapTextToFields(markdown, department);
+  const coveredKeys = new Set(routedFields.map((f) => f.key));
+  const mergedFields = [...routedFields];
+  for (const f of det.fields) {
+    if (coveredKeys.has(f.key)) continue;
+    mergedFields.push({ ...f, needsReview: true, source: `${f.source} · deterministic fallback` });
   }
 
-  const { fields, sections } = mapTextToFields(rawText || "", department);
-
-  // ── Stage 2: LLM cross-check + gap-fill (non-fatal) ──
-  // Deterministic high-confidence values stay unless contradicted by the AI
-  // cross-check (then flagged for review, value kept). Missing fields are
-  // filled from the AI only with real evidence; validation flags outliers.
-  let fieldsMerged = fields;
-  let sectionsMerged = sections;
-  let documentTypeNote = "";
-  let aiChecked = false;
-  let aiNote: string | undefined;
-  try {
-    const relevantDefs =
-      department === "WEB_DEV"
-        ? TECH_SUMMARY_METRICS.map((m) => ({ key: m.key, label: m.label }))
-        : department === "SOCIAL_MEDIA"
-          ? SOCIAL_SUMMARY_METRICS.map((m) => ({ key: m.key, label: m.label }))
-          : AGENT_KPI_DEFS.map((d) => ({ key: d.key, label: d.label, unit: d.unit }));
-    const detMap: Record<string, number> = {};
-    for (const f of fields) if (typeof f.value === "number") detMap[f.key] = f.value;
-    const { llm, error } = await llmRefine(rawText || "", department, relevantDefs, detMap);
-    if (!llm) {
-      aiChecked = false;
-      aiNote = error ? `AI cross-check unavailable (${error}) — values above come from the deterministic pass` : undefined;
+  // Validation issues surface on the matching field's source line
+  for (const issue of full.validation) {
+    const f = mergedFields.find((x) => x.key === issue.field);
+    if (f) {
+      f.needsReview = f.needsReview || issue.severity !== "INFO";
+      f.source = `${f.source} · ${issue.severity.toLowerCase()}: ${issue.message.slice(0, 140)}`;
     }
-    if (llm) {
-      aiChecked = true;
-      documentTypeNote = llm.documentType || "";
-      const llmByKey = new Map<string, LlmField>();
-      for (const lf of llm.fields || []) {
-        if (!lf || !lf.key) continue;
-        if (relevantDefs.some((d) => d.key === lf.key)) llmByKey.set(lf.key, lf);
-      }
-      const merged: ExtractedField[] = [];
-      for (const f of fields) {
-        const ai = llmByKey.get(f.key);
-        if (typeof f.value === "number") {
-          const v = validateField(f.key, f.value);
-          if (!v.ok) {
-            f.needsReview = true;
-            f.source = `${f.source} · validation: ${v.note}`;
-          }
-          if (ai && typeof ai.value === "number" && Math.abs(ai.value - f.value) > 1e-9) {
-            f.needsReview = true;
-            f.source = `${f.source} · AI cross-check suggests ${ai.value} ("${String(ai.evidence || "").slice(0, 60)}")`;
-          } else if (f.confidence !== "high" && ai && (ai.value === null || ai.value === undefined || ai.value === "")) {
-            // Deterministic guess (context match) the AI could not confirm anywhere
-            // in the document — almost always a false-positive label collision
-            // (e.g. a call-log row matching a KPI alias). Flag, keep the value.
-            f.needsReview = true;
-            f.source = `${f.source} · AI cross-check: value not found in document — verify or clear`;
-          }
-          merged.push(f);
-        } else {
-          merged.push(f);
-        }
-      }
-      // Gap-fill: fields the deterministic pass missed entirely
-      for (const def of relevantDefs) {
-        if (merged.some((f) => f.key === def.key)) continue;
-        const ai = llmByKey.get(def.key);
-        if (!ai || ai.value === null || ai.value === undefined || ai.value === "") continue;
-        const num = typeof ai.value === "number" ? ai.value : parseFloat(String(ai.value).replace(/,/g, ""));
-        if (Number.isNaN(num)) continue;
-        const v = validateField(def.key, num);
-        const conf = ai.confidence === "high" ? "medium" : "low"; // AI-only findings never claim high
-        merged.push({
-          key: def.key,
-          label: def.label,
-          value: num,
-          confidence: conf,
-          source: `AI extraction${documentTypeNote ? ` (${documentTypeNote})` : ""}: "${String(ai.evidence || "").slice(0, 80)}"${v.ok ? "" : ` · validation: ${v.note}`}`,
-          needsReview: true,
-        });
-      }
-      fieldsMerged = merged;
-      // Sections: deterministic wins when present, AI fills the gaps
-      sectionsMerged = {
-        challenges: sections.challenges || (llm.sections?.challenges || null),
-        escalations: sections.escalations || (llm.sections?.escalations || null),
-        additionalActivities: sections.additionalActivities || (llm.sections?.additionalActivities || null),
-      };
-    }
-  } catch {
-    // AI stage is best-effort — deterministic result already usable
   }
+
+  const aiChecked = full.coverage.aiStagesCompleted > 0;
+  const aiNote = !aiChecked && full.warnings.length
+    ? `AI stages unavailable (${full.warnings[0].slice(0, 120)}) — values above come from the deterministic pass`
+    : full.meta.departmentMismatch || undefined;
 
   return {
     ok: true,
-    rawText: (rawText || "").slice(0, 30000),
-    fields: fieldsMerged,
-    sections: sectionsMerged,
+    rawText: markdown,
+    fields: mergedFields,
+    sections: {
+      challenges: det.sections.challenges || null,
+      escalations: det.sections.escalations || null,
+      additionalActivities: det.sections.additionalActivities || null,
+    },
     stats: {
-      fieldsFound: fieldsMerged.length,
-      fieldsNeedingReview: fieldsMerged.filter((f) => f.needsReview).length,
+      fieldsFound: mergedFields.length,
+      fieldsNeedingReview: mergedFields.filter((f) => f.needsReview).length,
       aiChecked,
       aiNote,
+    },
+    doc: {
+      markdown: ir.markdown.slice(0, 60000),
+      ir: { format: ir.format, routeNote: ir.routeNote, stats: ir.stats, pages: ir.pages, sheets: ir.sheets },
+      full,
     },
   };
 }
