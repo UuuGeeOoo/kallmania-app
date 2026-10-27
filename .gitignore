@@ -58,3 +58,4 @@ uploads-storage/
 
 # tool results (internal)
 tool-results/
+generated/

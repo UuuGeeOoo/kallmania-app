@@ -192,6 +192,22 @@ export const SOCIAL_SUMMARY_METRICS = [
   { key: "campaignLeads", label: "Campaign Leads / Conversions" },
 ];
 
+/**
+ * KPI rows of the SOCIAL media agent report template (the same 8 rows the
+ * Word master carries) — label fallback when rendering social reports into
+ * archive files (xlsx/csv) whose metric rows only carry keys.
+ */
+export const SOCIAL_TEMPLATE_KPIS = [
+  { key: "postsCreated", label: "Posts Created / Published" },
+  { key: "storiesReels", label: "Stories / Reels Created" },
+  { key: "engagementRate", label: "Content Engagement Rate (%)" },
+  { key: "reachImpressions", label: "Reach / Impressions" },
+  { key: "followerGrowth", label: "Follower Growth (Net)" },
+  { key: "commentsDMs", label: "Comments / DMs Responded To" },
+  { key: "calendarAdherence", label: "Content Calendar Adherence (%)" },
+  { key: "graphicsDesigned", label: "Graphics / Visuals Designed" },
+];
+
 export const SUPERVISOR_ACTIVITY_TYPES = [
   "Meetings & Briefings",
   "Agent / Staff Coaching",
