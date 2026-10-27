@@ -59,3 +59,4 @@ uploads-storage/
 # tool results (internal)
 tool-results/
 generated/
+scripts/push-main.sh
