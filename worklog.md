@@ -773,3 +773,20 @@ Work Log:
 
 Stage Summary:
 - GitHub fully synced through 61a7d8e with the rotated PAT; pushes now route via scripts/push-main.sh (gitignored); Supabase remains in sync (schema + TL_SOCIAL master 8d520f88 + healed master files verified earlier this pass)
+
+---
+Task ID: 38 (site currency verification)
+Agent: main (Z.ai)
+Task: User asked to check the site is up to date with git code and Supabase data
+
+Work Log:
+- Env: DATABASE_URL -> Supabase PostgreSQL (aws-0-eu-west-1 pooler), not SQLite; git tree clean at 006303c; dev server :3000 up (processes started 15:37, in step with last app-code commit 398f0a5 15:37:22; next dev serves from disk == HEAD)
+- Auth live: admin login 200 {"success":true} against Supabase users
+- Master registry via site API (/api/report-templates/master): 5 masters with hashes identical to disk verification — TL_SOCIAL 8d520f88 SBTS master served; row updatedAt 16:09 shows site-side self-heal updated rows on read
+- Data probes: /api/reports 16 rows, /api/uploads 12 rows with new fileDiscarded schema fields — all from Supabase
+- KPI wiring (398f0a5) live: /api/kpi returns reconstructed DTO (range.daysElapsed/daysTotal), /api/kpi/summary works
+- Task 36/37 routes live in server: uploads/text, draft-preview, draft-export all return app-level JSON for bogus ids
+- Preview tarball tlmaster38 (15:35, predates commit timestamp as expected) verified by extraction: daysElapsed marker + draft-export + TL_SOCIAL present in built bundle; later commits (8d60dad..006303c) touch worklog/scripts/.gitignore only
+
+Stage Summary:
+- Site (dev :3000 and preview build) confirmed code-current with git HEAD and data-current with Supabase; masters self-healed and hash-verified end-to-end
