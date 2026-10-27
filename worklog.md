@@ -727,3 +727,20 @@ Work Log:
 
 Stage Summary:
 - The Social Media Team Lead daily report (Somtochukwu, Enugu centre) now prints from the exact uploaded SBTS Word master: the lead fills a form that mirrors the document 1:1, "work done from my day" auto-fills from the Tasks module, generated DOCX/preview carry the original design with the ORIGINAL TEMPLATE DESIGN badge, and the master itself is sha256-verified untouched — self-seeded from git so it survives workspace syncs
+
+---
+Task ID: 38 (delivery completion addendum)
+Agent: main (Z.ai)
+Task: User re-sent the SBTS Social Media Team-Lead template ("use this report template for them") — verify shipping state; uncovered and repaired platform-sync casualties
+
+Work Log:
+- Verified TL_SOCIAL master state: user's upload sha256 8d520f88 == bundled assets/report-templates/Daily_Report_Social_Media_Team_Lead.docx == Supabase ReportMasterTemplate row (23,528 bytes) — template live for the Enugu social media team lead
+- Platform sync had reset .env to SQLite (repaired), wiped uploads-storage/ (12 non-discarded upload originals lost from disk — extracted text drafts remain in DB, masters self-heal from bundled git assets), and origin/main held a broken amend (3c644ea) missing template-config SOCIAL_TEMPLATE_KPIS + generated/ gitignore — restored via commit 3c921cc
+- git reset --hard to origin/main surfaced a bigger casualty: the verified-but-uncommitted kpi-aggregate.ts rewrite (KPI dashboard lib) was destroyed; no recoverable copy in dangling commits/blobs/.next — reconstructed from committed contracts (/api/kpi route + kpi-view.tsx DTOs): Period daily|weekly|monthly, periodRange(date, period) → daysElapsed/daysTotal, AggReport, buildDeptSections, buildTrends, achievementTone
+- Design decision: department KPI rows now come from the active KpiConfig catalogue (what report forms submit against — BPO 30 / INBOUND 9 / WEB_DEV 9 / SOCIAL_MEDIA 8 rows with units + defaultTargets), template defs only as fallback; /api/kpi route rewired to pass the catalogue (commit 398f0a5)
+- Verified standalone build vs live Supabase: weekly overview 21.36% (3 reports, 43 KPIs tracked), monthly 88.44% (13 reports), BPO section 15 rows with catalogue-driven targets (e.g. Total Calls Made 3 vs 25/day × 2 elapsed = 6%), trends 8 buckets with headline highlights; empty SOCIAL section is honest data (legacy report with all-null BPO-style metric rows)
+- tsc: only the documented pre-existing errors remain (word-export/otp/report-files/archive/consolidated etc.); zero in reconstructed files
+- BUILD_ID tlmaster38 pushed to preview via Complete; dev server restarted healthy on :3000
+
+Stage Summary:
+- The uploaded SBTS Social Media Team-Lead master is confirmed live for Enugu (Supabase row + git asset + upload all hash-identical); the KPI analytics dashboard lib lost to the workspace sync was rebuilt from its committed contracts and verified against production data; GitHub, Supabase, preview and dev environment all consistent
