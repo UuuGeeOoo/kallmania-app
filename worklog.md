@@ -744,3 +744,18 @@ Work Log:
 
 Stage Summary:
 - The uploaded SBTS Social Media Team-Lead master is confirmed live for Enugu (Supabase row + git asset + upload all hash-identical); the KPI analytics dashboard lib lost to the workspace sync was rebuilt from its committed contracts and verified against production data; GitHub, Supabase, preview and dev environment all consistent
+
+---
+Task ID: 38 (status verification addendum)
+Agent: main (Z.ai)
+Task: User asked "is it updated to git and supabase?" — full verification pass
+
+Work Log:
+- Git: pushed final autosave commit 8d60dad (worklog only); remote main == local HEAD, history intact incl. Task 36 b9d6d44, Task 37 9abf3e4, Task 38 3c644ea + restores 3c921cc/398f0a5; working tree clean
+- Supabase: prisma db push reports "already in sync"; ReportMasterTemplate rows verified — TL_SOCIAL = SBTS-Daily-Report-Social Media Team-Lead.docx, 23,528B, hash 8d520f88
+- Platform sync had wiped uploads-storage/ again; re-materialised all 5 bundled masters via heal-masters.ts (getMasterBuffer self-heal path) — ALL MASTERS HEALTHY, disk sha256 == DB fileHash for AGENT_BPO/SUPERVISOR/TECH/SOCIAL/TL_SOCIAL
+- TL_SOCIAL hash chain proven end-to-end: user upload == git asset == Supabase row == healed disk file (8d520f88b3c105de)
+- scripts/heal-masters.ts persisted as reusable post-reset health check
+
+Stage Summary:
+- GitHub and Supabase fully in sync; Enugu social media team lead (TL_SOCIAL) SBTS master live and hash-verified across all four copies; masters resilient to future workspace wipes via bundled assets + self-heal
