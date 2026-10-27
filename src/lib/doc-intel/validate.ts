@@ -72,8 +72,44 @@ function coverageIssues(department: DocIntelDepartment, routed: RoutedKpi[], fie
       }
     }
   }
+  if (department === "MANAGEMENT") {
+    for (const def of ["totalOnShift", "presentOnTime", "totalCallsMade", "contactRate"]) {
+      if (!mappedKeys.has(def)) {
+        issues.push({ severity: "INFO", field: def, message: `Team metric "${def}" is not stated in the source document — the supervisor template row stays empty rather than inventing a value.` });
+      }
+    }
+  }
   if (mappedKeys.size === 0 && fieldsTotal > 0) {
     issues.push({ severity: "WARNING", field: "extraction", message: "No metric in the document matched a template field. Check the Full extraction tab — the content is preserved there and can be copied into fields manually." });
+  }
+  return issues;
+}
+
+/**
+ * Supervisor attendance arithmetic: agents on shift cannot exceed the shift
+ * headcount, and present + late + early departures cannot exceed on-shift.
+ * Pure code checks — the reported values themselves are never rewritten.
+ */
+function validateSupervisorAttendance(routed: RoutedKpi[]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const num = (key: string): number | null => {
+    const r = routed.find((x) => x.key === key && x.value !== null);
+    return typeof r?.value === "number" ? r.value : null;
+  };
+  const onShift = num("totalOnShift");
+  const present = num("presentOnTime");
+  const late = num("lateArrivals");
+  const early = num("earlyDepartures");
+  const absentE = num("absentExcused");
+  const absentU = num("absentUnexcused");
+  if (onShift !== null && present !== null && late !== null && present + late > onShift) {
+    issues.push({ severity: "WARNING", field: "totalOnShift", message: `Attendance arithmetic: Present & On-Time (${present}) + Late Arrivals (${late}) exceeds Total Agents on Shift (${onShift}). The reported figures are preserved — verify the rows were read from the correct table.` });
+  }
+  if (onShift !== null && present !== null && late !== null && early !== null && present + late - early > onShift) {
+    issues.push({ severity: "WARNING", field: "earlyDepartures", message: `Attendance arithmetic: on-shift headcount minus early departures still exceeds Total Agents on Shift. Verify the Early Departures count.` });
+  }
+  if (absentE !== null && absentU !== null && absentE > 0 && absentU > 0) {
+    issues.push({ severity: "INFO", field: "absentExcused", message: `Both absence types reported (excused ${absentE}, unexcused ${absentU}) — confirm each count came from its own row, not the same cell twice.` });
   }
   return issues;
 }
@@ -86,6 +122,7 @@ export function runValidation(
   const issues: ValidationIssue[] = [];
   for (const r of routed) issues.push(...validateValue(r));
   issues.push(...validateFormulaConsistency(routed));
+  if (department === "MANAGEMENT") issues.push(...validateSupervisorAttendance(routed));
   issues.push(...coverageIssues(department, routed, full.coverage.fieldsTotal));
   return issues;
 }

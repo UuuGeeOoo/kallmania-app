@@ -22,6 +22,8 @@ import {
   AGENT_KPI_DEFS,
   TECH_SUMMARY_METRICS,
   SOCIAL_SUMMARY_METRICS,
+  SUPERVISOR_TEAM_KPIS,
+  ATTENDANCE_ROWS,
   getKpiDef,
 } from "@/lib/template-config";
 import type {
@@ -41,8 +43,18 @@ export interface RouteTarget {
   aliases: string[];
   /** Never map a finding whose label strongly resembles one of these keys */
   guards: string[];
-  section?: "challenges" | "escalations" | "additionalActivities";
+  section?:
+    | "challenges"
+    | "escalations"
+    | "additionalActivities"
+    | "qaObservations"
+    | "coaching"
+    | "highlights"
+    | "lowlights"
+    | "actionPlan";
   field?: string; // non-KPI report field (attendance block etc.)
+  /** Destination structure hint for the confirm step (e.g. "attendance" → attendanceSummary JSON) */
+  category?: string;
 }
 
 const normalize = (s: string) =>
@@ -111,9 +123,81 @@ const BPO_GUARDS: Record<string, string[]> = {
 
 const SECTION_TARGETS: RouteTarget[] = [
   { key: "challenges", label: "Challenges / Blockers", unit: "text", aliases: ["challenges / blockers", "challenges/blockers", "challenges and blockers", "challenges encountered", "challenges", "blockers", "operational difficulties", "problems faced"], guards: [], section: "challenges" },
-  { key: "escalations", label: "Escalations", unit: "text", aliases: ["escalations", "escalation", "issues escalated", "escalated issues"], guards: [], section: "escalations" },
+  { key: "escalations", label: "Escalations", unit: "text", aliases: ["escalations", "escalation", "issues escalated", "escalated issues", "issues escalated to management"], guards: [], section: "escalations" },
   { key: "additionalActivities", label: "Additional Activities", unit: "text", aliases: ["additional activities", "other activities", "additional work", "additional responsibilities", "other responsibilities", "tasks completed beyond", "additional tasks"], guards: [], section: "additionalActivities" },
 ];
+
+/** Supervisor master template sections (Quality Assurance, Coaching, Highlights, Action Plan). */
+const SUPERVISOR_SECTION_TARGETS: RouteTarget[] = [
+  { key: "qaObservations", label: "Quality Assurance Observations", unit: "text", aliases: ["quality assurance observations", "quality assurance", "qa observations", "qa notes", "quality observations"], guards: [], section: "qaObservations" },
+  { key: "coaching", label: "Coaching & Feedback Provided", unit: "text", aliases: ["coaching & feedback provided", "coaching and feedback provided", "coaching and feedback", "coaching feedback", "coaching provided", "coaching", "feedback provided"], guards: [], section: "coaching" },
+  { key: "highlights", label: "Shift Highlights", unit: "text", aliases: ["shift highlights & lowlights", "shift highlights and lowlights", "shift highlights", "highlights"], guards: ["lowlights"], section: "highlights" },
+  { key: "lowlights", label: "Shift Lowlights", unit: "text", aliases: ["lowlights", "shift lowlights", "low lights"], guards: ["highlights"], section: "lowlights" },
+  { key: "actionPlan", label: "Action Plan for Next Day", unit: "text", aliases: ["action plan for next day", "action plan", "next day action plan", "plan for tomorrow"], guards: [], section: "actionPlan" },
+];
+
+function sectionTargetsForDepartment(department: DocIntelDepartment): RouteTarget[] {
+  return department === "MANAGEMENT" ? [...SUPERVISOR_SECTION_TARGETS, ...SECTION_TARGETS] : SECTION_TARGETS;
+}
+
+/**
+ * Supervisor template destinations — TEAM-level KPIs (never agent-level rows)
+ * and the team attendance counts. Guards block the classic supervisor-table
+ * confusions: Conversion vs Contact rate, SLA vs Schedule adherence,
+ * Present & On-Time vs Total on Shift, Late Arrivals vs Early Departures,
+ * Absent (Excused) vs Absent (Unexcused).
+ */
+const SUPERVISOR_ALIASES: Record<string, string[]> = {
+  totalCallsMade: ["total calls made (team)", "total calls made", "team calls made", "calls made (team)", "team total calls"],
+  avgCallsPerAgent: ["avg. calls per agent", "average calls per agent", "avg calls per agent", "avg calls/agent"],
+  conversionRate: ["team conversion rate (%)", "team conversion rate", "conversion rate (team)", "team conversion"],
+  contactRate: ["team contact rate (%)", "team contact rate", "contact rate (team)", "team contact"],
+  avgTalkTime: ["avg. talk time (mins)", "average talk time (mins)", "avg talk time", "average talk time", "team talk time", "talk time (mins)"],
+  slaAdherence: ["sla adherence (%)", "sla adherence", "sla"],
+  leadsGenerated: ["hot / warm leads generated", "hot/warm leads generated", "hot / warm leads", "leads generated (team)", "team leads generated"],
+  scheduleAdherence: ["schedule adherence (%)", "schedule adherence"],
+  totalOnShift: ["total agents on shift", "agents on shift", "total on shift", "agents present on shift"],
+  presentOnTime: ["present & on-time", "present & on time", "present and on-time", "present and on time", "on-time arrivals", "present on time"],
+  lateArrivals: ["late arrivals", "late arrival", "agents late", "lateness"],
+  absentExcused: ["absent (excused)", "absent excused", "excused absences", "absence excused"],
+  absentUnexcused: ["absent (unexcused)", "absent unexcused", "unexcused absences", "absence unexcused"],
+  earlyDepartures: ["early departures", "early departure", "left early"],
+};
+
+const SUPERVISOR_GUARDS: Record<string, string[]> = {
+  conversionRate: ["contactRate"],
+  contactRate: ["conversionRate"],
+  slaAdherence: ["scheduleAdherence"],
+  scheduleAdherence: ["slaAdherence"],
+  avgCallsPerAgent: ["totalCallsMade"],
+  totalCallsMade: ["avgCallsPerAgent"],
+  totalOnShift: ["presentOnTime", "agentsManaged"],
+  presentOnTime: ["totalOnShift", "lateArrivals"],
+  lateArrivals: ["earlyDepartures", "presentOnTime", "absentExcused", "absentUnexcused"],
+  earlyDepartures: ["lateArrivals"],
+  absentExcused: ["absentUnexcused", "lateArrivals"],
+  absentUnexcused: ["absentExcused"],
+};
+
+/** Supervisor numeric targets: 8 team-performance KPIs + 6 attendance counts. */
+function supervisorTargets(): RouteTarget[] {
+  const teamKpis: RouteTarget[] = SUPERVISOR_TEAM_KPIS.map((m) => ({
+    key: m.key,
+    label: m.label,
+    unit: (m.label.includes("(%)") ? "percent" : m.label.includes("mins") ? "minutes" : "count") as RouteTarget["unit"],
+    aliases: [...(SUPERVISOR_ALIASES[m.key] ?? []), normalize(m.label)],
+    guards: SUPERVISOR_GUARDS[m.key] ?? [],
+  }));
+  const attendance: RouteTarget[] = ATTENDANCE_ROWS.map((r) => ({
+    key: r.key,
+    label: r.label,
+    unit: "count" as const,
+    aliases: [...(SUPERVISOR_ALIASES[r.key] ?? []), normalize(r.label)],
+    guards: SUPERVISOR_GUARDS[r.key] ?? [],
+    category: "attendance",
+  }));
+  return [...teamKpis, ...attendance];
+}
 
 function targetsForDepartment(department: DocIntelDepartment): RouteTarget[] {
   if (department === "WEB_DEV") {
@@ -139,6 +223,9 @@ function targetsForDepartment(department: DocIntelDepartment): RouteTarget[] {
       })),
       ...SECTION_TARGETS,
     ];
+  }
+  if (department === "MANAGEMENT") {
+    return [...supervisorTargets(), ...SUPERVISOR_SECTION_TARGETS, ...SECTION_TARGETS];
   }
   return [
     ...AGENT_KPI_DEFS.map((d) => ({
@@ -222,7 +309,16 @@ export interface RoutingOutput {
   routed: RoutedKpi[];
   unmapped: UnmappedItem[];
   issues: ValidationIssue[];
-  sectionText: { challenges?: string | null; escalations?: string | null; additionalActivities?: string | null };
+  sectionText: {
+    challenges?: string | null;
+    escalations?: string | null;
+    additionalActivities?: string | null;
+    qaObservations?: string | null;
+    coaching?: string | null;
+    highlights?: string | null;
+    lowlights?: string | null;
+    actionPlan?: string | null;
+  };
   attendance: {
     shiftTime?: string | null;
     clockIn?: string | null;
@@ -330,6 +426,38 @@ export function routeKpis(
     winners.set(guardedKey, list);
   }
 
+  // 1.5) Generic column-header targets/variances: when a table prints the
+  // column header ("Team Target", "Variance") instead of repeating the row
+  // label, the AI reports kind TARGET/VARIANCE with the COLUMN name. Pair it
+  // with the ACTUAL finding routed from the SAME table row (identical
+  // sourceRef) so the reported target/variance reaches the right KPI row.
+  const GENERIC_TARGET_RE = /^(?:team\s+)?target(?:\s*\(%\))?$|^target$/i;
+  const GENERIC_VARIANCE_RE = /^(?:team\s+)?variance(?:\s*\(%\))?$|^variance$|^difference$/i;
+  const genericExtras = new Map<string, { target?: number; variance?: number }>();
+  const routedActualsByRef = new Map<string, Set<string>>();
+  for (const [key, cands] of winners) {
+    for (const c of cands) {
+      if (c.finding.kind !== "ACTUAL") continue;
+      const set = routedActualsByRef.get(c.finding.sourceRef) ?? new Set<string>();
+      set.add(key);
+      routedActualsByRef.set(c.finding.sourceRef, set);
+    }
+  }
+  for (const tf of findings) {
+    if (typeof tf.value !== "number") continue;
+    const label = tf.rawLabel.trim();
+    const isTarget = GENERIC_TARGET_RE.test(label);
+    const isVariance = GENERIC_VARIANCE_RE.test(label);
+    if (!isTarget && !isVariance) continue;
+    const keysAtRef = routedActualsByRef.get(tf.sourceRef);
+    if (!keysAtRef || keysAtRef.size !== 1) continue; // ambiguous row → leave in review queue
+    const key = [...keysAtRef][0];
+    const extra = genericExtras.get(key) ?? {};
+    if (isTarget && extra.target === undefined) extra.target = tf.value;
+    if (isVariance && extra.variance === undefined) extra.variance = tf.value;
+    genericExtras.set(key, extra);
+  }
+
   // 2) Resolve per key: ACTUAL carries the value; TARGET/VARIANCE of the same
   //    metric merge into its row as reportedTarget/reportedVariance (never
   //    counted as "conflicting values" — they are different columns of the
@@ -356,8 +484,8 @@ export function routeKpis(
       const sorted = [...list].sort((a, b) => b.finding.confidence - a.finding.confidence);
       return typeof sorted[0].finding.value === "number" ? (sorted[0].finding.value as number) : null;
     };
-    const reportedTarget = pickValue(targets);
-    const reportedVariance = pickValue(variances);
+    const reportedTarget = pickValue(targets) ?? genericExtras.get(key)?.target ?? null;
+    const reportedVariance = pickValue(variances) ?? genericExtras.get(key)?.variance ?? null;
     const kind: FindingKind = pool.length ? "ACTUAL" : targets.length ? "TARGET" : "VARIANCE";
 
     const reviewBits: string[] = [];
@@ -402,23 +530,56 @@ export function routeKpis(
 
   // 3) Narrative sections → template fields by heading match; the rest are preserved
   const sectionText: RoutingOutput["sectionText"] = {};
+  const sectionTargets = sectionTargetsForDepartment(department);
   const anyMapped = routed.some((r) => r.value !== null);
+  // The supervisor master prints Highlights and Lowlights as one combined
+  // section — split the combined text on its printed markers so each value
+  // reaches its own template row.
+  const splitCombinedHighlights = (content: string): { highlights?: string; lowlights?: string } | null => {
+    const m = /lowlights?\s*[:|\-–—]/i.exec(content);
+    if (!m) return null;
+    const hl = content.slice(0, m.index).replace(/^[\s|]*highlights?\s*[:|\-–—]?\s*/i, "").replace(/[\s|]+$/, "").trim();
+    const ll = content.slice(m.index).replace(/^[\s|]*lowlights?\s*[:|\-–—]?\s*/i, "").replace(/[\s|]+$/, "").trim();
+    return { highlights: hl || undefined, lowlights: ll || undefined };
+  };
+  // AI sections from table-shaped content arrive pipe-joined ("# | Agent Name |
+  // ... | 1 | Leonard Destiny | ... | 2 | | | |"). For template assignment the
+  // furniture is stripped (header cells, row numbers, empty rows); verbatim
+  // content stays preserved in the unmapped/sections record.
+  const tidyJoinedTable = (t: string): string => {
+    const raw = t.trim();
+    if (!/\s\|\s|\|$|^\|/.test(raw)) return raw;
+    const cells = raw.split("|").map((c) => c.trim()).filter(Boolean);
+    if (cells.length < 2) return raw;
+    const firstNum = cells.findIndex((c) => /^\d+[.)]?$/.test(c));
+    const picked = firstNum >= 0 ? cells.slice(firstNum + 1).filter((c) => !/^\d+[.)]?$/.test(c)) : cells;
+    return (picked.length ? picked : cells).join(" — ").replace(/(\s—\s)+/g, " — ").trim();
+  };
   for (const s of sections) {
+    if (/highlights?\s*(?:&|and|\+)\s*lowlights?|lowlights?\s*(?:&|and|\+)\s*highlights?/i.test(s.heading)) {
+      const parts = splitCombinedHighlights(tidyJoinedTable(s.content));
+      if (parts && (parts.highlights || parts.lowlights)) {
+        if (parts.highlights) sectionText.highlights = sectionText.highlights ? `${sectionText.highlights}\n${parts.highlights}` : parts.highlights;
+        if (parts.lowlights) sectionText.lowlights = sectionText.lowlights ? `${sectionText.lowlights}\n${parts.lowlights}` : parts.lowlights;
+        continue;
+      }
+    }
     let best: { t: RouteTarget; score: number } | null = null;
-    for (const t of SECTION_TARGETS) {
+    for (const t of sectionTargets) {
       const m = scoreLabel(s.heading, t, null);
       if (m && (!best || m.score > best.score)) best = { t, score: m.score };
     }
     if (best && best.score >= REVIEW_THRESHOLD) {
       const k = best.t.section as keyof typeof sectionText;
-      sectionText[k] = sectionText[k] ? `${sectionText[k]}\n${s.content}` : s.content;
+      const tidied = tidyJoinedTable(s.content);
+      sectionText[k] = sectionText[k] ? `${sectionText[k]}\n${tidied}` : tidied;
       continue;
     }
     // A KPI/metrics section whose values were already routed to fields is not
     // "unmapped content" — the values live in the mapped fields. Only surface
     // it for review when nothing was mapped (then it is the only place the
     // numbers survive).
-    if (anyMapped && /kpi|metric|performance|scorecard|summary table/i.test(s.heading)) continue;
+    if (anyMapped && /kpi|metric|performance|scorecard|summary\b/i.test(s.heading)) continue;
     unmapped.push({
       label: s.heading,
       content: s.content,

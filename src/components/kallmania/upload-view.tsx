@@ -20,6 +20,12 @@ interface ReviewSections {
   challenges?: string | null;
   escalations?: string | null;
   additionalActivities?: string | null;
+  qaObservations?: string | null;
+  coaching?: string | null;
+  highlights?: string | null;
+  lowlights?: string | null;
+  actionPlan?: string | null;
+  teamName?: string | null;
   shiftTime?: string | null;
   clockIn?: string | null;
   clockOut?: string | null;
@@ -28,7 +34,7 @@ interface ReviewSections {
 
 interface ExtractResponse {
   fields: ExtractedField[];
-  sections: { challenges?: string | null; escalations?: string | null; additionalActivities?: string | null };
+  sections: ReviewSections;
   stats: { fieldsFound: number; fieldsNeedingReview: number; aiChecked: boolean; aiNote?: string };
   rawTextPreview: string;
   doc: DocIntelPayload | null;
@@ -92,13 +98,22 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
       }
       const ext = res as ExtractResponse;
       setExtraction(ext);
-      // Seed the KPI metric editor with the extracted values
-      const { AGENT_KPIS_SEED } = await import("@/lib/kpi-seed");
-      const seeded = AGENT_KPIS_SEED.map((d) => {
+      // Seed the KPI metric editor with the extracted values — supervisor
+      // uploads get the supervisor template grid (team KPIs + attendance),
+      // everyone else the agent grid.
+      const isSupervisor = department === "MANAGEMENT";
+      const { AGENT_KPIS_SEED, SUPERVISOR_KPIS_SEED } = await import("@/lib/kpi-seed");
+      const seedDefs = isSupervisor ? SUPERVISOR_KPIS_SEED : AGENT_KPIS_SEED;
+      const routedByKey = new Map((ext.doc?.full.routed ?? []).map((r) => [r.key, r]));
+      const seeded = seedDefs.map((d) => {
         const found = ext.fields.find((f) => f.key === d.key);
+        const reported = routedByKey.get(d.key);
         return {
           ...d,
           actual: found && typeof found.value === "number" ? found.value : null,
+          // The document's own "Team Target" column — never the agent KPI config
+          target: isSupervisor && typeof reported?.reportedTarget === "number" ? reported.reportedTarget : d.target,
+          targetLabel: isSupervisor && typeof reported?.reportedTarget === "number" ? String(reported.reportedTarget) : d.targetLabel,
           auto: false,
           notes: found?.needsReview ? "Extracted — please verify" : "",
         };
@@ -116,6 +131,10 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
           clockOut: att.clockOut || prev.clockOut,
           attendanceStatus: att.attendanceStatus || prev.attendanceStatus,
         }));
+      }
+      // Supervisor: prefill the team name the document states
+      if (isSupervisor && ext.doc?.full.meta.team) {
+        setSections((prev) => ({ ...prev, teamName: ext.doc?.full.meta.team || prev.teamName || null }));
       }
     } catch (e) {
       setError((e as Error).message);
@@ -182,6 +201,7 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
                 <SelectItem value="BPO">BPO & Outbound Call Centre</SelectItem>
                 <SelectItem value="WEB_DEV">Web Development & Technical</SelectItem>
                 <SelectItem value="SOCIAL_MEDIA">Social Media</SelectItem>
+                <SelectItem value="MANAGEMENT">Management / Supervisor</SelectItem>
               </SelectContent>
             </Select>
           </Field>
@@ -307,18 +327,48 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
                   </>
                 )}
 
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <Field label="Challenges / Blockers">
-                    <Textarea rows={3} className={inputCls} value={sections.challenges || ""} onChange={(e) => setSections({ ...sections, challenges: e.target.value })} />
-                  </Field>
-                  <Field label="Escalations">
-                    <Textarea rows={3} className={inputCls} value={sections.escalations || ""} onChange={(e) => setSections({ ...sections, escalations: e.target.value })} />
-                  </Field>
-                </div>
-                <Field label="Additional Activities">
-                  <Textarea rows={3} className={inputCls} value={additional} onChange={(e) => setAdditional(e.target.value)} />
-                </Field>
-                <p className="text-[11px] text-slate-500">Content the template has no field for is kept in the <b>Full extraction</b> tab — add anything relevant here so it reaches the report.</p>
+                {department === "MANAGEMENT" ? (
+                  <div className="space-y-4">
+                    <Field label="Team name">
+                      <Input className={inputCls} value={sections.teamName || ""} onChange={(e) => setSections({ ...sections, teamName: e.target.value })} placeholder="e.g. OUTBOUND" />
+                    </Field>
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <Field label="Quality Assurance Observations">
+                        <Textarea rows={3} className={inputCls} value={sections.qaObservations || ""} onChange={(e) => setSections({ ...sections, qaObservations: e.target.value })} />
+                      </Field>
+                      <Field label="Coaching & Feedback Provided">
+                        <Textarea rows={3} className={inputCls} value={sections.coaching || ""} onChange={(e) => setSections({ ...sections, coaching: e.target.value })} />
+                      </Field>
+                      <Field label="Issues Escalated to Management">
+                        <Textarea rows={3} className={inputCls} value={sections.escalations || ""} onChange={(e) => setSections({ ...sections, escalations: e.target.value })} />
+                      </Field>
+                      <Field label="Action Plan for Next Day">
+                        <Textarea rows={3} className={inputCls} value={sections.actionPlan || ""} onChange={(e) => setSections({ ...sections, actionPlan: e.target.value })} />
+                      </Field>
+                      <Field label="Shift Highlights">
+                        <Textarea rows={2} className={inputCls} value={sections.highlights || ""} onChange={(e) => setSections({ ...sections, highlights: e.target.value })} />
+                      </Field>
+                      <Field label="Shift Lowlights">
+                        <Textarea rows={2} className={inputCls} value={sections.lowlights || ""} onChange={(e) => setSections({ ...sections, lowlights: e.target.value })} />
+                      </Field>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <Field label="Challenges / Blockers">
+                        <Textarea rows={3} className={inputCls} value={sections.challenges || ""} onChange={(e) => setSections({ ...sections, challenges: e.target.value })} />
+                      </Field>
+                      <Field label="Escalations">
+                        <Textarea rows={3} className={inputCls} value={sections.escalations || ""} onChange={(e) => setSections({ ...sections, escalations: e.target.value })} />
+                      </Field>
+                    </div>
+                    <Field label="Additional Activities">
+                      <Textarea rows={3} className={inputCls} value={additional} onChange={(e) => setAdditional(e.target.value)} />
+                    </Field>
+                    <p className="text-[11px] text-slate-500">Content the template has no field for is kept in the <b>Full extraction</b> tab — add anything relevant here so it reaches the report.</p>
+                  </>
+                )}
               </TabsContent>
 
               {/* ── Tab 2: full extraction (everything the document contains) ── */}

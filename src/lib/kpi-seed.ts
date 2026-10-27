@@ -77,3 +77,30 @@ export function seedKpisFromFields(fields: { key: string; value: number | string
   }
   return out;
 }
+
+// ── Supervisor template seed (Team Performance Summary + Team Attendance Summary) ──
+// Team targets come from the source document (the template's "Team Target"
+// column is per-report), so the configured targets here are null — values the
+// document actually states are filled from the routed extraction.
+
+export const SUPERVISOR_TEAM_KPIS_SEED: KpiSeed[] = [
+  { key: "totalCallsMade", label: "Total Calls Made (Team)", target: null, targetLabel: "-", unit: "count", category: "TEAM_PERFORMANCE" },
+  { key: "avgCallsPerAgent", label: "Avg. Calls Per Agent", target: null, targetLabel: "-", unit: "count", category: "TEAM_PERFORMANCE" },
+  { key: "conversionRate", label: "Team Conversion Rate (%)", target: null, targetLabel: "-", unit: "percent", category: "TEAM_PERFORMANCE" },
+  { key: "contactRate", label: "Team Contact Rate (%)", target: null, targetLabel: "-", unit: "percent", category: "TEAM_PERFORMANCE" },
+  { key: "avgTalkTime", label: "Avg. Talk Time (mins)", target: null, targetLabel: "-", unit: "minutes", category: "TEAM_PERFORMANCE" },
+  { key: "slaAdherence", label: "SLA Adherence (%)", target: null, targetLabel: "-", unit: "percent", category: "TEAM_PERFORMANCE" },
+  { key: "leadsGenerated", label: "HOT / WARM Leads Generated", target: null, targetLabel: "-", unit: "count", category: "TEAM_PERFORMANCE" },
+  { key: "scheduleAdherence", label: "Schedule Adherence (%)", target: null, targetLabel: "-", unit: "percent", category: "TEAM_PERFORMANCE" },
+];
+
+export const SUPERVISOR_ATTENDANCE_SEED: KpiSeed[] = [
+  { key: "totalOnShift", label: "Total Agents on Shift", target: null, targetLabel: "-", unit: "count", category: "ATTENDANCE" },
+  { key: "presentOnTime", label: "Present & On-Time", target: null, targetLabel: "-", unit: "count", category: "ATTENDANCE" },
+  { key: "lateArrivals", label: "Late Arrivals", target: null, targetLabel: "-", unit: "count", category: "ATTENDANCE" },
+  { key: "absentExcused", label: "Absent (Excused)", target: null, targetLabel: "-", unit: "count", category: "ATTENDANCE" },
+  { key: "absentUnexcused", label: "Absent (Unexcused)", target: null, targetLabel: "-", unit: "count", category: "ATTENDANCE" },
+  { key: "earlyDepartures", label: "Early Departures", target: null, targetLabel: "-", unit: "count", category: "ATTENDANCE" },
+];
+
+export const SUPERVISOR_KPIS_SEED: KpiSeed[] = [...SUPERVISOR_TEAM_KPIS_SEED, ...SUPERVISOR_ATTENDANCE_SEED];

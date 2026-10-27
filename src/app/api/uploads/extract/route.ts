@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
                 sections: result.doc.full.sections,
                 findings: result.doc.full.findings,
                 routed: result.doc.full.routed,
+                sectionText: result.doc.full.sectionText,
                 unmapped: result.doc.full.unmapped,
                 validation: result.doc.full.validation,
                 coverage: result.doc.full.coverage,

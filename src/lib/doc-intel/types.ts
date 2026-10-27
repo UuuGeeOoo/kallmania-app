@@ -135,6 +135,17 @@ export interface FullExtraction {
   findings: KpiFinding[];
   /** Findings after deterministic routing to the real template fields */
   routed: RoutedKpi[];
+  /** Sections that matched template narrative fields (already destination-assigned) */
+  sectionText: {
+    challenges?: string | null;
+    escalations?: string | null;
+    additionalActivities?: string | null;
+    qaObservations?: string | null;
+    coaching?: string | null;
+    highlights?: string | null;
+    lowlights?: string | null;
+    actionPlan?: string | null;
+  };
   /** Sections/content that did not fit any template field — preserved */
   unmapped: UnmappedItem[];
   validation: ValidationIssue[];
@@ -149,4 +160,4 @@ export interface FullExtraction {
   warnings: string[];
 }
 
-export type DocIntelDepartment = "BPO" | "WEB_DEV" | "SOCIAL_MEDIA";
+export type DocIntelDepartment = "BPO" | "WEB_DEV" | "SOCIAL_MEDIA" | "MANAGEMENT";

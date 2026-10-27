@@ -44,6 +44,9 @@ export function navForRole(role: string): NavItem[] {
     { key: "archive", label: "Reports Archive", icon: FolderOpen },
     { key: "consolidated", label: "Consolidated Report", icon: Layers },
     { key: "supervisor-report", label: "My Daily Report", icon: FileText },
+    // Supervisors file their own daily reports as documents too — the upload
+    // pipeline reads them (attendance, team KPIs, coaching, escalations …).
+    { key: "upload", label: "Upload Report", icon: Upload },
     { key: "team-tasks", label: "Tasks & Assignments", icon: ListTodo },
     { key: "uploads-admin", label: "Uploaded Files", icon: Upload },
     { key: "tl-template", label: "Report Templates", icon: FileCog },
@@ -80,7 +83,7 @@ export function navGroupsForRole(role: string, nav: NavItem[]): NavGroup[] {
   const groups: NavGroup[] = [];
 
   if (role === "ADMIN" || role === "SUPERVISOR") {
-    const reports = pickAll(["review", "archive", "consolidated"]);
+    const reports = pickAll(["review", "archive", "consolidated", "upload"]);
     if (reports.length) groups.push({ kind: "group", label: "Reports", items: reports });
     const team = pickAll(role === "ADMIN" ? ["admin-users", "uploads-admin"] : ["uploads-admin"]);
     if (team.length) groups.push({ kind: "group", label: "Team", items: team });

@@ -38,7 +38,9 @@ export async function runDocumentIntelligence(
 ): Promise<PipelineOutput> {
   const ext = (originalName.split(".").pop() || "").toLowerCase();
   const department: DocIntelDepartment =
-    departmentRaw === "WEB_DEV" || departmentRaw === "SOCIAL_MEDIA" ? departmentRaw : "BPO";
+    departmentRaw === "WEB_DEV" || departmentRaw === "SOCIAL_MEDIA" || departmentRaw === "MANAGEMENT"
+      ? departmentRaw
+      : "BPO";
 
   // ── Stage A: parse ──
   let ir: DocumentIR;
@@ -88,11 +90,17 @@ export async function runDocumentIntelligence(
 
   // Department mismatch check — the router needs the right destination table
   const guess = understood.meta.reportTypeGuess || "UNKNOWN";
-  const deptByType: Record<string, DocIntelDepartment> = { AGENT_BPO: "BPO", TECH: "WEB_DEV", SOCIAL: "SOCIAL_MEDIA" };
+  const deptByType: Record<string, DocIntelDepartment> = {
+    AGENT_BPO: "BPO",
+    TECH: "WEB_DEV",
+    SOCIAL: "SOCIAL_MEDIA",
+    SUPERVISOR: "MANAGEMENT",
+    TEAM_LEAD: "SOCIAL_MEDIA",
+  };
   const guessedDept = deptByType[guess];
   let mismatch: string | null = null;
   if (guessedDept && guessedDept !== department) {
-    const label: Record<DocIntelDepartment, string> = { BPO: "Call Centre (BPO)", WEB_DEV: "Web Development & Technical", SOCIAL_MEDIA: "Social Media" };
+    const label: Record<DocIntelDepartment, string> = { BPO: "Call Centre (BPO)", WEB_DEV: "Web Development & Technical", SOCIAL_MEDIA: "Social Media", MANAGEMENT: "Management / Supervisor" };
     mismatch = `This document looks like a ${understood.meta.docType || guess} report, but it was uploaded under the ${label[department]} department. Verify the department selection — the KPI destinations below follow the selected department.`;
   }
 
@@ -104,6 +112,7 @@ export async function runDocumentIntelligence(
     sections: understood.sections,
     findings: understood.findings,
     routed: routing.routed,
+    sectionText: routing.sectionText,
     unmapped: routing.unmapped,
     validation: [],
     coverage: {

@@ -6,6 +6,9 @@ import { recalcKpis, type KpiMetric } from "@/lib/kpi";
 import { audit } from "@/lib/notify";
 import { safeParse } from "@/lib/api-utils";
 
+/** Supervisor template destinations for the confirmed metric grid. */
+const SUP_ATTENDANCE_KEYS = new Set(["totalOnShift", "presentOnTime", "lateArrivals", "absentExcused", "absentUnexcused", "earlyDepartures"]);
+
 /**
  * POST /api/uploads/confirm
  * Body: { uploadId, confirmedMetrics: KpiMetric[], sections: {...}, emailContext, submit }
@@ -27,13 +30,44 @@ export async function POST(req: NextRequest) {
     if (upload.reportId) return fail("This upload was already confirmed as a report. Check your reports list — avoid submitting the same document twice.", 409);
     if (upload.extractStatus === "SUBMITTED") return fail("This upload has already been confirmed and submitted", 409);
 
-    const reportTypeByDept: Record<string, string> = { BPO: "AGENT_BPO", WEB_DEV: "TECH", SOCIAL_MEDIA: "SOCIAL" };
+    const reportTypeByDept: Record<string, string> = { BPO: "AGENT_BPO", WEB_DEV: "TECH", SOCIAL_MEDIA: "SOCIAL", MANAGEMENT: "SUPERVISOR" };
     const reportType = reportTypeByDept[department || upload.department || "BPO"] || "AGENT_BPO";
 
     const metrics = recalcKpis(safeParse<KpiMetric[]>(confirmedMetrics, []));
     const date = toDateOrNull(reportDate) || upload.reportDate || new Date();
 
-    const ref = `${reportType === "AGENT_BPO" ? "BPO" : reportType === "TECH" ? "TEC" : "SOC"}-UP-${Date.now().toString(36).toUpperCase()}`;
+    const refPrefix = reportType === "AGENT_BPO" ? "BPO" : reportType === "TECH" ? "TEC" : reportType === "SUPERVISOR" ? "SUP" : "SOC";
+    const ref = `${refPrefix}-UP-${Date.now().toString(36).toUpperCase()}`;
+
+    // ── SUPERVISOR: confirmed metrics split into attendance counts and team
+    // KPI rows; narrative sections map onto the supervisor template columns.
+    // Unknown metric keys are preserved as extra team rows (template fill
+    // ignores labels it does not know; nothing is silently dropped).
+    let supervisorData: Record<string, unknown> = {};
+    if (reportType === "SUPERVISOR") {
+      const attendanceRows: Record<string, { count: string; details: string }> = {};
+      const teamRows: { key: string; label: string; teamTarget: string; teamAvg: string; best: string; lowest: string; notes: string }[] = [];
+      for (const m of metrics) {
+        if (m.actual === null || m.actual === undefined) continue;
+        const targetStr = m.target !== null && m.target !== undefined ? String(m.target) : "";
+        if (SUP_ATTENDANCE_KEYS.has(m.key)) {
+          attendanceRows[m.key] = { count: String(m.actual), details: m.notes || "" };
+        } else {
+          teamRows.push({ key: m.key, label: m.label, teamTarget: targetStr, teamAvg: String(m.actual), best: "", lowest: "", notes: m.notes || "" });
+        }
+      }
+      supervisorData = {
+        teamName: sections?.teamName || null,
+        attendanceSummary: Object.keys(attendanceRows).length ? JSON.stringify(attendanceRows) : null,
+        teamKpiAverages: teamRows.length ? JSON.stringify(teamRows) : null,
+        coachingEntries: sections?.coaching ? JSON.stringify([{ agentName: "", type: "", details: sections.coaching }]) : null,
+        qaObservations: sections?.qaObservations || null,
+        escalatedIssues: sections?.escalations ? JSON.stringify([{ description: sections.escalations, priority: "", status: "", action: "" }]) : null,
+        highlights: sections?.highlights || null,
+        lowlights: sections?.lowlights || null,
+        actionPlan: sections?.actionPlan ? JSON.stringify([{ action: sections.actionPlan, owner: "", priority: "", deadline: "" }]) : null,
+      };
+    }
 
     const report = await db.report.create({
       data: {
@@ -47,15 +81,16 @@ export async function POST(req: NextRequest) {
         clockOut: sections?.clockOut || null,
         attendanceStatus: sections?.attendanceStatus || null,
         latenessMins: sections?.latenessMins ? parseInt(String(sections.latenessMins), 10) || 0 : null,
-        kpiMetrics: JSON.stringify(metrics),
+        kpiMetrics: reportType === "SUPERVISOR" ? null : JSON.stringify(metrics),
         challenges: sections?.challenges || null,
-        escalations: sections?.escalations || null,
-        additionalActivities: sections?.additionalActivities || null,
-        emailContext: emailContext ? JSON.stringify(emailContext) : null,
+        escalations: reportType === "SUPERVISOR" ? null : sections?.escalations || null,
+        additionalActivities: reportType === "SUPERVISOR" ? null : sections?.additionalActivities || null,
+        emailContext: reportType === "SUPERVISOR" ? null : emailContext ? JSON.stringify(emailContext) : null,
         status: submit ? "SUBMITTED" : "DRAFT",
         sourceType: "UPLOAD_EXTRACTED",
         sourceFileId: upload.id,
         verificationStatus: "CONFIRMED_BY_EMPLOYEE",
+        ...supervisorData,
       },
     });
 

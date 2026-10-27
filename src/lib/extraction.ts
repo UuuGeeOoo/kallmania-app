@@ -43,6 +43,11 @@ export interface ExtractionResult {
     challenges?: string | null;
     escalations?: string | null;
     additionalActivities?: string | null;
+    qaObservations?: string | null;
+    coaching?: string | null;
+    highlights?: string | null;
+    lowlights?: string | null;
+    actionPlan?: string | null;
   };
   stats: { fieldsFound: number; fieldsNeedingReview: number; aiChecked: boolean; aiNote?: string };
   /** Full document-intelligence payload (structure + findings + routing + validation) */
@@ -143,10 +148,15 @@ const LABEL_ALIASES: Record<string, string[]> = {
   campaignLeads: ["campaign leads conversions", "campaign leads"],
 };
 
-const SECTION_HEADINGS: { key: "challenges" | "escalations" | "additionalActivities"; aliases: string[] }[] = [
+const SECTION_HEADINGS: { key: "challenges" | "escalations" | "additionalActivities" | "qaObservations" | "coaching" | "highlights" | "lowlights" | "actionPlan"; aliases: string[] }[] = [
   { key: "challenges", aliases: ["challenges / blockers", "challenges/blockers", "challenges and blockers", "challenges", "blockers", "challenges encountered"] },
   { key: "escalations", aliases: ["escalations", "escalation", "issues escalated"] },
   { key: "additionalActivities", aliases: ["additional activities", "other activities", "additional work"] },
+  { key: "qaObservations", aliases: ["quality assurance observations", "quality assurance", "qa observations"] },
+  { key: "coaching", aliases: ["coaching & feedback provided", "coaching and feedback", "coaching feedback", "coaching provided"] },
+  { key: "highlights", aliases: ["shift highlights", "highlights"] },
+  { key: "lowlights", aliases: ["lowlights", "low lights"] },
+  { key: "actionPlan", aliases: ["action plan for next day", "action plan"] },
 ];
 
 function findNumberAfter(text: string, idx: number): { value: number; end: number } | null {
@@ -176,7 +186,9 @@ export function mapTextToFields(rawText: string, department: string): { fields: 
       ? TECH_SUMMARY_METRICS.map((m) => ({ key: m.key, label: m.label }))
       : department === "SOCIAL_MEDIA"
         ? SOCIAL_SUMMARY_METRICS.map((m) => ({ key: m.key, label: m.label }))
-        : AGENT_KPI_DEFS.map((d) => ({ key: d.key, label: d.label }));
+        : department === "MANAGEMENT"
+          ? [] // supervisor docs: team KPI/attendance tables are routed by the doc-intel engine; the agent-style line scanner would only produce false matches
+          : AGENT_KPI_DEFS.map((d) => ({ key: d.key, label: d.label }));
 
   const fields: ExtractedField[] = [];
   const claimedKeys = new Set<string>();
@@ -473,9 +485,14 @@ export async function extractReport(
     rawText: markdown,
     fields: mergedFields,
     sections: {
-      challenges: det.sections.challenges || null,
-      escalations: det.sections.escalations || null,
-      additionalActivities: det.sections.additionalActivities || null,
+      challenges: full.sectionText.challenges || det.sections.challenges || null,
+      escalations: full.sectionText.escalations || det.sections.escalations || null,
+      additionalActivities: full.sectionText.additionalActivities || det.sections.additionalActivities || null,
+      qaObservations: full.sectionText.qaObservations || det.sections.qaObservations || null,
+      coaching: full.sectionText.coaching || det.sections.coaching || null,
+      highlights: full.sectionText.highlights || det.sections.highlights || null,
+      lowlights: full.sectionText.lowlights || det.sections.lowlights || null,
+      actionPlan: full.sectionText.actionPlan || det.sections.actionPlan || null,
     },
     stats: {
       fieldsFound: mergedFields.length,
