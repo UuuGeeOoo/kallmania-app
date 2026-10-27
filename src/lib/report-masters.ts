@@ -19,7 +19,23 @@ import { db } from "@/lib/db";
 export const STORAGE_DIR = "/home/z/my-project/uploads-storage";
 const ASSETS_DIR = path.join(process.cwd(), "assets", "report-templates");
 
-export type MasterReportType = "AGENT_BPO" | "SUPERVISOR" | "TECH" | "SOCIAL" | "TEAM_LEAD";
+export type MasterReportType =
+  | "AGENT_BPO"
+  | "SUPERVISOR"
+  | "TECH"
+  | "SOCIAL"
+  | "TEAM_LEAD"
+  | "TL_SOCIAL";
+
+/** Every master type the management API accepts (shared with the route). */
+export const MASTER_REPORT_TYPES: MasterReportType[] = [
+  "AGENT_BPO",
+  "SUPERVISOR",
+  "TECH",
+  "SOCIAL",
+  "TEAM_LEAD",
+  "TL_SOCIAL",
+];
 
 export const MASTER_LABELS: Record<MasterReportType, string> = {
   AGENT_BPO: "BPO Call Centre Agents (Outbound)",
@@ -27,6 +43,7 @@ export const MASTER_LABELS: Record<MasterReportType, string> = {
   TECH: "Web Development & Technical Team",
   SOCIAL: "Social Media Team",
   TEAM_LEAD: "Team Lead (dynamic template)",
+  TL_SOCIAL: "Social Media Team Lead",
 };
 
 interface BundledMaster {
@@ -41,6 +58,7 @@ const BUNDLED: BundledMaster[] = [
   { reportType: "SUPERVISOR", file: "Daily_Report_Supervisor.docx", originalName: "Daily_Report_Supervisor.docx" },
   { reportType: "TECH", file: "Daily_Report_Web_Development_Technical.docx", originalName: "Web Development and Technical Team Report.docx" },
   { reportType: "SOCIAL", file: "Daily_Report_Social_Media_Team.docx", originalName: "Daily_Report_Social_Media_Team.docx" },
+  { reportType: "TL_SOCIAL", file: "Daily_Report_Social_Media_Team_Lead.docx", originalName: "SBTS-Daily-Report-Social Media Team-Lead.docx" },
 ];
 
 export function sha256(buf: Buffer): string {
@@ -171,7 +189,7 @@ export async function listMasters() {
   await ensureMastersSeeded();
   const rows = await db.reportMasterTemplate.findMany({ orderBy: { reportType: "asc" } });
   const byType = new Map(rows.map((r) => [r.reportType, r]));
-  const types: MasterReportType[] = ["AGENT_BPO", "SUPERVISOR", "TECH", "SOCIAL", "TEAM_LEAD"];
+  const types: MasterReportType[] = ["AGENT_BPO", "SUPERVISOR", "TECH", "SOCIAL", "TL_SOCIAL", "TEAM_LEAD"];
   return types.map((t) => {
     const r = byType.get(t);
     return {

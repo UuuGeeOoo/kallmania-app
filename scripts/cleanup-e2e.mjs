@@ -1,0 +1,12 @@
+import { PrismaClient } from "@prisma/client";
+const db = new PrismaClient();
+const tasks = await db.task.findMany({ where: { title: { contains: "E2E multi-assign" } } });
+for (const t of tasks) await db.task.delete({ where: { id: t.id } });
+console.log("removed tasks:", tasks.length);
+const kpi = await db.kpiConfig.deleteMany({ where: { key: "e2e_metric" } });
+console.log("removed kpi configs:", kpi.count);
+const esc = await db.notification.deleteMany({ where: { message: { contains: "E2E:" } } });
+console.log("removed escalation notices:", esc.count);
+const logs = await db.auditLog.deleteMany({ where: { details: { contains: "E2E" } } });
+console.log("removed audit rows:", logs.count);
+await db.$disconnect();

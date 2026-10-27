@@ -1,0 +1,10 @@
+import { PrismaClient } from '@prisma/client';
+const db = new PrismaClient();
+const us = await db.user.findMany({ select: { id: true, fullName: true, email: true, role: true, department: true, team: true, status: true } });
+for (const u of us) console.log(`${u.status.padEnd(9)} ${u.role.padEnd(13)} ${u.department.padEnd(13)} ${(u.team||'-').padEnd(8)} ${u.fullName} <${u.email}>`);
+const reports = await db.report.count();
+console.log('reports total:', reports);
+const today = new Date(); today.setHours(0,0,0,0);
+const todayCount = await db.report.count({ where: { reportDate: { gte: today }, status: { in: ['SUBMITTED','APPROVED'] } } });
+console.log('submitted/approved today:', todayCount);
+await db.$disconnect();

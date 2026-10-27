@@ -17,11 +17,13 @@
 import {
   editDocxCopy, bodyTables, rowsOf, cellsOf, cellText, norm, setCellText,
   fillLabeledPairs, fillKpiTable, fillNumberedTable, fillTextSection, clearCell,
-  fmtValue, cloneRowAfter,
-  type TemplateKpiRow, type Doc, type Table,
+  fmtValue, cloneRowAfter, fillParaAfterHeading,
+  type TemplateKpiRow, type Doc, type Table, type Row,
 } from "@/lib/docx-template-fill";
 import { getMasterBuffer } from "@/lib/report-masters";
 import { ATTENDANCE_ROWS } from "@/lib/template-config";
+import { tlTemplateKeyFor, type TlPayload } from "@/lib/team-lead-template";
+import { db } from "@/lib/db";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -72,9 +74,11 @@ export interface ReportLike {
   highlights?: string | null;
   lowlights?: string | null;
   actionPlan?: string | null;
-  supervisorFeedback?: string | null;
   status?: string | null;
-  user?: { fullName: string; employeeId?: string | null; role?: string } | null;
+  payload?: string | null;
+  userId?: string | null;
+  supervisorFeedback?: string | null;
+  user?: { fullName: string; employeeId?: string | null; role?: string; email?: string | null; team?: string | null } | null;
   reviewer?: { fullName?: string | null } | null;
   reviewedAt?: Date | string | null;
 }
@@ -509,6 +513,208 @@ export async function fillSocialDocx(report: ReportLike): Promise<Buffer> {
   });
 }
 
+// ───────────────── SOCIAL MEDIA TEAM LEAD (uploaded SBTS master) ─────────────────
+
+interface TlRow { [key: string]: unknown }
+
+/** Rows of a dynamic-template table section (only when the payload stored an array). */
+function tlRows(sections: TlPayload["sections"], id: string): TlRow[] {
+  const v = sections[id];
+  return Array.isArray(v) ? (v as TlRow[]) : [];
+}
+
+/** Free-text value of a dynamic-template textarea section. */
+function tlText(sections: TlPayload["sections"], id: string): string {
+  const v = sections[id];
+  return typeof v === "string" ? v : "";
+}
+
+const s = (v: unknown): string => (v === null || v === undefined ? "" : String(v));
+
+/** Humanise a Task status enum: AWAITING_APPROVAL → "Awaiting Approval". */
+function humanStatus(st: string | null | undefined): string {
+  if (!st) return "";
+  return st.toLowerCase().split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+/** Fill a header + empty-rows table (no "#" column) with positional entries. */
+function fillPlainRows(doc: Doc, tbl: Table, entries: (string | number | null)[][], headerRows = 1): void {
+  const rows = rowsOf(tbl).slice(headerRows);
+  if (rows.length === 0 || entries.length === 0) return;
+  let anchor: Row | null = null;
+  for (let i = 0; i < entries.length; i++) {
+    let tr: Row;
+    if (i < rows.length) tr = rows[i];
+    else {
+      tr = cloneRowAfter(doc, anchor || rows[rows.length - 1]);
+      for (const c of cellsOf(tr)) clearCell(c); // fresh clone — no inherited values
+    }
+    anchor = tr;
+    const cells = cellsOf(tr);
+    for (let c = 0; c < entries[i].length && c < cells.length; c++) {
+      setCellText(doc, cells[c], entries[i][c]);
+    }
+  }
+}
+
+/**
+ * The uploaded "SBTS-Daily-Report-Social Media Team-Lead" master places a
+ * "▸ HEADING" 1-cell table before each section's body table — resolve a
+ * section by its heading and return the table that follows it.
+ */
+function tableAfterHeading(tables: Table[], heading: string): Table | undefined {
+  const n = norm(heading);
+  const idx = tables.findIndex((t) => tableTitle(t).includes(n));
+  return idx >= 0 ? tables[idx + 1] : undefined;
+}
+
+export async function fillSocialLeadDocx(report: ReportLike): Promise<Buffer> {
+  const master = await getMasterBuffer("TL_SOCIAL");
+  if (!master) throw new Error("No master template for TL_SOCIAL");
+
+  const payload = jparse<TlPayload>(report.payload, { sections: {} });
+  const sections = payload.sections || {};
+  const user = report.user;
+  const lateness = report.latenessMins !== null && report.latenessMins !== undefined
+    ? `${report.latenessMins} min${report.latenessMins === 1 ? "" : "s"}`
+    : "";
+
+  // ── WORK DONE FROM MY DAY (AUTO-FILLED) — payload wins, else the Tasks module.
+  const mydayPayload = tlRows(sections, "myday").filter((r) => Object.values(r).some((x) => s(x).trim() !== ""));
+  let mydayEntries: (string | number | null)[][] = mydayPayload.map((r) => [s(r.task), s(r.timeDue), s(r.status)]);
+  if (mydayEntries.length === 0 && report.userId) {
+    const day = new Date(report.reportDate);
+    if (!Number.isNaN(day.getTime())) {
+      const dayStart = new Date(day); dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
+      const tasks = await db.task.findMany({
+        where: {
+          assigneeId: report.userId,
+          OR: [{ dateAssigned: { gte: dayStart, lt: dayEnd } }, { deadline: { gte: dayStart, lt: dayEnd } }],
+        },
+        orderBy: { deadline: "asc" },
+        take: 12,
+      });
+      mydayEntries = tasks.map((t) => {
+        const dl = t.deadline ? new Date(t.deadline) : null;
+        let due = "";
+        if (dl && !Number.isNaN(dl.getTime())) {
+          const sameDay = dl >= dayStart && dl < dayEnd;
+          const hh = `${String(dl.getHours()).padStart(2, "0")}:${String(dl.getMinutes()).padStart(2, "0")}`;
+          due = sameDay ? hh : `${dl.getDate()} ${MONTHS[dl.getMonth()]} ${hh}`;
+        } else if (t.target) due = t.target;
+        return [t.title, due, humanStatus(t.status)];
+      });
+    }
+  }
+
+  return editDocxCopy(master.buffer, (doc) => {
+    const tables = bodyTables(doc);
+
+    // ▸ STAFF INFORMATION — labels row with the value row directly beneath it
+    const info = tableAfterHeading(tables, "staff information");
+    if (info) {
+      const rows = rowsOf(info);
+      if (rows.length >= 2) {
+        const labels = cellsOf(rows[0]);
+        const values = cellsOf(rows[1]);
+        const map: Record<string, string> = {
+          staffname: user?.fullName || "",
+          date: fmtDate(report.reportDate),
+          roledesignation: ROLE_TITLES[user?.role || ""] || "Team Lead",
+          shifttime: report.shiftTime || "",
+          clockintime: report.clockIn || "",
+          clockouttime: report.clockOut || "",
+        };
+        labels.forEach((lc, i) => {
+          const key = norm(cellText(lc));
+          if (key in map && values[i]) setCellText(doc, values[i], map[key]);
+        });
+        // third row: Attendance status | value | Lateness (mins) | value | Email | value
+        fillLabeledPairs(doc, info, {
+          attendancestatus: report.attendanceStatus || s(tlRows(sections, "staff-info")[0]?.attendanceStatus) || "",
+          latenessmins: lateness,
+          email: user?.email || "",
+        }, 2);
+      }
+    }
+
+    // ▸ ROLE FOCUS FOR TODAY — free-paragraph body after the heading
+    fillParaAfterHeading(doc, "role focus for today", tlText(sections, "role-focus"));
+
+    // ▸ KEY PERFORMANCE METRICS (KPIS) — labels match the dynamic template 1:1
+    const kpiTbl = tableAfterHeading(tables, "key performance metrics");
+    if (kpiTbl) {
+      const metrics = tlRows(sections, "team-kpis") as unknown as MetricLike[];
+      const resolveMetric = makeResolver(metrics);
+      const resolve = (templateLabel: string): TemplateKpiRow | null => {
+        const m = resolveMetric(templateLabel);
+        return m ? metricRow(m) : null;
+      };
+      const templateLabels = rowsOf(kpiTbl).slice(1).map((tr) => norm(cellText(cellsOf(tr)[0] || tr)));
+      const append: TemplateKpiRow[] = [];
+      for (const m of metrics) {
+        const n = norm(m.label || m.key || "");
+        if (!n) continue;
+        const matched = templateLabels.some((t) => t === n || (t.length >= 6 && (t.startsWith(n) || n.startsWith(t))));
+        const hasData = (m.actual !== null && m.actual !== undefined) || !!m.notes;
+        if (!matched && hasData) append.push({ label: m.label || m.key || "Metric", ...metricRow(m) });
+      }
+      fillKpiTable(doc, kpiTbl, resolve, { headerRows: 1, append });
+    }
+
+    // ▸ TASKS ASSIGNED & COMPLETED — numbered rows, cloned beyond the template's six
+    const tasksTbl = tableAfterHeading(tables, "tasks assigned");
+    if (tasksTbl) {
+      const entries = tlRows(sections, "tasks")
+        .filter((r) => Object.values(r).some((x) => s(x).trim() !== ""))
+        .map((r) => [s(r.task), s(r.platform), s(r.status), s(r.deliverable)]);
+      if (entries.length > 0) fillNumberedTable(doc, tasksTbl, entries.map((cells) => ({ cells })), 1, 1);
+    }
+
+    // ▸ WORK DONE FROM MY DAY (AUTO-FILLED) — numbered rows from the Tasks module
+    const mydayTbl = tableAfterHeading(tables, "work done from my day");
+    if (mydayTbl && mydayEntries.length > 0) {
+      fillNumberedTable(doc, mydayTbl, mydayEntries.map((cells) => ({ cells })), 1, 1);
+    }
+
+    // ▸ CHALLENGES / BLOCKERS · ▸ ESCALATIONS AND APPROVALS · ▸ END-OF-DAY HANDOFF
+    const chalTbl = tableAfterHeading(tables, "challenges");
+    if (chalTbl) {
+      const entries = tlRows(sections, "challenges")
+        .filter((r) => Object.values(r).some((x) => s(x).trim() !== ""))
+        .map((r) => [s(r.blocker), s(r.impact), s(r.support), s(r.owner)]);
+      fillPlainRows(doc, chalTbl, entries);
+    }
+    const escTbl = tableAfterHeading(tables, "escalations and approvals");
+    if (escTbl) {
+      const entries = tlRows(sections, "escalations")
+        .filter((r) => Object.values(r).some((x) => s(x).trim() !== ""))
+        .map((r) => [s(r.item), s(r.reason), s(r.escalatedTo), s(r.status)]);
+      fillPlainRows(doc, escTbl, entries);
+    }
+    const handoffTbl = tableAfterHeading(tables, "end-of-day handoff");
+    if (handoffTbl) {
+      const entries = tlRows(sections, "handoff")
+        .filter((r) => Object.values(r).some((x) => s(x).trim() !== ""))
+        .map((r) => [s(r.completed), s(r.pending), s(r.blocked), s(r.nextAction)]);
+      fillPlainRows(doc, handoffTbl, entries);
+    }
+
+    // ▸ SUPERVISOR COMMENTS — filled from the review workflow
+    const supTbl = tableAfterHeading(tables, "supervisor comments");
+    if (supTbl) {
+      const rows = rowsOf(supTbl);
+      if (rows.length >= 2) {
+        const cells = cellsOf(rows[1]);
+        setCellText(doc, cells[0], report.reviewer?.fullName || "");
+        setCellText(doc, cells[1], report.supervisorFeedback || "");
+        setCellText(doc, cells[2], report.reviewedAt ? fmtDate(report.reviewedAt) : "");
+      }
+    }
+  });
+}
+
 /** Generate the template-filled DOCX for a report, or null when no master applies. */
 export async function tryFillFromMaster(report: ReportLike): Promise<Buffer | null> {
   try {
@@ -517,7 +723,18 @@ export async function tryFillFromMaster(report: ReportLike): Promise<Buffer | nu
       case "SUPERVISOR": return await fillSupervisorDocx(report);
       case "TECH": return await fillTechDocx(report);
       case "SOCIAL": return await fillSocialDocx(report);
-      default: return null; // TEAM_LEAD uses the built-in dynamic builder
+      case "TEAM_LEAD": {
+        // Team leads fill the dynamic template resolved for THEIR team; only
+        // teams whose dedicated master exists take the template-preserving path.
+        if (tlTemplateKeyFor(report.department, report.user?.team) !== "TL_SOCIAL") return null;
+        // old-shape payloads (pre-dating the SBTS social master) keep the
+        // dynamic builder — the master needs the mirrored section structure
+        const secs = jparse<TlPayload>(report.payload, { sections: {} }).sections || {};
+        const hasSocialShape = "role-focus" in secs || "myday" in secs || "handoff" in secs || "team-kpis" in secs;
+        if (!hasSocialShape) return null;
+        return await fillSocialLeadDocx(report);
+      }
+      default: return null;
     }
   } catch {
     return null; // caller falls back to the existing builders

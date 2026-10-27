@@ -101,6 +101,50 @@ export default function TeamLeadReportForm({ user, date, onDone }: { user: Sessi
   // so switching the reporting date never wipes unsaved entries.
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
+  // ── TL_SOCIAL: "WORK DONE FROM MY DAY (AUTO-FILLED)" ──
+  // Prefill the section from the Tasks module for the reporting date (the same
+  // data the export injects server-side when the section was left empty).
+  const mydayPrefilledFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (templateKey !== "TL_SOCIAL" || loading || !definition) return;
+    if (mydayPrefilledFor.current === date) return;
+    const mydaySection = definition.sections.find((sec) => sec.id === "myday");
+    if (!mydaySection) return;
+    const rows = sections["myday"];
+    if (!Array.isArray(rows) || rows.some((r) => Object.values(r || {}).some((v) => String(v ?? "").trim() !== ""))) {
+      mydayPrefilledFor.current = date; // has content (saved report) — nothing to fill
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { tasks } = await api<{ tasks: { title: string; deadline?: string | null; dateAssigned?: string | null; status: string; target?: string | null }[] }>("/api/tasks?mine=1");
+        const dayStart = new Date(`${date}T00:00:00`);
+        const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
+        const inDay = tasks.filter((t) => {
+          const d = t.deadline ? new Date(t.deadline) : t.dateAssigned ? new Date(t.dateAssigned) : null;
+          return d && !Number.isNaN(d.getTime()) && d >= dayStart && d < dayEnd;
+        }).slice(0, 6);
+        if (cancelled || inDay.length === 0) return;
+        const human = (st: string) => st.toLowerCase().split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+        const filled = inDay.map((t) => {
+          const d = t.deadline ? new Date(t.deadline) : null;
+          const due = d && !Number.isNaN(d.getTime()) && d >= dayStart && d < dayEnd
+            ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+            : t.target || "";
+          return { task: t.title, timeDue: due, status: human(t.status) };
+        });
+        mydayPrefilledFor.current = date;
+        setSections((prev) => {
+          const rest = Array.isArray(prev.myday) ? (prev.myday as Record<string, unknown>[]).slice(filled.length) : [];
+          return { ...prev, myday: [...filled, ...rest] };
+        });
+      } catch { /* auto-fill is best-effort */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateKey, definition, date, loading]);
+
   // Changing the reporting date only changes the date — unsaved entries are kept
   // (a clean form still loads whatever is already saved under the new date).
   useEffect(() => {

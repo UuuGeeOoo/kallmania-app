@@ -419,44 +419,105 @@ export function defaultInboundLeadTemplate(): TlDefinition {
   };
 }
 
-/** Social Media team lead — content, reach, engagement & community handling. */
+/**
+ * Social Media team lead — mirrors the uploaded SBTS master document
+ * "SBTS-Daily-Report-Social Media Team-Lead.docx" (Enugu centre) so the form
+ * the lead fills maps 1:1 onto the printed Word template:
+ * staff info → role focus → KPI table → tasks → auto-filled my-day →
+ * challenges → escalations & approvals → end-of-day handoff.
+ * Supervisor comments stay blank in the master and are filled on review.
+ */
 export function defaultSocialLeadTemplate(): TlDefinition {
   return {
-    title: "DAILY REPORT — SOCIAL MEDIA TEAM LEAD",
+    title: "DAILY REPORT — SOCIAL MEDIA MANAGEMENT & CONTENT CREATION TEAM",
     sections: [
       staffInfoSection("Team Members on Duty"),
-      metricsSection(
-        "TEAM PERFORMANCE SUMMARY (KPIs)",
-        "Enter the team totals for today — variance against target is calculated automatically.",
-        [
-          { key: "teamPostsPublished", label: "Posts Published (Team)", target: 6, unit: "count" },
-          { key: "teamStoriesReels", label: "Stories / Reels Published (Team)", target: 4, unit: "count" },
-          { key: "teamReach", label: "Reach / Impressions (Team)", target: 50000, unit: "count" },
-          { key: "teamEngagement", label: "Engagements — Likes, Comments, Shares", target: 1500, unit: "count" },
-          { key: "teamFollowerGrowth", label: "Follower Growth (Net New)", target: 200, unit: "count" },
-          { key: "teamCommentsHandled", label: "Comments & DMs Handled (Team)", target: 100, unit: "count" },
-          { key: "teamContentBacklog", label: "Content Pieces in Backlog", target: null, unit: "count" },
-          { key: "teamEscalations", label: "Escalations Received", target: 0, unit: "count" },
+      {
+        id: "role-focus",
+        title: "ROLE FOCUS FOR TODAY",
+        description: "What are you driving today — calendar items, campaigns, reviews, priorities?",
+        type: "textarea",
+      },
+      {
+        id: "team-kpis",
+        title: "KEY PERFORMANCE METRICS (KPIS)",
+        description: "Enter today's actuals — variance against target is calculated automatically.",
+        type: "metrics",
+        metrics: [
+          { key: "calendarItemsPrepared", label: "Calendar item prepared / published", target: null, unit: "count" },
+          { key: "videoEditsExports", label: "Video edits / exports completed", target: null, unit: "count" },
+          { key: "graphicsVisualAssets", label: "Graphics / visual assets completed", target: null, unit: "count" },
+          { key: "approvalQualityChecks", label: "Approval / quality checks completed", target: null, unit: "count" },
+          { key: "contentPublishedScheduled", label: "Content published or scheduled", target: null, unit: "count" },
+          { key: "commentsEscalationsHandled", label: "Comments / escalations handled", target: null, unit: "count" },
+          { key: "taskCompletionRate", label: "Weekly or daily task completion (%)", target: null, unit: "percent" },
+          { key: "nextDayPriorities", label: "Next-day priorities prepared", target: null, unit: "count" },
         ],
-      ),
-      agentHighlightsSection(
-        [
-          { key: "agent", label: "Team Member" },
-          { key: "platform", label: "Platform(s)" },
-          { key: "highlight", label: "Highlight / Observation" },
+      },
+      {
+        id: "tasks",
+        title: "TASKS ASSIGNED & COMPLETED",
+        description: "Track the content tasks and community follow-ups you assigned today.",
+        type: "table",
+        columns: [
+          { key: "task", label: "Task description" },
+          { key: "platform", label: "Platform / channel" },
+          { key: "status", label: "Status", type: "select", options: TASK_STATUS_OPTIONS },
+          { key: "deliverable", label: "Deliverable / output" },
         ],
-        "Call out the best-performing content and who created it.",
-      ),
-      tasksSection(
-        [
-          { key: "task", label: "Task / Content Piece" },
-          { key: "platform", label: "Platform" },
-          { key: "assignee", label: "Assigned To" },
+        minRows: 6,
+      },
+      {
+        id: "myday",
+        title: "WORK DONE FROM MY DAY (AUTO-FILLED)",
+        description: "Tasks assigned to you from the Tasks module — pulled in automatically at export; adjust here if needed.",
+        type: "table",
+        columns: [
+          { key: "task", label: "Task" },
+          { key: "timeDue", label: "Time due" },
           { key: "status", label: "Status", type: "select", options: TASK_STATUS_OPTIONS },
         ],
-        "Track the content tasks and community follow-ups you assigned today.",
-      ),
-      ...tailSections(),
+        minRows: 2,
+      },
+      {
+        id: "challenges",
+        title: "CHALLENGES / BLOCKERS",
+        description: "What slowed the team down today?",
+        type: "table",
+        columns: [
+          { key: "blocker", label: "Blocker / risk" },
+          { key: "impact", label: "Impact" },
+          { key: "support", label: "Support or decision required" },
+          { key: "owner", label: "Owner / next action" },
+        ],
+        minRows: 2,
+      },
+      {
+        id: "escalations",
+        title: "ESCALATIONS AND APPROVALS",
+        description: "Issues that must be escalated — supervisors are alerted instantly on submit.",
+        type: "table",
+        columns: [
+          { key: "item", label: "Item requiring escalation" },
+          { key: "reason", label: "Reason / source / permission needed" },
+          { key: "escalatedTo", label: "Escalated to" },
+          { key: "status", label: "Status" },
+        ],
+        minRows: 1,
+      },
+      {
+        id: "handoff",
+        title: "END-OF-DAY HANDOFF",
+        description: "Shift note: on Friday include the weekly performance note. No routine report is required on Saturday or Sunday; any weekend content must already be scheduled in advance.",
+        type: "table",
+        columns: [
+          { key: "completed", label: "Completed" },
+          { key: "pending", label: "Pending approval" },
+          { key: "blocked", label: "Blocked" },
+          { key: "nextAction", label: "Next action / owner" },
+        ],
+        minRows: 2,
+      },
     ],
   };
 }

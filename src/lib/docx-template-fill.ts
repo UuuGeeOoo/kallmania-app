@@ -412,6 +412,53 @@ export function fillTextSection(tbl: Table, text: string | null | undefined, hea
   }
 }
 
+// ── Body paragraphs (sections whose body is free paragraphs, not a table) ──
+
+/** Paragraph's visible text from its direct runs. */
+export function paraPlainText(p: Node): string {
+  return paraText(p);
+}
+
+/**
+ * Write text into the first EMPTY body paragraph that follows the heading
+ * (a "▸ HEADING" 1-cell table or a heading paragraph), stopping at the next
+ * table or non-empty paragraph. Used for sections like "▸ ROLE FOCUS FOR
+ * TODAY" whose body is blank space rather than a table — the run inherits the
+ * paragraph's own formatting (pPr/rPr). Returns true when written.
+ */
+export function fillParaAfterHeading(doc: Doc, heading: string, text: string | null | undefined): boolean {
+  if (!text || !String(text).trim()) return false;
+  const body = descendants(doc, "body")[0];
+  if (!body) return false;
+  const nHeading = norm(heading);
+  const kids: Node[] = [];
+  const list = body.childNodes;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i];
+    if (c.nodeType === 1) kids.push(c);
+  }
+  let hit = -1;
+  for (let i = 0; i < kids.length; i++) {
+    const el = kids[i];
+    const tag = tagOf(el);
+    if (tag === "tbl" && tableTitle(el as Table).includes(nHeading)) { hit = i; break; }
+    if (tag === "p" && norm(paraText(el)).includes(nHeading)) { hit = i; break; }
+  }
+  if (hit === -1) return false;
+  for (let i = hit + 1; i < kids.length; i++) {
+    const el = kids[i];
+    const tag = tagOf(el);
+    if (tag === "tbl") return false; // next section started — nothing written
+    if (tag !== "p") continue;
+    if (paraText(el).trim() === "") {
+      setParagraphLines(doc, el, String(text).split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== ""));
+      return true;
+    }
+    return false; // non-empty paragraph — leave template content untouched
+  }
+  return false;
+}
+
 // ── Package-level load/save ──────────────────────────────────────────────────
 
 /**

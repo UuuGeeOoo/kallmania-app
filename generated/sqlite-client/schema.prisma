@@ -1,0 +1,240 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/sqlite-client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("SQLITE_BACKUP_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// KALLMANIA — SBTS Group Multi-Team Task Management,
+// KPI Tracking & Intelligent Report Consolidation System
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  fullName     String
+  // Roles: ADMIN | SUPERVISOR | TEAM_LEAD | AGENT_BPO | DEVELOPER | SOCIAL_MEDIA
+  role         String    @default("AGENT_BPO")
+  // Departments: BPO | WEB_DEV | SOCIAL_MEDIA | MANAGEMENT
+  department   String    @default("BPO")
+  // Team under the BPO division: OUTBOUND | INBOUND | EMAIL | SOCIAL | TECH
+  team         String?
+  employeeId   String?
+  phone        String?
+  // PENDING | APPROVED | REJECTED | SUSPENDED
+  status       String    @default("PENDING")
+  approvedAt   DateTime?
+  approvedById String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  reports          Report[]         @relation("ReportOwner")
+  reviewedReports  Report[]         @relation("ReportReviewer")
+  assignedTasks    Task[]           @relation("TaskAssignee")
+  createdTasks     Task[]           @relation("TaskCreator")
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  uploadedFiles    UploadedFile[]
+  updatedTemplates ReportTemplate[] @relation("TemplateUpdater")
+}
+
+model Report {
+  id         String   @id @default(cuid())
+  ref        String   @unique
+  // AGENT_BPO | TECH | SOCIAL | SUPERVISOR
+  type       String
+  reportDate DateTime
+  userId     String
+  user       User     @relation("ReportOwner", fields: [userId], references: [id])
+  department String
+
+  // ── Shared attendance block (agent & supervisor templates) ──
+  shiftTime        String?
+  clockIn          String?
+  clockOut         String?
+  attendanceStatus String? // Present / Late / Absent
+  latenessMins     Int?
+
+  // ── AGENT_BPO template ──
+  // JSON: [{ key, label, target, actual, variance, unit, auto, notes, category, mandatory }]
+  kpiMetrics           String?
+  // JSON: [{ leadName, disposition, followUp, notes }]
+  callLogs             String?
+  challenges           String?
+  escalations          String?
+  additionalActivities String?
+  // JSON: { campaignName, outstandingFollowUps, ... } — email campaign context
+  emailContext         String?
+
+  // ── TECH / SOCIAL structured entries ──
+  // JSON: array of work/activity entries
+  workEntries    String?
+  // JSON: department aggregate metrics { key: value }
+  metricsSummary String?
+
+  // ── TEAM_LEAD dynamic template ──
+  // JSON: { sections: { [sectionId]: string | number | Row[] } } rendered from ReportTemplate
+  payload String?
+
+  // ── SUPERVISOR template ──
+  teamName          String?
+  campusLocation    String?
+  agentsManaged     Int?
+  attendanceSummary String? // JSON
+  teamKpiAverages   String? // JSON
+  coachingEntries   String? // JSON
+  qaObservations    String?
+  escalatedIssues   String? // JSON
+  highlights        String?
+  lowlights         String?
+  actionPlan        String? // JSON
+  managerReview     String?
+
+  // ── Workflow ──
+  // DRAFT | SUBMITTED | APPROVED | REJECTED
+  status             String    @default("DRAFT")
+  supervisorFeedback String?
+  reviewedById       String?
+  reviewer           User?     @relation("ReportReviewer", fields: [reviewedById], references: [id])
+  reviewedAt         DateTime?
+
+  // ── Provenance ──
+  // MANUAL | UPLOAD_EXTRACTED | CONSOLIDATED
+  sourceType         String  @default("MANUAL")
+  sourceFileId       String?
+  // MANUAL_ENTRY | EXTRACTED_UNCONFIRMED | CONFIRMED_BY_EMPLOYEE | REVIEWED_BY_SUPERVISOR
+  verificationStatus String  @default("MANUAL_ENTRY")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reportDate])
+  @@index([userId])
+  @@index([type, status])
+}
+
+model ReportTemplate {
+  id          String   @id @default(cuid())
+  // Template key, e.g. TEAM_LEAD
+  key         String   @unique
+  name        String
+  description String?
+  // JSON: { title, sections: [...] } — editable by administrators & supervisors
+  definition  String
+  updatedById String?
+  updatedBy   User?    @relation("TemplateUpdater", fields: [updatedById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Task {
+  id              String    @id @default(cuid())
+  title           String
+  description     String?
+  department      String
+  assigneeId      String?
+  assignee        User?     @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdById     String
+  creator         User      @relation("TaskCreator", fields: [createdById], references: [id])
+  category        String?
+  projectRef      String?
+  priority        String    @default("MEDIUM") // LOW | MEDIUM | HIGH | URGENT
+  // NOT_STARTED | IN_PROGRESS | COMPLETED | UNDER_REVIEW | BLOCKED | PENDING_DEPLOYMENT | AWAITING_APPROVAL | NOT_COMPLETED
+  status          String    @default("NOT_STARTED")
+  requiredOutcome String?
+  target          String?
+  kpiKey          String?
+  dateAssigned    DateTime  @default(now())
+  deadline        DateTime?
+  estimatedHours  Float?
+  actualHours     Float?
+  blocker         String?
+  nextSteps       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([assigneeId])
+  @@index([department])
+}
+
+model UploadedFile {
+  id            String    @id @default(cuid())
+  originalName  String
+  storedName    String
+  mimeType      String
+  sizeBytes     Int
+  fileHash      String
+  // UPLOADED | PROCESSING | EXTRACTION_COMPLETED | AWAITING_CONFIRMATION | SUBMITTED | FAILED
+  extractStatus String    @default("UPLOADED")
+  extractError  String?
+  extractedData String? // JSON mapped fields
+  rawText       String?
+  reportDate    DateTime?
+  department    String?
+  reportId      String?
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  confirmedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId])
+  @@index([fileHash])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  severity  String   @default("INFO") // INFO | WARNING | CRITICAL
+  title     String
+  message   String
+  linkData  String?
+  read      Boolean  @default(false)
+  dedupeKey String?  @unique
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, read])
+}
+
+model KpiConfig {
+  id            String  @id @default(cuid())
+  department    String
+  key           String
+  label         String
+  category      String // CORE_TEMPLATE | EMAIL_EXTENSION | TECH | SOCIAL
+  unit          String  @default("count") // count | percent | minutes
+  direction     String  @default("HIGHER_BETTER") // HIGHER_BETTER | LOWER_BETTER | DERIVED
+  defaultTarget Float?
+  derivedFrom   String? // formula key for auto-calculated metrics
+  mandatory     Boolean @default(false)
+  active        Boolean @default(true)
+  sortOrder     Int     @default(0)
+
+  @@unique([department, key])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  actorName String?
+  action    String
+  entity    String
+  entityId  String?
+  details   String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([createdAt])
+}
+
+model SystemFlag {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

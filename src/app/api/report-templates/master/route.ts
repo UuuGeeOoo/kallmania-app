@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { handle, ok, fail } from "@/lib/api-utils";
 import { audit } from "@/lib/notify";
-import { listMasters, replaceMaster } from "@/lib/report-masters";
+import { listMasters, replaceMaster, MASTER_REPORT_TYPES } from "@/lib/report-masters";
 import JSZip from "jszip";
 
 /**
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     const form = await req.formData();
     const reportType = String(form.get("reportType") || "");
     const file = form.get("file");
-    if (!["AGENT_BPO", "SUPERVISOR", "TECH", "SOCIAL", "TEAM_LEAD"].includes(reportType)) {
+    if (!MASTER_REPORT_TYPES.includes(reportType as never)) {
       return fail("Invalid report type");
     }
     if (!(file instanceof File)) return fail("A .docx template file is required");

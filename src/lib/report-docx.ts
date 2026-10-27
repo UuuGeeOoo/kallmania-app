@@ -15,6 +15,7 @@ import { db } from "@/lib/db";
 import { buildAgentDocx, buildSupervisorDocx, buildGenericDocx, buildSocialDocx, buildTeamLeadDocx } from "@/lib/word-export";
 import { TECH_SUMMARY_METRICS, SOCIAL_SUMMARY_METRICS } from "@/lib/template-config";
 import { tryFillFromMaster, type ReportLike } from "@/lib/report-fill";
+import { defaultTemplateFor, tlTemplateKeyFor, type TlDefinition } from "@/lib/team-lead-template";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ReportRow = any;
@@ -31,6 +32,7 @@ export async function generateReportDocx(report: ReportRow): Promise<{ buffer: B
     else if (report.type === "SUPERVISOR") filename = `Supervisor_Daily_Report_${dateOf(report.reportDate)}.docx`;
     else if (report.type === "SOCIAL") filename = `Daily_Report_Social_Media_${namePart(report.user.fullName)}_${dateOf(report.reportDate)}.docx`;
     else if (report.type === "TECH") filename = `Daily_Report_Web_Technical_${namePart(report.user.fullName)}_${dateOf(report.reportDate)}.docx`;
+    else if (report.type === "TEAM_LEAD") filename = `Social_Media_Team_Lead_Daily_Report_${namePart(report.user.fullName)}_${dateOf(report.reportDate)}.docx`;
     else filename = `Daily_Report_${namePart(report.user.fullName)}_${dateOf(report.reportDate)}.docx`;
     return { buffer: filled, filename, viaMaster: true };
   }
@@ -45,9 +47,13 @@ export async function generateReportDocx(report: ReportRow): Promise<{ buffer: B
     buffer = await buildSupervisorDocx(report as never);
     filename = `Supervisor_Daily_Report_${dateOf(report.reportDate)}.docx`;
   } else if (report.type === "TEAM_LEAD") {
-    const tplRow = await db.reportTemplate.findUnique({ where: { key: "TEAM_LEAD" } });
-    let definition = null;
-    if (tplRow) { try { definition = JSON.parse(tplRow.definition); } catch {} }
+    // Use the template the report was FILLED with (the lead's own team format),
+    // not the generic fallback — TL_SOCIAL etc. resolve per department/team.
+    const tlKey = tlTemplateKeyFor(report.department, report.user?.team);
+    const tplRow = await db.reportTemplate.findUnique({ where: { key: tlKey } });
+    let definition: TlDefinition | null = null;
+    if (tplRow) { try { definition = JSON.parse(tplRow.definition) as TlDefinition; } catch {} }
+    if (!definition) definition = defaultTemplateFor(tlKey);
     buffer = await buildTeamLeadDocx({
       reportDate: report.reportDate,
       userName: report.user.fullName,
@@ -62,7 +68,9 @@ export async function generateReportDocx(report: ReportRow): Promise<{ buffer: B
       reviewerName: report.reviewer?.fullName || null,
       definition,
     });
-    filename = `Team_Lead_Daily_Report_${namePart(report.user.fullName)}_${dateOf(report.reportDate)}.docx`;
+    filename = tlKey === "TL_SOCIAL"
+      ? `Social_Media_Team_Lead_Daily_Report_${namePart(report.user.fullName)}_${dateOf(report.reportDate)}.docx`
+      : `Team_Lead_Daily_Report_${namePart(report.user.fullName)}_${dateOf(report.reportDate)}.docx`;
   } else if (report.type === "SOCIAL") {
     buffer = await buildSocialDocx({
       reportDate: report.reportDate,

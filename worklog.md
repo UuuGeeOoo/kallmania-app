@@ -708,3 +708,22 @@ Work Log:
 
 Stage Summary:
 - Task 37 fully delivered and verified end-to-end: code on GitHub, Supabase in sync, preview build smoke-tested, dev environment running — nothing pending
+
+---
+Task ID: 38
+Agent: main (Z.ai)
+Task: "for the social media team lead report for Enugu centre, use this report template for them" — register the uploaded SBTS-Daily-Report-Social Media Team-Lead.docx as the master for the Social Media Team Lead daily report
+
+Work Log:
+- Session repair first: platform sync had (a) wiped .env back to the SQLite URL — restored the Supabase URL from the db.ts fallback constant and (b) materialised an untracked stale src/app/api/users/[userId]/kpi duplicate that crashed Next boot ("different slug names") — removed it; dev server healthy again
+- Mapped the uploaded master's 18 tables (heading-table → body-table pattern; staff info = labels row + values row + attendance/lateness/email pairs; ROLE FOCUS body = free paragraphs, not a table)
+- Registry: new master type TL_SOCIAL ("Social Media Team Lead"); the uploaded file committed to assets/report-templates/Daily_Report_Social_Media_Team_Lead.docx and added to BUNDLED so it self-seeds/self-heals exactly like the other SBTS masters; MASTER_REPORT_TYPES exported and the master route whitelist now derives from it
+- Engine: new fillParaAfterHeading writes section text into the first empty body paragraph after a "▸ HEADING" table (run inherits pPr/rPr) — used for ROLE FOCUS FOR TODAY
+- Fill mapping fillSocialLeadDocx (report-fill.ts): staff info (name/date/role/shift/clock-in/out from report columns, attendance + lateness + email), KPI actuals into the template's 8 rows by label match with clone-append for extras, numbered tasks table (clones beyond 6), WORK DONE FROM MY DAY auto-filled from the Tasks module (assignee + dateAssigned/deadline on the report date; payload rows win when the lead edited them), challenges/escalations/handoff via new fillPlainRows, supervisor comments from reviewer/feedback/reviewedAt
+- Routing: tryFillFromMaster case TEAM_LEAD resolves tlTemplateKeyFor(department, team) — only TL_SOCIAL takes the master path, and only for payloads with the new section structure (old-shape payloads keep the dynamic builder); report-docx fallback builder now loads the lead's own resolved template definition; viaMaster filename Social_Media_Team_Lead_Daily_Report_<name>_<date>.docx
+- Form: defaultSocialLeadTemplate rewritten to mirror the uploaded document 1:1 (role-focus, myday, handoff replace agent-highlights/coaching/action-plan/comments); team-lead form prefills myday from /api/tasks?mine=1 for the reporting date; stale TL_SOCIAL ReportTemplate DB row (old default saved Oct 22) deleted so the new default serves — verified GET ?key=TL_SOCIAL now returns the mirrored structure
+- Verified: unit fill test 17/17 PASS + master sha256 unchanged; server E2E — temp TL user + task seeded, report submitted via API, export 200 attachment Social_Media_Team_Lead_Daily_Report_E2E_Social_Lead_2026-10-27.docx, preview kind=docx viaMaster=true, all 9 content greps PASS incl. the Tasks-module auto-fill (task title + 16:00 time due); master list shows the TL_SOCIAL card; browser (admin → Report Templates): master card "SBTS-Daily-Report-Social Media Team-Lead.docx · 23 KB · sha256 8d520f88" with Download/Replace, template editor renders all new sections, zero page errors
+- Test data purged (report + task + temp user); real users, reports and masters untouched
+
+Stage Summary:
+- The Social Media Team Lead daily report (Somtochukwu, Enugu centre) now prints from the exact uploaded SBTS Word master: the lead fills a form that mirrors the document 1:1, "work done from my day" auto-fills from the Tasks module, generated DOCX/preview carry the original design with the ORIGINAL TEMPLATE DESIGN badge, and the master itself is sha256-verified untouched — self-seeded from git so it survives workspace syncs
