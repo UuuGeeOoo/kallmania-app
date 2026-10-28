@@ -22,6 +22,14 @@ interface KpiConfigRow {
   defaultTarget: number | null; mandatory: boolean; active: boolean;
 }
 
+/** An approved individual (per-member) KPI override from the member's KPI configuration. */
+interface MemberOverrideRow {
+  department: string; key: string; label: string; target: number | null; unit: string; status: string;
+}
+
+const targetLabelFor = (t: number | null, unit: string): string =>
+  t === null || t === undefined ? "-" : unit === "percent" ? `${t}%` : unit === "minutes" ? `${t}mins` : `${t}`;
+
 /**
  * Build the form's KPI rows from the administrator-managed KPI Configuration
  * catalogue (targets / labels / mandatory flags / added & deleted metrics),
@@ -280,17 +288,30 @@ export default function AgentBpoReportForm({
     setError(null);
     try {
       const dept = inbound ? "INBOUND" : "BPO";
-      const [reportsRes, kpiConfigs] = await Promise.all([
+      // Centre-aware catalogue: the agent's own centre's effective targets
+      // (centre overrides over global defaults) served by /api/kpi-config.
+      const centreQs = user.country && user.state ? `?centreCountry=${encodeURIComponent(user.country)}&centreState=${encodeURIComponent(user.state)}` : "";
+      const [reportsRes, kpiConfigs, memberKpi] = await Promise.all([
         api<{ reports: ReportDTO[] }>(`/api/reports?mine=1&type=AGENT_BPO&date=${date}`),
         // administrator-managed catalogue for this call centre (targets, labels, optional/required, added & removed metrics)
-        api<{ configs: KpiConfigRow[] }>("/api/kpi-config")
+        api<{ configs: KpiConfigRow[] }>(`/api/kpi-config${centreQs}`)
           .then((r) => r.configs.filter((c) => c.department === dept && c.active !== false))
           .catch(() => null),
+        // individual targets approved for THIS member take precedence over centre/global targets
+        api<{ configs: MemberOverrideRow[] }>(`/api/users/${user.id}/member-kpi`)
+          .then((r) => r.configs.filter((c) => c.status === "APPROVED" && c.target !== null && c.department === dept))
+          .catch(() => [] as MemberOverrideRow[]),
       ]);
       const existing = (focusId ? reportsRes.reports.find((r) => r.id === focusId) : null) || reportsRes.reports[0] || null;
       if (loadId !== loadIdRef.current) return;
       const savedMetrics = existing?.kpiMetrics ? JSON.parse(existing.kpiMetrics) as KpiMetric[] : [];
-      const builtKpis = buildKpiRows(kpiConfigs, DEFAULT_KPIS, savedMetrics, inbound);
+      const memberOverrides = new Map(memberKpi.map((c) => [c.key, c]));
+      const builtKpis = buildKpiRows(kpiConfigs, DEFAULT_KPIS, savedMetrics, inbound).map((r) => {
+        const o = memberOverrides.get(r.key);
+        return o && o.target !== null
+          ? { ...r, label: o.label || r.label, target: o.target, targetLabel: targetLabelFor(o.target, o.unit || r.unit) }
+          : r;
+      });
       const builtInfo = existing ? {
         shiftTime: existing.shiftTime || "", clockIn: existing.clockIn || "", clockOut: existing.clockOut || "",
         attendanceStatus: existing.attendanceStatus || "Present", latenessMins: existing.latenessMins !== null && existing.latenessMins !== undefined ? String(existing.latenessMins) : "",
@@ -330,11 +351,11 @@ export default function AgentBpoReportForm({
     } finally {
       if (loadId === loadIdRef.current) setLoading(false);
     }
-  }, [date, user.id, inbound, DEFAULT_KPIS]);
+  }, [date, user.id, user.country, user.state, inbound, DEFAULT_KPIS]);
 
   // Initial load only — date changes go through the guard below so the report
   // is never wiped just because the agent picked another reporting date.
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { load();   }, []);
 
   // Reporting-date guard: with unsaved entries the content is kept and only the
   // date changes (saving then files the report under the new date); with a clean
@@ -350,7 +371,7 @@ export default function AgentBpoReportForm({
     }
     setDateKept(null);
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [date]);
 
   const save = async (submit: boolean, silent = false) => {

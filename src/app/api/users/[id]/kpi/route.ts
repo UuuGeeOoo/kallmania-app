@@ -4,6 +4,7 @@ import { requireUser, isSupervisorLike, AuthError } from "@/lib/auth";
 import { handle, ok, safeParse } from "@/lib/api-utils";
 import { periodRange, cumulativeKpiRows, type KpiPeriod } from "@/lib/kpi-summary";
 import { TECH_SUMMARY_METRICS, SOCIAL_SUMMARY_METRICS } from "@/lib/template-config";
+import { resolveKpiCatalogue, kpiTargetMap } from "@/lib/kpi-resolve";
 import { type KpiMetric } from "@/lib/kpi";
 
 /**
@@ -52,7 +53,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
     const distinctDates = new Set(reports.map((r) => new Date(r.reportDate).toISOString().slice(0, 10))).size;
     const bpoReports = reports.filter((r) => r.type === "AGENT_BPO");
-    const rows = bpoReports.length ? cumulativeKpiRows(bpoReports.map((r) => r.kpiMetrics), distinctDates) : [];
+    let rows: ReturnType<typeof cumulativeKpiRows> = [];
+    if (bpoReports.length) {
+      // Base targets: the saved KPI configuration of the staff member's centre
+      // (centre overrides over global defaults).
+      const catalogue = await resolveKpiCatalogue(
+        user.country && user.state ? { country: user.country, state: user.state } : null,
+      );
+      const dominantDept = user.team === "INBOUND" ? "INBOUND" : "BPO";
+      const targets = kpiTargetMap(catalogue.filter((c) => c.active), [dominantDept, "BPO", "INBOUND"]);
+      rows = cumulativeKpiRows(bpoReports.map((r) => r.kpiMetrics), distinctDates, targets);
+    }
 
     // Individual (per-member) KPI overrides — APPROVED ones become the member's
     // effective targets (daily target, scaled by report days like the defaults).
@@ -66,6 +77,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       if (!o || o.target === null) continue;
       const scale = row.unit === "count" ? distinctDates : 1;
       const target = Math.round((o.target as number) * scale * 100) / 100;
+      row.dailyTarget = o.target;
       row.target = target;
       row.targetLabel = `${target}${o.unit === "percent" ? "%" : o.unit === "minutes" ? "mins" : ""}${scale > 1 ? ` (${o.target}/day × ${scale}d — individual)` : " (individual)"}`;
       row.pct = row.actual !== null && target !== 0 ? Math.round(((row.actual as number) / target) * 10000) / 100 : null;

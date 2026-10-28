@@ -113,9 +113,13 @@ export function formatMetricValue(v: number | null, unit: string): string {
   return String(v);
 }
 
-/** Aggregate agent KPI metrics into supervisor team averages / best / lowest performer rows */
+/** Aggregate agent KPI metrics into supervisor team averages / best / lowest performer rows.
+ *  `targets` (key → effective daily target) comes from the centre-aware KPI catalogue
+ *  (src/lib/kpi-resolve.ts) so configured centre overrides drive the displayed team
+ *  targets; when omitted the template defaults are used. */
 export function aggregateTeamKpis(
-  agentReports: { userName: string; kpiMetrics: string | null }[]
+  agentReports: { userName: string; kpiMetrics: string | null }[],
+  targets?: Map<string, number | null> | null,
 ): { key: string; label: string; teamTarget: number | null; teamAvg: number | null; best: string | null; bestVal: number | null; lowest: string | null; lowestVal: number | null }[] {
   const perUser = agentReports
     .map((r) => {
@@ -131,7 +135,7 @@ export function aggregateTeamKpis(
     const vals = perUser
       .map((u) => ({ name: u.userName, v: u.map.get(def.key) ?? null }))
       .filter((x): x is { name: string; v: number } => x.v !== null);
-    const teamTarget = def.target;
+    const teamTarget = targets && targets.has(def.key) ? (targets.get(def.key) ?? null) : def.target;
     const avg = vals.length ? Math.round((vals.reduce((s, x) => s + x.v, 0) / vals.length) * 100) / 100 : null;
     let best = null as null | { name: string; v: number };
     let lowest = null as null | { name: string; v: number };

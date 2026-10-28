@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireUser, isSupervisorLike } from "@/lib/auth";
 import { handle, ok, fail, safeParse, toDateOrNull } from "@/lib/api-utils";
 import { recalcKpis, isShortfall, type KpiMetric } from "@/lib/kpi";
+import { resolveKpiCatalogue } from "@/lib/kpi-resolve";
 import { audit, notify, notifySupervisors } from "@/lib/notify";
 
 function genRef(type: string): string {
@@ -26,16 +27,22 @@ const REPORT_TYPE_BY_ROLE: Record<string, string> = {
  * exempt since they have no numbers to report. Returns the error message or
  * null when the report may be submitted. Nothing is persisted when this fails,
  * so every entered value stays in the agent's form (and any saved draft).
+ * Mandatory flags are resolved through the centre-aware catalogue: the report
+ * owner's centre overrides replace the global defaults — one centre's
+ * "required" never leaks into another centre's validation.
  */
 async function validateMandatoryKpis(
   reportType: string,
-  ownerTeam: string | null | undefined,
+  owner: { team: string | null | undefined; country: string | null | undefined; state: string | null | undefined } | null | undefined,
   attendance: string | null | undefined,
   metricsJson: unknown,
 ): Promise<string | null> {
   if (reportType !== "AGENT_BPO" || attendance === "Absent") return null;
-  const cfgDept = ownerTeam === "INBOUND" ? "INBOUND" : "BPO";
-  const cfgs = await db.kpiConfig.findMany({ where: { department: cfgDept, mandatory: true, active: true } });
+  const cfgDept = owner?.team === "INBOUND" ? "INBOUND" : "BPO";
+  const catalogue = await resolveKpiCatalogue(
+    owner?.country && owner?.state ? { country: owner.country, state: owner.state } : null,
+  );
+  const cfgs = catalogue.filter((c) => c.department === cfgDept && c.mandatory && c.active);
   if (!cfgs.length) return null;
   const metrics = safeParse<KpiMetric[]>(metricsJson as string | unknown[] | object | null | undefined, []);
   const missing = [...new Set(cfgs
@@ -183,10 +190,10 @@ export async function POST(req: NextRequest) {
       }
       if (!submit && existing.status === "SUBMITTED") correction = true;
       if (submit) {
-        const owner = await db.user.findUnique({ where: { id: existing.userId }, select: { team: true } });
+        const owner = await db.user.findUnique({ where: { id: existing.userId }, select: { team: true, country: true, state: true } });
         const err = await validateMandatoryKpis(
           reportType,
-          owner?.team,
+          owner,
           (data.attendanceStatus as string | null | undefined) ?? existing.attendanceStatus,
           "kpiMetrics" in fields ? fields.kpiMetrics : existing.kpiMetrics,
         );
@@ -206,7 +213,7 @@ export async function POST(req: NextRequest) {
       });
       if (dup) return fail(`You already have a ${dup.status === "APPROVED" ? "finalized" : "submitted"} report for this day (${dup.ref}). A report cannot be submitted twice for the same day — open the Daily Report page for that date to make corrections instead.`, 409);
       if (submit) {
-        const err = await validateMandatoryKpis(reportType, me.team, (data.attendanceStatus as string | null | undefined) ?? null, fields.kpiMetrics);
+        const err = await validateMandatoryKpis(reportType, me, (data.attendanceStatus as string | null | undefined) ?? null, fields.kpiMetrics);
         if (err) return fail(err, 422);
       }
       report = await db.report.create({

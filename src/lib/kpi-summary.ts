@@ -85,8 +85,11 @@ function deriveFromSums(key: string, sums: Record<string, number>): number | nul
 
 const DERIVED_KEYS = new Set(["contactRate", "conversionRate", "leadsGenerated"]);
 
-/** Build cumulative BPO KPI rows from a list of report kpiMetrics JSON blobs */
-export function cumulativeKpiRows(kpiBlobs: (string | null)[], distinctDates: number): CumRow[] {
+/** Build cumulative BPO KPI rows from a list of report kpiMetrics JSON blobs.
+ *  `targets` (key → effective daily target) comes from the centre-aware KPI
+ *  catalogue so configured centre overrides drive period targets; when omitted
+ *  the template defaults are used. */
+export function cumulativeKpiRows(kpiBlobs: (string | null)[], distinctDates: number, targets?: Map<string, number | null> | null): CumRow[] {
   const sums: Record<string, number> = {}; // count sums
   const minSum: Record<string, { sum: number; n: number }> = {}; // minutes
   const pctVals: Record<string, number[]> = {}; // percent fallback
@@ -108,6 +111,7 @@ export function cumulativeKpiRows(kpiBlobs: (string | null)[], distinctDates: nu
   }
 
   return AGENT_KPI_DEFS.map((def): CumRow => {
+    const baseTarget = targets && targets.has(def.key) ? (targets.get(def.key) ?? null) : def.target;
     let actual: number | null = null;
     if (def.unit === "percent") {
       const derived = deriveFromSums(def.key, sums);
@@ -121,13 +125,13 @@ export function cumulativeKpiRows(kpiBlobs: (string | null)[], distinctDates: nu
     }
 
     // Targets: counts scale by days with data; percent/minutes targets stay fixed
-    const scale = def.unit === "count" && def.target !== null ? distinctDates : 1;
-    const target = def.target !== null ? Math.round(def.target * scale * 100) / 100 : null;
+    const scale = def.unit === "count" && baseTarget !== null ? distinctDates : 1;
+    const target = baseTarget !== null ? Math.round(baseTarget * scale * 100) / 100 : null;
     const pct = actual !== null && target !== null && target !== 0 ? Math.round((actual / target) * 10000) / 100 : null;
 
     const targetLabel =
-      def.target !== null
-        ? `${Math.round(def.target * scale * 100) / 100}${def.unit === "percent" ? "%" : def.unit === "minutes" ? "mins" : ""}${scale > 1 ? ` (${def.target}/day × ${scale}d)` : ""}`
+      baseTarget !== null
+        ? `${Math.round(baseTarget * scale * 100) / 100}${def.unit === "percent" ? "%" : def.unit === "minutes" ? "mins" : ""}${scale > 1 ? ` (${baseTarget}/day × ${scale}d)` : ""}`
         : def.targetLabel ?? "-";
 
     return {
@@ -135,7 +139,7 @@ export function cumulativeKpiRows(kpiBlobs: (string | null)[], distinctDates: nu
       label: def.label,
       unit: def.unit,
       category: def.category,
-      dailyTarget: def.target,
+      dailyTarget: baseTarget,
       target,
       targetLabel,
       actual,

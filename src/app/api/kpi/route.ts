@@ -6,6 +6,7 @@ import {
   PERIODS, periodRange, buildDeptSections, buildTrends,
   type Period, type AggReport,
 } from "@/lib/kpi-aggregate";
+import { resolveKpiCatalogue, hasCentre } from "@/lib/kpi-resolve";
 
 /**
  * GET /api/kpi?period=daily|weekly|monthly&date=YYYY-MM-DD&department=BPO|WEB_DEV|SOCIAL_MEDIA|ALL
@@ -36,8 +37,18 @@ export async function GET(req: NextRequest) {
     if (!supervisor) baseWhere.userId = me.id;
 
     // Active KPI catalogue per department — the rows report forms submit
-    // against (also carries each row's default daily target)
-    const configs = await db.kpiConfig.findMany({ where: { active: true } });
+    // against (also carries each row's effective daily target). Centre-scoped:
+    // supervisors see their centre's overrides; staff see their own centre's;
+    // admins without a centre drill-down see the global defaults. Mixing every
+    // centre's rows here previously produced duplicate/conflicting rows.
+    const catalogueCentre =
+      me.role === "SUPERVISOR" && hasCentre(me)
+        ? { country: me.country, state: me.state }
+        : !isSupervisorLike(me) && hasCentre(me)
+          ? { country: me.country, state: me.state }
+          : null;
+    const resolvedCatalogue = await resolveKpiCatalogue(catalogueCentre);
+    const configs = resolvedCatalogue.filter((c) => c.active).map((c) => ({ department: c.department, key: c.key, label: c.label, unit: c.unit, defaultTarget: c.defaultTarget, sortOrder: c.sortOrder }));
 
     const fmt = (d: Date) => d.toISOString();
 

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireUser, requireSupervisorOrAdmin } from "@/lib/auth";
 import { handle, ok, fail, safeParse, toDateOrNull } from "@/lib/api-utils";
 import { aggregateTeamKpis, isShortfall, type KpiMetric } from "@/lib/kpi";
+import { resolveKpiCatalogue, kpiTargetMap, hasCentre } from "@/lib/kpi-resolve";
 import { audit } from "@/lib/notify";
 import { worksOn } from "@/lib/schedule";
 import { SUPERVISOR_TEAM_KPIS } from "@/lib/template-config";
@@ -59,7 +60,14 @@ export async function GET(req: NextRequest) {
       if (dept === "BPO") {
         const totals: Record<string, number> = {};
         const shortfalls: string[] = [];
-        const kpiRows = aggregateTeamKpis(confirmed.map((r) => ({ userName: r.user.fullName, kpiMetrics: r.kpiMetrics })));
+        // Team targets follow the saved KPI configuration of the supervisor's
+        // centre (admins without a centre see the global defaults) — the
+        // supervisor report auto-fill must use the configured values.
+        const catalogue = await resolveKpiCatalogue(
+          me.role === "SUPERVISOR" && hasCentre(me) ? { country: me.country, state: me.state } : null,
+        );
+        const targets = kpiTargetMap(catalogue.filter((c) => c.active), ["BPO", "INBOUND"]);
+        const kpiRows = aggregateTeamKpis(confirmed.map((r) => ({ userName: r.user.fullName, kpiMetrics: r.kpiMetrics })), targets);
         for (const r of confirmed) {
           const metrics = safeParse<KpiMetric[]>(r.kpiMetrics, []);
           for (const m of metrics) {

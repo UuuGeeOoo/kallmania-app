@@ -4,6 +4,7 @@ import { requireUser, isSupervisorLike } from "@/lib/auth";
 import { handle, ok, safeParse } from "@/lib/api-utils";
 import { periodRange, cumulativeKpiRows, type KpiPeriod } from "@/lib/kpi-summary";
 import { TECH_SUMMARY_METRICS, SOCIAL_SUMMARY_METRICS } from "@/lib/template-config";
+import { resolveKpiCatalogue, kpiTargetMap, hasCentre } from "@/lib/kpi-resolve";
 import { type KpiMetric } from "@/lib/kpi";
 
 /**
@@ -81,8 +82,24 @@ export async function GET(req: NextRequest) {
     const techTotals = sumMetricsSummary(techReports);
     const socialTotals = sumMetricsSummary(socialReports);
 
-    // KPI rows: BPO cumulative (own for agents, team for supervisors).
-    const rows = bpoReports.length ? cumulativeKpiRows(bpoReports.map((r) => r.kpiMetrics), distinctDates) : [];
+    // KPI rows: BPO cumulative (own for agents, team for supervisors). Targets
+    // come from the saved KPI configuration of the centre the numbers belong
+    // to (supervisor's own centre / admin drill-down / agent's own centre).
+    let rows: ReturnType<typeof cumulativeKpiRows> = [];
+    if (bpoReports.length) {
+      const centre =
+        me.role === "SUPERVISOR" && hasCentre(me)
+          ? { country: me.country, state: me.state }
+          : me.role === "ADMIN" && searchParams.get("country") && searchParams.get("state")
+            ? { country: searchParams.get("country"), state: searchParams.get("state") }
+            : !isSupervisorLike(me) && hasCentre(me)
+              ? { country: me.country, state: me.state }
+              : null; // admins without drill-down see the global defaults
+      const catalogue = await resolveKpiCatalogue(centre);
+      const dominantDept = bpoReports[0]?.department === "INBOUND" ? "INBOUND" : "BPO";
+      const targets = kpiTargetMap(catalogue.filter((c) => c.active), [dominantDept, "BPO", "INBOUND"]);
+      rows = cumulativeKpiRows(bpoReports.map((r) => r.kpiMetrics), distinctDates, targets);
+    }
 
     // Supervisor per-employee breakdown
     const byEmployee = supervisor

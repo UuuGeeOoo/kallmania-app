@@ -5,6 +5,7 @@ import { handle, ok, safeParse } from "@/lib/api-utils";
 import { checkOverdueReports } from "@/lib/notify";
 import { aggregateTeamKpis, type KpiMetric } from "@/lib/kpi";
 import { worksOn } from "@/lib/schedule";
+import { resolveKpiCatalogue, kpiTargetMap, hasCentre } from "@/lib/kpi-resolve";
 
 /**
  * GET /api/dashboard?date=YYYY-MM-DD
@@ -135,7 +136,20 @@ export async function GET(req: NextRequest) {
       }
     }
     if (agentReports.length) {
-      teamKpiRows = aggregateTeamKpis(agentReports.map((r) => ({ userName: r.user.fullName, kpiMetrics: r.kpiMetrics })));
+      // Team targets follow the centre's saved KPI configuration (centre
+      // overrides over global defaults) — the dashboard and the supervisor
+      // form auto-fill must reflect what management configured, not the
+      // template defaults.
+      const centre =
+        me.role === "SUPERVISOR" && hasCentre(me)
+          ? { country: me.country, state: me.state }
+          : country && state
+            ? { country, state }
+            : null;
+      const catalogue = await resolveKpiCatalogue(centre);
+      const dominantDept = agentReports[0]?.department === "INBOUND" ? "INBOUND" : "BPO";
+      const targets = kpiTargetMap(catalogue.filter((c) => c.active), [dominantDept, "BPO", "INBOUND"]);
+      teamKpiRows = aggregateTeamKpis(agentReports.map((r) => ({ userName: r.user.fullName, kpiMetrics: r.kpiMetrics })), targets);
     }
 
     // Tech & Social aggregates

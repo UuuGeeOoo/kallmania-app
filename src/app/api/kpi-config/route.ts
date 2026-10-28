@@ -4,6 +4,7 @@ import { requireUser, AuthError } from "@/lib/auth";
 import { handle, ok, fail } from "@/lib/api-utils";
 import { audit } from "@/lib/notify";
 import { AGENT_KPI_DEFS, TECH_SUMMARY_METRICS, SOCIAL_SUMMARY_METRICS } from "@/lib/template-config";
+import { resolveKpiCatalogue, hasCentre } from "@/lib/kpi-resolve";
 
 const GLOBAL_SCOPE = { centreCountry: "ALL", centreState: "ALL" };
 
@@ -53,33 +54,35 @@ export async function GET(req: NextRequest) {
       return ok({ configs: all.map((c) => ({ ...c, isOverride: false, globalTarget: c.defaultTarget })), catalog, centres: [] });
     }
 
+    // Staff (agents, team leads, …) may read the merged catalogue of their OWN
+    // centre — report forms need their centre's effective targets. Requesting
+    // another centre than their own stays a privilege of managers.
+    if (me.role !== "ADMIN" && me.role !== "SUPERVISOR") {
+      if (!wantsCentre) {
+        // No explicit centre → serve the caller's own centre when they have one.
+        const configs = hasCentre(me)
+          ? await resolveKpiCatalogue({ country: me.country, state: me.state })
+          : globals.map((g) => ({ ...g, isOverride: false, globalTarget: g.defaultTarget }));
+        return ok({ configs, catalog, centres: [] });
+      }
+      if (centreCountry !== me.country || centreState !== me.state) {
+        throw new AuthError("You can only view the KPI configuration of your own centre", 403);
+      }
+      const configs = hasCentre(me) ? await resolveKpiCatalogue({ country: me.country, state: me.state }) : globals.map((g) => ({ ...g, isOverride: false, globalTarget: g.defaultTarget }));
+      return ok({ configs, catalog, centres: [] });
+    }
+
     if (!wantsCentre) {
       // Global catalogue (also used by report forms for default targets).
       return ok({ configs: globals.map((c) => ({ ...c, isOverride: false, globalTarget: c.defaultTarget })), catalog, centres: await listCentres(me) });
     }
 
-    if (me.role !== "ADMIN" && me.role !== "SUPERVISOR") throw new AuthError("KPI configuration access required", 403);
     if (me.role === "SUPERVISOR" && (centreCountry !== me.country || centreState !== me.state)) {
       throw new AuthError("Supervisors can only view the KPI of their own centre", 403);
     }
 
-    const overrides = await db.kpiConfig.findMany({
-      where: { centreCountry, centreState },
-      orderBy: [{ department: "asc" }, { sortOrder: "asc" }],
-    });
-    const byKey = new Map(overrides.map((o) => [`${o.department}|${o.key}`, o]));
-    const merged = globals.map((g) => {
-      const o = byKey.get(`${g.department}|${g.key}`);
-      return o
-        ? { ...o, isOverride: true, globalTarget: g.defaultTarget }
-        : { ...g, isOverride: false, globalTarget: g.defaultTarget };
-    });
-    // Centre-only custom metrics (no global counterpart) appear at the end.
-    for (const o of overrides) {
-      if (!globals.some((g) => g.department === o.department && g.key === o.key)) {
-        merged.push({ ...o, isOverride: true, globalTarget: null });
-      }
-    }
+    // Single authoritative merged read — centre overrides win over globals.
+    const merged = await resolveKpiCatalogue({ country: centreCountry, state: centreState });
     return ok({ configs: merged, catalog, centres: await listCentres(me) });
   });
 }
@@ -108,8 +111,14 @@ export async function POST(req: NextRequest) {
       throw new AuthError("KPI configuration access required", 403);
     }
     const body = await req.json();
-    const { department, key, label, category, unit, defaultTarget, mandatory, active, direction } = body;
+    const { department, key, category, unit, defaultTarget, mandatory, active, direction } = body;
+    const label = typeof body.label === "string" ? body.label.trim() : "";
     if (!department || !key || !label) return fail("department, key and label are required");
+    const parsedTarget =
+      defaultTarget === null || defaultTarget === undefined || defaultTarget === ""
+        ? null
+        : parseFloat(String(defaultTarget));
+    if (parsedTarget !== null && !Number.isFinite(parsedTarget)) return fail("Target must be a valid number", 400);
 
     let scope: { centreCountry: string; centreState: string };
     try {
@@ -124,7 +133,7 @@ export async function POST(req: NextRequest) {
     const values = {
       label, category: category || "CUSTOM", unit: unit || "count",
       direction: direction || "HIGHER_BETTER",
-      defaultTarget: defaultTarget === null || defaultTarget === undefined || defaultTarget === "" ? null : parseFloat(String(defaultTarget)),
+      defaultTarget: parsedTarget,
       mandatory: isInbound ? false : !!mandatory,
       active: active !== false,
     };

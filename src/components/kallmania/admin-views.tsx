@@ -411,6 +411,7 @@ interface CentreDTO { country: string; state: string; agents: number }
 export function KpiConfigView({ user }: { user: SessionUser }) {
   const isAdmin = user.role === "ADMIN";
   const isSupervisor = user.role === "SUPERVISOR";
+  const { toast } = useToast();
   const [configs, setConfigs] = useState<KpiConfigDTO[]>([]);
   const [centres, setCentres] = useState<CentreDTO[]>([]);
   const [catalog, setCatalog] = useState<Record<string, MetricOption[]>>({});
@@ -438,7 +439,7 @@ export function KpiConfigView({ user }: { user: SessionUser }) {
       setLoading(false);
     }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [centreCountry, centreState]);
+  useEffect(() => { load();   }, [centreCountry, centreState]);
 
   const add = async () => {
     if (!typedMetricText) return;
@@ -459,27 +460,42 @@ export function KpiConfigView({ user }: { user: SessionUser }) {
         }),
       });
       setForm({ key: "", label: "", defaultTarget: "", mandatory: false, unit: "count" });
-      load();
+      await load();
+      toast({ title: "KPI saved", description: `${typedMetricText} was saved for ${centreLabel} — dashboards and report forms now use it.` });
+    } catch (e) {
+      toast({ title: "KPI update failed", description: e instanceof Error ? e.message : "Unexpected error — please try again", variant: "destructive" });
     } finally {
       setSaving(false);
     }
   };
 
   const remove = async (id: string) => {
-    await api(`/api/kpi-config?id=${id}`, { method: "DELETE" });
-    load();
+    try {
+      await api(`/api/kpi-config?id=${id}`, { method: "DELETE" });
+      await load();
+      toast({ title: centreSelected ? "Centre override reset" : "Metric removed", description: centreSelected ? "This centre now falls back to the global default." : "The metric was removed from the catalogue." });
+    } catch (e) {
+      toast({ title: "KPI update failed", description: e instanceof Error ? e.message : "Unexpected error — please try again", variant: "destructive" });
+    }
   };
 
   const toggleTarget = async (c: KpiConfigDTO, target: string) => {
-    await api("/api/kpi-config", {
-      method: "POST",
-      body: JSON.stringify({
-        department: c.department, key: c.key, label: c.label, category: c.category, unit: c.unit,
-        defaultTarget: target, mandatory: c.mandatory, active: c.active,
-        centreCountry: centreSelected ? centreCountry : undefined, centreState: centreSelected ? centreState : undefined,
-      }),
-    });
-    load();
+    try {
+      await api("/api/kpi-config", {
+        method: "POST",
+        body: JSON.stringify({
+          department: c.department, key: c.key, label: c.label, category: c.category, unit: c.unit,
+          defaultTarget: target, mandatory: c.mandatory, active: c.active,
+          centreCountry: centreSelected ? centreCountry : undefined, centreState: centreSelected ? centreState : undefined,
+        }),
+      });
+      await load();
+      toast({ title: "Target saved", description: `${c.label} → ${target === "" ? "no fixed target" : target} (${centreLabel}).` });
+    } catch (e) {
+      // Nothing was persisted — reload so the input shows the stored value again.
+      await load();
+      toast({ title: "Target not saved", description: e instanceof Error ? e.message : "Unexpected error — please try again", variant: "destructive" });
+    }
   };
 
   const visible = configs.filter((c) => c.department === deptFilter);
@@ -616,7 +632,11 @@ export function KpiConfigView({ user }: { user: SessionUser }) {
                     <TableCell className="py-2 text-[10px] uppercase text-slate-500">{c.category.replace(/_/g, " ")}</TableCell>
                     <TableCell className="py-2 text-xs text-slate-400">{c.unit}</TableCell>
                     <TableCell className="py-2">
+                      {/* key includes the persisted value so a failed save (or a
+                          refetch after save) remounts the input with the stored
+                          value — the form never shows a phantom unsaved target. */}
                       <Input
+                        key={`${c.id}:${c.defaultTarget ?? "none"}`}
                         defaultValue={c.defaultTarget !== null ? String(c.defaultTarget) : ""}
                         className="h-7 w-20 border-slate-600/50 bg-[#15202e]/60 text-xs tabular-nums text-slate-100"
                         onBlur={(e) => { if (e.target.value !== (c.defaultTarget !== null ? String(c.defaultTarget) : "")) toggleTarget(c, e.target.value); }}
