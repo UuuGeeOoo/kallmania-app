@@ -311,6 +311,33 @@ export const TASK_DEPTS: { value: string; label: string }[] = [
   { value: "SOCIAL_MEDIA", label: "Social Media & Campaign" },
 ];
 
+export interface EscalationMessageDTO {
+  id: string;
+  escalationId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface EscalationEventDTO {
+  id: string;
+  escalationId: string;
+  actorId?: string | null;
+  actorName: string;
+  actorRole?: string | null;
+  action: string;
+  details?: string | null;
+  createdAt: string;
+}
+
+export interface EscalationRecipientGroups {
+  teamLead: { id: string; fullName: string; role: string; team: string | null } | null;
+  supervisors: { id: string; fullName: string; role: string; team: string | null }[];
+  admins: { id: string; fullName: string; role: string; team: string | null }[];
+}
+
 export interface EscalationDTO {
   id: string;
   fromId: string;
@@ -324,11 +351,23 @@ export interface EscalationDTO {
   message: string;
   severity: string;
   status: string;
+  ackById?: string | null;
   ackByName?: string | null;
   ackNote?: string | null;
   resolvedAt?: string | null;
+  resolutionNote?: string | null;
+  resolvedByName?: string | null;
+  closedAt?: string | null;
+  centreCountry?: string | null;
+  centreState?: string | null;
+  team?: string | null;
+  lastMessageAt?: string | null;
+  lastMessageSenderId?: string | null;
   createdAt: string;
-  from?: { id: string; fullName: string; role: string; country?: string | null; state?: string | null };
+  updatedAt: string;
+  unread?: boolean;
+  _count?: { messages: number; events: number };
+  from?: { id: string; fullName: string; role: string; country?: string | null; state?: string | null; team?: string | null };
   targetUser?: { id: string; fullName: string; role: string } | null;
 }
 

@@ -356,18 +356,81 @@ model Escalation {
   subject     String
   message     String
   severity    String   @default("NORMAL") // NORMAL | URGENT
-  // OPEN | ACKNOWLEDGED | RESOLVED
+  // OPEN | ACKNOWLEDGED | IN_PROGRESS | RESOLVED | REOPENED | CLOSED
   status      String   @default("OPEN")
   ackById     String?
   ackByName   String?
   ackNote     String?
   resolvedAt  DateTime?
+  // Resolution / closure record (recipient must state what was done)
+  resolutionNote String?
+  resolvedById   String?
+  resolvedByName String?
+  closedAt       DateTime?
+  // Author's centre/team snapshot at creation — keeps routing and filters stable
+  centreCountry String?
+  centreState   String?
+  team          String?
+  // Denormalized thread state for inbox unread badges and "last activity" sorting
+  lastMessageAt        DateTime?
+  lastMessageSenderId  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  messages EscalationMessage[]
+  events   EscalationEvent[]
+  reads    EscalationRead[]
 
   @@index([fromId])
   @@index([status])
   @@index([createdAt])
+  @@index([targetUserId])
+}
+
+// One message in an escalation's persistent conversation thread.
+// The original Escalation.message is seeded as the first message on migration.
+model EscalationMessage {
+  id           String     @id @default(cuid())
+  escalationId String
+  escalation   Escalation @relation(fields: [escalationId], references: [id], onDelete: Cascade)
+  senderId     String
+  senderName   String
+  senderRole   String
+  body         String
+  createdAt    DateTime   @default(now())
+
+  @@index([escalationId, createdAt])
+}
+
+// Immutable activity timeline entry — status changes, acknowledgements,
+// reassignments, resolutions. Actors and timestamps are recorded once and
+// never edited afterwards.
+model EscalationEvent {
+  id           String     @id @default(cuid())
+  escalationId String
+  escalation   Escalation @relation(fields: [escalationId], references: [id], onDelete: Cascade)
+  actorId      String?
+  actorName    String
+  actorRole    String?
+  // CREATED | ACKNOWLEDGED | IN_PROGRESS | RESOLVED | REOPENED | CLOSED |
+  // MESSAGE_SENT | REASSIGNED | PRIORITY_CHANGED | INFO_REQUESTED
+  action       String
+  details      String?
+  createdAt    DateTime   @default(now())
+
+  @@index([escalationId, createdAt])
+}
+
+// Per-user read cursor over an escalation thread — drives unread badges.
+model EscalationRead {
+  id           String     @id @default(cuid())
+  escalationId String
+  escalation   Escalation @relation(fields: [escalationId], references: [id], onDelete: Cascade)
+  userId       String
+  lastReadAt   DateTime   @default(now())
+
+  @@unique([escalationId, userId])
+  @@index([userId])
 }
 
 model AuditLog {

@@ -15,6 +15,7 @@ import { MyReportsView, ReviewView } from "@/components/kallmania/reports-view";
 import ReportsArchiveView from "@/components/kallmania/archive-view";
 import ConsolidatedView from "@/components/kallmania/consolidated-view";
 import { AdminUsersView, KpiConfigView, AuditView, NotificationsView, UploadsAdminView } from "@/components/kallmania/admin-views";
+import { EscalationsPanel } from "@/components/kallmania/escalation-center";
 import NoticeBoardView from "@/components/kallmania/notice-board";
 import ProfileView from "@/components/kallmania/profile-view";
 import { api, todayISO, type SessionUser } from "@/lib/client";
@@ -56,6 +57,8 @@ export default function Page() {
   // "<date>@<reportId>" the form opens exactly that record (a saved draft can
   // coexist with a submitted report for the same day — the date alone is ambiguous).
   const [focusFormReportId, setFocusFormReportId] = useState<string | null>(null);
+  // Deep-linked escalation thread (notifications → "escalations" view with id).
+  const [focusEscalationId, setFocusEscalationId] = useState<string | null>(null);
   const [supervisorDate, setSupervisorDate] = useState(todayISO());
   const [reportDate, setReportDate] = useState(todayISO());
   const [unread, setUnread] = useState(0);
@@ -113,6 +116,7 @@ export default function Page() {
 
   const navigate = (v: string, data?: string) => {
     setFocusReportId(null);
+    setFocusEscalationId(null);
     // "daily-report/<YYYY-MM-DD>" opens the form pre-loaded on that report's
     // date; "daily-report/<YYYY-MM-DD>@<reportId>" opens exactly that record
     // (used by My Reports / My Drafts → Continue editing). Plain daily-report
@@ -130,6 +134,8 @@ export default function Page() {
     }
     if (v === "supervisor-report") setSupervisorDate(/^\d{4}-\d{2}-\d{2}$/.test(data || "") ? (data as string) : todayISO());
     if (v === "review" && data) setFocusReportId(data);
+    // Escalation notifications deep-link straight into the thread.
+    if (v === "escalations" && data) setFocusEscalationId(data);
     setView(v);
     writeHash(v, data);
   };
@@ -207,6 +213,8 @@ export default function Page() {
         return <AuditView />;
       case "notifications":
         return <NotificationsView user={user} onNavigate={navigate} />;
+      case "escalations":
+        return <EscalationsPanel user={user} focusId={focusEscalationId} />;
       case "profile":
         return <ProfileView user={user} />;
       default:

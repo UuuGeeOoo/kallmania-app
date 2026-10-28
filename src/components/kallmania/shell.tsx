@@ -30,6 +30,7 @@ export function navForRole(role: string): NavItem[] {
     { key: "tasks", label: "My Tasks", icon: ListTodo },
     { key: "my-reports", label: "My Reports", icon: FileCheck2 },
     { key: "notifications", label: "Notifications", icon: Bell },
+    { key: "escalations", label: "Escalations", icon: Siren },
     { key: "profile", label: "My Profile", icon: UserCircle2 },
   ];
   // Team leads assign & monitor the tasks of the agents in their centre and
@@ -52,6 +53,7 @@ export function navForRole(role: string): NavItem[] {
     { key: "tl-template", label: "Report Templates", icon: FileCog },
     { key: "kpi-config", label: "KPI Configuration", icon: Target },
     { key: "notifications", label: "Notifications", icon: Bell },
+    { key: "escalations", label: "Escalations", icon: Siren },
     { key: "profile", label: "My Profile", icon: UserCircle2 },
   ];
   const adminNav: NavItem[] = [
