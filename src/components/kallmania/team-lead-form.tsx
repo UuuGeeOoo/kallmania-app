@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, todayISO, type ReportDTO, type SessionUser } from "@/lib/client";
-import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner } from "@/components/kallmania/shared";
+import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner, ReportSubmitActions } from "@/components/kallmania/shared";
 import { cn } from "@/lib/utils";
 import {
   Save, Send, Loader2, Plus, Trash2, FileCog, RotateCcw, GripVertical, LayoutTemplate,
@@ -41,6 +41,9 @@ export default function TeamLeadReportForm({ user, date, onDone }: { user: Sessi
   const [reportId, setReportId] = useState<string | null>(null);
   const [ref, setRef] = useState<string | null>(null);
   const [status, setStatus] = useState("DRAFT");
+  // Correction mode: SUBMITTED reports are read-only until "Make Correction";
+  // saving corrections keeps the report awaiting approval (never resubmitted).
+  const [correcting, setCorrecting] = useState(false);
   const [sections, setSections] = useState<Record<string, TlSectionValue>>({});
   const [feedback, setFeedback] = useState<string | null>(null);
   const [reviewer, setReviewer] = useState<string | null>(null);
@@ -89,6 +92,7 @@ export default function TeamLeadReportForm({ user, date, onDone }: { user: Sessi
         setReportId(null); setRef(null); setStatus("DRAFT");
         setFeedback(null); setReviewer(null); setReviewedAt(null);
       }
+      setCorrecting(false);
       snapshotRef.current = JSON.stringify(built);
     } catch (e) {
       setError((e as Error).message);
@@ -184,6 +188,7 @@ export default function TeamLeadReportForm({ user, date, onDone }: { user: Sessi
       if (reportId) body.id = reportId;
       const { report } = await api<{ report: ReportDTO }>("/api/reports", { method: "POST", body: JSON.stringify(body) });
       setReportId(report.id); setRef(report.ref); setStatus(report.status);
+      setCorrecting(false);
       snapshotRef.current = JSON.stringify(sections);
       setDateKept(null);
       onDone?.();
@@ -197,7 +202,7 @@ export default function TeamLeadReportForm({ user, date, onDone }: { user: Sessi
   if (loading) return <div className="flex items-center justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
   if (!definition) return <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error || "Template could not be loaded."}</div>;
 
-  const locked = status === "APPROVED" || status === "SUBMITTED";
+  const locked = status === "APPROVED" || (status === "SUBMITTED" && !correcting);
 
   const renderSection = (s: TlSection) => {
     const value = sections[s.id];
@@ -378,16 +383,15 @@ export default function TeamLeadReportForm({ user, date, onDone }: { user: Sessi
         </div>
       )}
       {definition.sections.map(renderSection)}
-      {status !== "APPROVED" && (
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <Button variant="outline" disabled={saving || status === "SUBMITTED"} onClick={() => save(false)} className="k-btn-glass text-slate-200">
-            <Save className="mr-2 h-4 w-4" /> Save Draft
-          </Button>
-          <Button disabled={saving} onClick={() => save(true)} className="k-btn-primary">
-            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Submit Daily Report
-          </Button>
-        </div>
-      )}
+      <ReportSubmitActions
+        status={status}
+        correcting={correcting}
+        saving={saving}
+        onCorrect={() => setCorrecting(true)}
+        onCancelCorrect={() => { setCorrecting(false); load(); }}
+        onSaveDraft={() => save(false)}
+        onSubmit={() => save(true)}
+      />
     </div>
   );
 }

@@ -1,14 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, fmtDate, type ReportDTO, type SessionUser } from "@/lib/client";
-import { PageHeader, ReportStateBanner } from "@/components/kallmania/shared";
-import { Save, Send, Loader2, FileText, CalendarClock } from "lucide-react";
+import { PageHeader, ReportStateBanner, ReportSubmitActions } from "@/components/kallmania/shared";
+import { Loader2, FileText, CalendarClock } from "lucide-react";
 
 /**
  * Web Development and Technical Team Report — EXACT replica of the attached
@@ -43,6 +42,9 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
   const [reportId, setReportId] = useState<string | null>(null);
   const [ref, setRef] = useState<string | null>(null);
   const [status, setStatus] = useState("DRAFT");
+  // Correction mode: SUBMITTED reports are read-only until "Make Correction";
+  // saving corrections keeps the report awaiting approval (never resubmitted).
+  const [correcting, setCorrecting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -124,6 +126,7 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
       } else {
         setReportId(null); setRef(null); setStatus("DRAFT"); setFeedback(null);
       }
+      setCorrecting(false);
       // baseline for the reporting-date guard — anything typed after this counts as unsaved
       snapshotRef.current = JSON.stringify({ info: builtInfo, kpis: builtKpis, tasks: builtTasks, challenges: builtChallenges, escalations: builtEscalations, supervisorName: builtSupervisor, signatureDate: builtSignature });
     } catch (e) {
@@ -151,7 +154,7 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
-  const locked = status === "SUBMITTED" || status === "APPROVED";
+  const locked = status === "APPROVED" || (status === "SUBMITTED" && !correcting);
 
   const save = async (submit: boolean) => {
     setSaving(true);
@@ -206,6 +209,7 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
       setReportId(report.id);
       setRef(report.ref);
       setStatus(report.status);
+      setCorrecting(false);
       setFeedback(report.supervisorFeedback || null);
       snapshotRef.current = JSON.stringify({ info, kpis, tasks, challenges, escalations, supervisorName, signatureDate });
       setDateKept(null);
@@ -382,16 +386,15 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
 
             {error && <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</p>}
 
-            {status !== "APPROVED" && status !== "SUBMITTED" && (
-              <div className="flex flex-wrap items-center justify-end gap-3 border-t border-white/10 pt-4">
-                <Button variant="outline" disabled={saving} onClick={() => save(false)} className="k-btn-glass border-white/12 text-slate-200">
-                  <Save className="mr-2 h-4 w-4" /> Save Draft
-                </Button>
-                <Button disabled={saving} onClick={() => save(true)} className="k-btn-primary">
-                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Submit Daily Report
-                </Button>
-              </div>
-            )}
+            <ReportSubmitActions
+              status={status}
+              correcting={correcting}
+              saving={saving}
+              onCorrect={() => setCorrecting(true)}
+              onCancelCorrect={() => { setCorrecting(false); load(); }}
+              onSaveDraft={() => save(false)}
+              onSubmit={() => save(true)}
+            />
 
             <p className="text-center text-[10px] uppercase tracking-widest text-slate-600">Confidential — For Internal Use Only</p>
           </>

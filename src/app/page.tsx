@@ -70,6 +70,7 @@ export default function Page() {
         const h = readHash();
         if (restored && h) {
           if (h.view === "review" && h.data) setFocusReportId(h.data);
+          if (h.view === "daily-report" && /^\d{4}-\d{2}-\d{2}$/.test(h.data || "")) setReportDate(h.data);
           setView(h.view);
         } else if (!restored) {
           clearHash();
@@ -104,7 +105,11 @@ export default function Page() {
 
   const navigate = (v: string, data?: string) => {
     setFocusReportId(null);
-    if (v === "daily-report" || v === "upload") setReportDate(todayISO());
+    // "daily-report/<YYYY-MM-DD>" opens the form pre-loaded on that report's
+    // date (used by My Reports → Correct / Fix & Resubmit); plain daily-report
+    // resets to today.
+    if (v === "daily-report") setReportDate(/^\d{4}-\d{2}-\d{2}$/.test(data || "") ? (data as string) : todayISO());
+    else if (v === "upload") setReportDate(todayISO());
     if (v === "supervisor-report") setSupervisorDate(todayISO());
     if (v === "review" && data) setFocusReportId(data);
     setView(v);
@@ -167,7 +172,7 @@ export default function Page() {
       case "team-tasks":
         return <TasksView user={user} managerMode />;
       case "my-reports":
-        return <MyReportsView user={user} />;
+        return <MyReportsView user={user} onNavigate={navigate} />;
       case "review":
         return <ReviewView user={user} focusReportId={focusReportId} />;
       case "archive":

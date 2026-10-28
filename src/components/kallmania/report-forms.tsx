@@ -8,9 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { api, todayISO, type KpiMetric, type CallLogEntry, type ReportDTO, type SessionUser } from "@/lib/client";
-import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner } from "@/components/kallmania/shared";
+import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner, ReportSubmitActions } from "@/components/kallmania/shared";
 import { cn } from "@/lib/utils";
-import { ChevronDown, Save, Send, Calculator, Loader2, FileDown, Plus, Trash2, CalendarClock } from "lucide-react";
+import { ChevronDown, Calculator, Loader2, FileDown, Plus, Trash2, CalendarClock } from "lucide-react";
 
 export const DISPOSITIONS = ["Interested", "Callback Requested", "Requested for Email", "Not Interested", "No Answer", "Busy / Unreachable", "Wrong Number", "Voicemail", "Meeting Booked", "Hot Lead", "Warm Lead"];
 const CALL_LOG_ROWS = 8;
@@ -212,6 +212,10 @@ export default function AgentBpoReportForm({
   const [reportId, setReportId] = useState<string | null>(null);
   const [ref, setRef] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("DRAFT");
+  // Correction mode: while the report is SUBMITTED (awaiting approval) the form
+  // is read-only until the agent clicks "Make Correction". Saving corrections
+  // keeps the report awaiting approval — it can never be submitted twice.
+  const [correcting, setCorrecting] = useState(false);
   const [kpiMetrics, setKpiMetrics] = useState<KpiMetric[]>([]);
   const [callLogs, setCallLogs] = useState<CallLogEntry[]>(Array.from({ length: CALL_LOG_ROWS }, () => ({})));
   const [info, setInfo] = useState({ shiftTime: "", clockIn: "", clockOut: "", attendanceStatus: "Present", latenessMins: "" });
@@ -309,6 +313,7 @@ export default function AgentBpoReportForm({
         setReportId(null); setRef(null); setStatus("DRAFT");
         setFeedback(null); setReviewer(null); setReviewedAt(null);
       }
+      setCorrecting(false);
       // baseline for the reporting-date guard — anything typed after this counts as unsaved
       snapshotRef.current = JSON.stringify({ info: builtInfo, callLogs: builtLogs, campaignName: builtCampaign, challenges: builtChallenges, escalations: builtEscalations, additional: builtAdditional, kpiMetrics: builtKpis });
     } catch (e) {
@@ -357,6 +362,7 @@ export default function AgentBpoReportForm({
       if (reportId) body.id = reportId;
       const { report } = await api<{ report: ReportDTO }>("/api/reports", { method: "POST", body: JSON.stringify(body) });
       setReportId(report.id); setRef(report.ref); setStatus(report.status);
+      setCorrecting(false);
       snapshotRef.current = JSON.stringify({ info, callLogs, campaignName, challenges, escalations, additional, kpiMetrics });
       setDateKept(null);
       onDone?.();
@@ -371,8 +377,9 @@ export default function AgentBpoReportForm({
     return <div className="flex items-center justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
   }
 
-  // Submitted → awaiting approval (locked); Approved → locked; Returned → editable again
-  const locked = status === "APPROVED" || status === "SUBMITTED";
+  // Submitted → awaiting approval (read-only until the agent clicks "Make Correction");
+  // Approved → locked for good; Returned (REJECTED) → editable + resubmittable
+  const locked = status === "APPROVED" || (status === "SUBMITTED" && !correcting);
   // Inbound call centre uses the outbound report format but the required tasks are optional
   const kpiTable = inbound
     ? kpiMetrics.map((m) => ({ ...m, mandatory: false }))
@@ -520,16 +527,15 @@ export default function AgentBpoReportForm({
         <Textarea disabled={locked} rows={3} className={inputCls} value={additional} onChange={(e) => setAdditional(e.target.value)} placeholder="e.g. helped onboard a new agent, data cleanup…" />
       </SectionCard>
 
-      {status !== "APPROVED" && (
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <Button variant="outline" disabled={saving || status === "SUBMITTED"} onClick={() => save(false)} className="k-btn-glass text-slate-200">
-            <Save className="mr-2 h-4 w-4" /> Save Draft
-          </Button>
-          <Button disabled={saving} onClick={() => save(true)} className="k-btn-primary">
-            {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Submit Daily Report
-          </Button>
-        </div>
-      )}
+      <ReportSubmitActions
+        status={status}
+        correcting={correcting}
+        saving={saving}
+        onCorrect={() => setCorrecting(true)}
+        onCancelCorrect={() => { setCorrecting(false); load(); }}
+        onSaveDraft={() => save(false)}
+        onSubmit={() => save(true)}
+      />
     </div>
   );
 }

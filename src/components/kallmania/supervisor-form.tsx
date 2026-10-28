@@ -7,9 +7,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, fmtDate, type ReportDTO, type SessionUser } from "@/lib/client";
-import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner } from "@/components/kallmania/shared";
+import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner, ReportSubmitActions } from "@/components/kallmania/shared";
 import { cn } from "@/lib/utils";
-import { Save, Send, Loader2, RefreshCw, FileDown, Plus, Trash2, CalendarClock } from "lucide-react";
+import { Loader2, RefreshCw, FileDown, Plus, Trash2, CalendarClock } from "lucide-react";
 
 const ATTENDANCE_ROWS = [
   { key: "totalOnShift", label: "Total Agents on Shift" },
@@ -48,6 +48,9 @@ export default function SupervisorReportForm({ user, date, onExport }: { user: S
   const [reportId, setReportId] = useState<string | null>(null);
   const [ref, setRef] = useState<string | null>(null);
   const [status, setStatus] = useState("DRAFT");
+  // Correction mode: SUBMITTED reports are read-only until "Make Correction";
+  // saving corrections keeps the report awaiting approval (never resubmitted).
+  const [correcting, setCorrecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [reviewer, setReviewer] = useState<string | null>(null);
@@ -143,6 +146,7 @@ export default function SupervisorReportForm({ user, date, onExport }: { user: S
         setReportId(null); setRef(null); setStatus("DRAFT");
         setFeedback(null); setReviewer(null); setReviewedAt(null);
       }
+      setCorrecting(false);
       // baseline for the reporting-date guard — anything typed after this counts as unsaved
       snapshotRef.current = JSON.stringify({ info: builtInfo, attendance: builtAttendance, teamKpis: builtKpis, coaching: builtCoaching, qa: builtQa, escalated: builtEscalated, highlights: builtHighlights, lowlights: builtLowlights, plan: builtPlan, managerReview: builtManagerReview, ownActivities: builtOwnActivities });
     } catch (e) {
@@ -190,6 +194,7 @@ export default function SupervisorReportForm({ user, date, onExport }: { user: S
       if (reportId) body.id = reportId;
       const { report } = await api<{ report: ReportDTO }>("/api/consolidated", { method: "POST", body: JSON.stringify(body) });
       setReportId(report.id); setRef(report.ref); setStatus(report.status);
+      setCorrecting(false);
       if (report.supervisorFeedback !== undefined) setFeedback(report.supervisorFeedback);
       snapshotRef.current = JSON.stringify({ info, attendance, teamKpis, coaching, qa, escalated, highlights, lowlights, plan, managerReview, ownActivities });
       setDateKept(null);
@@ -203,7 +208,7 @@ export default function SupervisorReportForm({ user, date, onExport }: { user: S
   if (loading) return <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
 
   // Submitted → awaiting admin approval (locked); Approved → locked; Returned → editable again
-  const locked = status === "APPROVED" || status === "SUBMITTED";
+  const locked = status === "APPROVED" || (status === "SUBMITTED" && !correcting);
 
   const cellInput = cn(inputCls, "h-8 text-xs");
   const cellNum = cn(inputCls, "h-8 w-20 text-xs tabular-nums");
@@ -464,11 +469,17 @@ export default function SupervisorReportForm({ user, date, onExport }: { user: S
             <FileDown className="mr-2 h-4 w-4" /> Export Word
           </Button>
         )}
-        <Button variant="outline" disabled={saving || status === "SUBMITTED"} onClick={() => save(false)} className="k-btn-glass text-slate-200"><Save className="mr-2 h-4 w-4" /> Save Draft</Button>
-        <Button disabled={saving} onClick={() => save(true)} className="k-btn-primary">
-          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Submit Supervisor Report
-        </Button>
       </div>
+      <ReportSubmitActions
+        status={status}
+        correcting={correcting}
+        saving={saving}
+        onCorrect={() => setCorrecting(true)}
+        onCancelCorrect={() => { setCorrecting(false); load(); }}
+        onSaveDraft={() => save(false)}
+        onSubmit={() => save(true)}
+        submitLabel="Submit Supervisor Report"
+      />
     </div>
   );
 }

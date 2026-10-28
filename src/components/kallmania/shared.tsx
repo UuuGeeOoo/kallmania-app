@@ -3,11 +3,12 @@
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { STATUS_COLORS } from "@/lib/client";
 import { REPORT_SECTION_INVENTORY } from "@/lib/template-config";
 import { type ReactNode, useState } from "react";
-import { CheckCircle2, Hourglass, Undo2, ShieldCheck, Eye, EyeOff, ChevronDown, Plus } from "lucide-react";
+import { CheckCircle2, Hourglass, Undo2, ShieldCheck, Eye, EyeOff, ChevronDown, Plus, Pencil, Save, Send, Loader2 } from "lucide-react";
 
 export function StatusBadge({ status, className }: { status: string; className?: string }) {
   const key = status === "APPROVED" && className?.includes("user") ? "APPROVED_USER" : status;
@@ -281,7 +282,7 @@ export function ReportStateBanner({
               Awaiting approval — your supervisor has been notified and will review this report shortly.
             </p>
             <p className="mt-1 text-[11px] text-emerald-100/60">
-              This report is now locked for editing. You will receive a notification once it is approved or returned for correction.
+              You can still make corrections while it awaits approval — once approved, the report is permanently locked. You will be notified when it is approved or returned for correction.
             </p>
           </div>
         </div>
@@ -333,4 +334,68 @@ export function ReportStateBanner({
     );
   }
   return null;
+}
+
+/**
+ * Shared submit/correction action row for every daily-report form.
+ *
+ * Workflow enforced here (mirrors the server-side guards in /api/reports):
+ * - DRAFT / REJECTED → Save Draft + Submit (a rejected report can be resubmitted)
+ * - SUBMITTED (awaiting approval) → read-only with a "Make Correction" button;
+ *   corrections save in place and keep the report awaiting approval — the
+ *   Submit button is never shown, so a submitted report cannot be submitted twice
+ * - APPROVED → nothing is rendered: approved reports are locked for good
+ */
+export function ReportSubmitActions({
+  status, correcting, saving, onCorrect, onCancelCorrect, onSaveDraft, onSubmit, submitLabel = "Submit Daily Report",
+}: {
+  status: string;
+  correcting: boolean;
+  saving: boolean;
+  onCorrect: () => void;
+  onCancelCorrect: () => void;
+  onSaveDraft?: () => void;
+  onSubmit?: () => void;
+  submitLabel?: string;
+}) {
+  if (status === "APPROVED") return null;
+  if (status === "SUBMITTED" && !correcting) {
+    return (
+      <div className="flex flex-wrap items-center justify-end gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+        <p className="mr-auto max-w-md text-[11px] leading-relaxed text-slate-500">
+          Awaiting approval — a submitted report cannot be submitted twice. You can still correct it until it is approved; approved reports are locked for good.
+        </p>
+        <Button variant="outline" disabled={saving} onClick={onCorrect} className="border-amber-400/40 text-amber-300 hover:bg-amber-500/10">
+          <Pencil className="mr-2 h-4 w-4" /> Make Correction
+        </Button>
+      </div>
+    );
+  }
+  if (status === "SUBMITTED" && correcting) {
+    return (
+      <div className="flex flex-wrap items-center justify-end gap-3 rounded-xl border border-amber-400/30 bg-amber-500/[0.06] p-3">
+        <p className="mr-auto max-w-md text-[11px] leading-relaxed text-amber-300/90">
+          Correction mode — saving updates the submitted report in place; it stays awaiting approval (no resubmission needed).
+        </p>
+        <Button variant="outline" disabled={saving} onClick={onCancelCorrect} className="border-white/12 text-slate-300 hover:bg-white/10">
+          Cancel
+        </Button>
+        <Button disabled={saving} onClick={onSaveDraft} className="k-btn-primary">
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />} Save Corrections
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3">
+      {onSaveDraft && (
+        <Button variant="outline" disabled={saving} onClick={onSaveDraft} className="k-btn-glass text-slate-200">
+          <Save className="mr-2 h-4 w-4" /> Save Draft
+        </Button>
+      )}
+      <Button disabled={saving} onClick={onSubmit} className="k-btn-primary">
+        {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} {submitLabel}
+      </Button>
+    </div>
+  );
 }

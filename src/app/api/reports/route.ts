@@ -71,6 +71,11 @@ export async function POST(req: NextRequest) {
 
     const reportDate = toDateOrNull(fields.reportDate) || new Date(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z");
 
+    // Same-day window (UTC) used by the duplicate-submission guards below.
+    const dayStart = new Date(reportDate);
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart.getTime() + 86_400_000);
+
     // Prepare data
     const data: Partial<Prisma.ReportUncheckedCreateInput> = {
       type: reportType,
@@ -119,15 +124,47 @@ export async function POST(req: NextRequest) {
     if (fields.sourceFileId) data.sourceFileId = fields.sourceFileId;
     if (fields.verificationStatus) data.verificationStatus = fields.verificationStatus;
 
+    let correction = false;
     let report;
     if (id) {
       const existing = await db.report.findUnique({ where: { id } });
       if (!existing) return fail("Report not found", 404);
       if (existing.userId !== me.id && !isSupervisorLike(me)) return fail("Not authorized", 403);
       if (["APPROVED"].includes(existing.status) && !isSupervisorLike(me))
-        return fail("Approved reports are locked. Ask your supervisor to return it for correction.", 403);
+        return fail("Approved reports are locked and cannot be corrected. Ask your supervisor to return it for correction.", 403);
+      // ── Workflow guards ──
+      // A submitted report awaits approval: it cannot be submitted twice.
+      // Corrections (save WITHOUT submit) stay possible until approval.
+      // Approved reports are locked entirely — no corrections, no resubmission.
+      if (submit && existing.status === "SUBMITTED")
+        return fail(`Report ${existing.ref} has already been submitted and is awaiting approval — a report cannot be submitted twice. Use "Make Correction" to update it while it awaits approval.`, 409);
+      if (submit && existing.status === "APPROVED")
+        return fail(`Report ${existing.ref} is approved and finalized — it cannot be submitted again.`, 409);
+      if (submit) {
+        const dup = await db.report.findFirst({
+          where: {
+            userId: existing.userId, type: reportType,
+            reportDate: { gte: dayStart, lt: dayEnd },
+            status: { in: ["SUBMITTED", "APPROVED"] },
+            NOT: { id: existing.id },
+          },
+        });
+        if (dup) return fail(`A ${dup.status === "APPROVED" ? "finalized" : "submitted"} report for this day already exists (${dup.ref}) — a report cannot be submitted twice for the same day.`, 409);
+      }
+      if (!submit && existing.status === "SUBMITTED") correction = true;
       report = await db.report.update({ where: { id }, data: { ...data, status: submit ? "SUBMITTED" : existing.status === "REJECTED" && !submit ? "DRAFT" : existing.status } });
     } else {
+      // Same-day duplicate guard: one live (submitted/approved) report per
+      // person per report type per day — creating a second one is blocked so
+      // the agent corrects the existing report instead of double-submitting.
+      const dup = await db.report.findFirst({
+        where: {
+          userId: me.id, type: reportType,
+          reportDate: { gte: dayStart, lt: dayEnd },
+          status: { in: ["SUBMITTED", "APPROVED"] },
+        },
+      });
+      if (dup) return fail(`You already have a ${dup.status === "APPROVED" ? "finalized" : "submitted"} report for this day (${dup.ref}). A report cannot be submitted twice for the same day — open the Daily Report page for that date to make corrections instead.`, 409);
       report = await db.report.create({
         data: { ...(data as Prisma.ReportUncheckedCreateInput), ref: genRef(reportType), userId: me.id, status: submit ? "SUBMITTED" : "DRAFT" },
       });
@@ -216,7 +253,7 @@ export async function POST(req: NextRequest) {
 
     await audit({
       userId: me.id, actorName: me.fullName, action: submit ? "SUBMIT_REPORT" : "SAVE_REPORT",
-      entity: "Report", entityId: report.id, details: `${report.ref} (${reportType})${submit ? " SUBMITTED" : " draft"}`,
+      entity: "Report", entityId: report.id, details: `${report.ref} (${reportType})${submit ? " SUBMITTED" : correction ? " — corrected while awaiting approval" : " draft"}`,
     });
 
     const fresh = await db.report.findUnique({ where: { id: report.id } });

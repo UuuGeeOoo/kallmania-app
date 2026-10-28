@@ -36,6 +36,23 @@ export async function POST(req: NextRequest) {
     const metrics = recalcKpis(safeParse<KpiMetric[]>(confirmedMetrics, []));
     const date = toDateOrNull(reportDate) || upload.reportDate || new Date();
 
+    // Same-day duplicate guard: if the employee already has a submitted or
+    // approved report of this type for the same day, confirming this upload
+    // would double-submit that day. Block it — the existing report can be
+    // corrected from the Daily Report page instead.
+    const confirmDayStart = new Date(date);
+    confirmDayStart.setUTCHours(0, 0, 0, 0);
+    const confirmDayEnd = new Date(confirmDayStart.getTime() + 86_400_000);
+    const sameDayLive = await db.report.findFirst({
+      where: {
+        userId: me.id, type: reportType,
+        reportDate: { gte: confirmDayStart, lt: confirmDayEnd },
+        status: { in: ["SUBMITTED", "APPROVED"] },
+      },
+    });
+    if (sameDayLive)
+      return fail(`You already have a ${sameDayLive.status === "APPROVED" ? "finalized" : "submitted"} report for this day (${sameDayLive.ref}) — a report cannot be submitted twice for the same day.`, 409);
+
     const refPrefix = reportType === "AGENT_BPO" ? "BPO" : reportType === "TECH" ? "TEC" : reportType === "SUPERVISOR" ? "SUP" : "SOC";
     const ref = `${refPrefix}-UP-${Date.now().toString(36).toUpperCase()}`;
 

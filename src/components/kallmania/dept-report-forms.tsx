@@ -7,9 +7,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, ROLE_LABELS, type ReportDTO, type KpiMetric, type SessionUser } from "@/lib/client";
-import { SectionCard, Field, inputCls, StatusBadge, EmptyState, ReportStateBanner } from "@/components/kallmania/shared";
+import { SectionCard, Field, inputCls, StatusBadge, EmptyState, ReportStateBanner, ReportSubmitActions } from "@/components/kallmania/shared";
 import { cn } from "@/lib/utils";
-import { Plus, Trash2, Save, Send, Loader2, MessageSquareQuote, CalendarClock } from "lucide-react";
+import { Plus, Trash2, Loader2, MessageSquareQuote, CalendarClock } from "lucide-react";
 
 const TECH_CATEGORIES = ["Website Development", "Frontend Development", "Backend Development", "Bug Fixing", "Website Maintenance", "API Integration", "Database Tasks", "Technical Support", "Testing & QA", "Deployment & Release", "Security & Performance", "Technical Research", "Documentation", "Other"];
 const TECH_STATUSES = ["Not Started", "In Progress", "Completed", "Under Review", "Blocked", "Pending Deployment", "Awaiting Approval", "Not Completed"];
@@ -61,6 +61,9 @@ function useDeptReport<T extends object>(opts: {
   const [reportId, setReportId] = useState<string | null>(null);
   const [ref, setRef] = useState<string | null>(null);
   const [status, setStatus] = useState("DRAFT");
+  // Correction mode: SUBMITTED reports are read-only until "Make Correction" is
+  // clicked; saving corrections keeps the report awaiting approval (no resubmit).
+  const [correcting, setCorrecting] = useState(false);
   const [entries, setEntries] = useState<T[]>(() => [opts.blankEntries()]);
   const [metrics, setMetrics] = useState<Record<string, string>>({});
   const [socialKpis, setSocialKpis] = useState<KpiMetric[]>([]);
@@ -129,6 +132,7 @@ function useDeptReport<T extends object>(opts: {
         setReportId(null); setRef(null); setStatus("DRAFT");
         setFeedback(null); setReviewer(null); setReviewedAt(null);
       }
+      setCorrecting(false);
       // baseline for the reporting-date guard — anything typed after this counts as unsaved
       snapshotRef.current = JSON.stringify({ entries: builtEntries, metrics: builtMetrics, socialKpis: builtSocialKpis, info: builtInfo, challenges: builtChallenges, escalations: builtEscalations });
     } catch (e) {
@@ -192,6 +196,7 @@ function useDeptReport<T extends object>(opts: {
       if (reportId) body.id = reportId;
       const { report } = await api<{ report: ReportDTO }>("/api/reports", { method: "POST", body: JSON.stringify(body) });
       setReportId(report.id); setRef(report.ref); setStatus(report.status);
+      setCorrecting(false);
       if (report.supervisorFeedback !== undefined) setFeedback(report.supervisorFeedback);
       setReviewer(report.reviewer?.fullName || null);
       snapshotRef.current = JSON.stringify({ entries, metrics, socialKpis, info, challenges, escalations });
@@ -203,7 +208,7 @@ function useDeptReport<T extends object>(opts: {
     }
   };
 
-  return { loading, saving, reportId, ref, status, entries, setEntries, metrics, setMetrics, socialKpis, setSocialKpis, info, setInfo, challenges, setChallenges, escalations, setEscalations, feedback, reviewer, reviewedAt, error, save, dateKept };
+  return { loading, saving, reportId, ref, status, correcting, setCorrecting, entries, setEntries, metrics, setMetrics, socialKpis, setSocialKpis, info, setInfo, challenges, setChallenges, escalations, setEscalations, feedback, reviewer, reviewedAt, error, save, load, dateKept };
 }
 
 /** Amber note shown when the reporting date was changed while the form had unsaved entries. */
@@ -216,17 +221,17 @@ function DateKeptNote({ dateKept }: { dateKept: string | null }) {
   );
 }
 
-function CommonFooter({ saving, status, onSave, onSubmit }: { saving: boolean; status: string; onSave: () => void; onSubmit: () => void }) {
-  if (status === "APPROVED") return null;
+function CommonFooter({ state }: { state: { saving: boolean; status: string; correcting: boolean; setCorrecting: (v: boolean) => void; load: () => Promise<void>; save: (submit: boolean) => Promise<void> } }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-3">
-      <Button variant="outline" disabled={saving || status === "SUBMITTED"} onClick={onSave} className="k-btn-glass text-slate-200">
-        <Save className="mr-2 h-4 w-4" /> Save Draft
-      </Button>
-      <Button disabled={saving} onClick={onSubmit} className="k-btn-primary">
-        {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Submit Daily Report
-      </Button>
-    </div>
+    <ReportSubmitActions
+      status={state.status}
+      correcting={state.correcting}
+      saving={state.saving}
+      onCorrect={() => state.setCorrecting(true)}
+      onCancelCorrect={() => { state.setCorrecting(false); void state.load(); }}
+      onSaveDraft={() => state.save(false)}
+      onSubmit={() => state.save(true)}
+    />
   );
 }
 
@@ -237,7 +242,7 @@ export function TechReportForm({ user, date }: { user: SessionUser; date: string
   const state = useDeptReport<TechEntry>({ user, date, type: "TECH", blankEntries: blank });
   const { entries, setEntries, metrics, setMetrics } = state;
   const patch = (i: number, p: Partial<TechEntry>) => setEntries(entries.map((e, j) => (j === i ? { ...e, ...p } : e)));
-  const locked = state.status === "APPROVED" || state.status === "SUBMITTED";
+  const locked = state.status === "APPROVED" || (state.status === "SUBMITTED" && !state.correcting);
 
   if (state.loading) return <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
 
@@ -330,7 +335,7 @@ export function TechReportForm({ user, date }: { user: SessionUser; date: string
         <SectionCard title="Escalations"><Textarea disabled={locked} rows={4} className={inputCls} value={state.escalations} onChange={(e) => state.setEscalations(e.target.value)} /></SectionCard>
       </div>
 
-      <CommonFooter saving={state.saving} status={state.status} onSave={() => state.save(false)} onSubmit={() => state.save(true)} />
+      <CommonFooter state={state} />
     </div>
   );
 }
@@ -399,7 +404,7 @@ export function SocialReportForm({ user, date }: { user: SessionUser; date: stri
   const state = useDeptReport<SocialTask>({ user, date, type: "SOCIAL", blankEntries: blank });
   const { entries, setEntries, socialKpis, setSocialKpis } = state;
   const patch = (i: number, p: Partial<SocialTask>) => setEntries(entries.map((e, j) => (j === i ? { ...e, ...p } : e)));
-  const locked = state.status === "APPROVED" || state.status === "SUBMITTED";
+  const locked = state.status === "APPROVED" || (state.status === "SUBMITTED" && !state.correcting);
 
   if (state.loading) return <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
 
@@ -533,7 +538,7 @@ export function SocialReportForm({ user, date }: { user: SessionUser; date: stri
         )}
       </SectionCard>
 
-      <CommonFooter saving={state.saving} status={state.status} onSave={() => state.save(false)} onSubmit={() => state.save(true)} />
+      <CommonFooter state={state} />
     </div>
   );
 }

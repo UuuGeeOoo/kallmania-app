@@ -129,8 +129,26 @@ export async function POST(req: NextRequest) {
       const existing = await db.report.findUnique({ where: { id } });
       if (!existing) return fail("Report not found", 404);
       if (existing.userId !== me.id) return fail("Not authorized", 403);
-      report = await db.report.update({ where: { id }, data: { ...data, status: submit ? "SUBMITTED" : existing.status } });
+      // ── Workflow guards (same rules as /api/reports) ──
+      // Submitted reports await approval: no resubmission; corrections (save
+      // without submit) stay possible until approval. Approved reports are locked.
+      if (submit && existing.status === "SUBMITTED")
+        return fail(`Report ${existing.ref} has already been submitted and is awaiting approval — a report cannot be submitted twice. Use "Make Correction" to update it while it awaits approval.`, 409);
+      if (existing.status === "APPROVED")
+        return fail(`Report ${existing.ref} is approved and finalized — it cannot be ${submit ? "submitted again" : "corrected"}.`, 409);
+      report = await db.report.update({ where: { id }, data: { ...data, status: submit ? "SUBMITTED" : existing.status === "REJECTED" && !submit ? "DRAFT" : existing.status } });
     } else {
+      // Same-day duplicate guard: one live supervisor report per day.
+      const dupStart = new Date(reportDate);
+      dupStart.setUTCHours(0, 0, 0, 0);
+      const dup = await db.report.findFirst({
+        where: {
+          userId: me.id, type: "SUPERVISOR",
+          reportDate: { gte: dupStart, lt: new Date(dupStart.getTime() + 86_400_000) },
+          status: { in: ["SUBMITTED", "APPROVED"] },
+        },
+      });
+      if (dup) return fail(`You already have a ${dup.status === "APPROVED" ? "finalized" : "submitted"} report for this day (${dup.ref}) — a report cannot be submitted twice for the same day.`, 409);
       report = await db.report.create({
         data: { ...(data as Prisma.ReportUncheckedCreateInput), ref: `SUP-${Date.now().toString(36).toUpperCase()}`, userId: me.id, status: submit ? "SUBMITTED" : "DRAFT" },
       });
