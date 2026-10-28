@@ -7,7 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, ROLE_LABELS, type ReportDTO, type KpiMetric, type SessionUser } from "@/lib/client";
-import { SectionCard, Field, inputCls, StatusBadge, EmptyState, ReportStateBanner, ReportSubmitActions } from "@/components/kallmania/shared";
+import { SectionCard, Field, inputCls, StatusBadge, EmptyState, ReportStateBanner, ReportSubmitActions, DraftInfoBar, useDraftAutoSave } from "@/components/kallmania/shared";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Plus, Trash2, Loader2, MessageSquareQuote, CalendarClock } from "lucide-react";
 
@@ -54,6 +55,8 @@ type DeptType = "TECH" | "SOCIAL";
 function useDeptReport<T extends object>(opts: {
   user: SessionUser; date: string; type: DeptType;
   blankEntries: () => T;
+  /** When provided (My Drafts / My Reports → Continue editing), open exactly this report record. */
+  focusId?: string | null;
 }) {
   const { user, date, type } = opts;
   const [loading, setLoading] = useState(true);
@@ -74,9 +77,14 @@ function useDeptReport<T extends object>(opts: {
   const [reviewer, setReviewer] = useState<string | null>(null);
   const [reviewedAt, setReviewedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const { toast } = useToast();
   // ── reporting-date guard: keep unsaved entries when the date changes ──
   const loadIdRef = useRef(0);
   const snapshotRef = useRef("{}");
+  // Mirror of snapshotRef for render-time dirty detection (refs must not be read during render)
+  const [snapshot, setSnapshot] = useState("");
+  const updateSnapshot = (v: string) => { snapshotRef.current = v; setSnapshot(v); };
   const dateRef = useRef(date);
   const mountedRef = useRef(false);
   const [dateKept, setDateKept] = useState<string | null>(null);
@@ -86,7 +94,7 @@ function useDeptReport<T extends object>(opts: {
     setLoading(true);
     try {
       const { reports } = await api<{ reports: ReportDTO[] }>(`/api/reports?mine=1&type=${type}&date=${date}`);
-      const existing = reports[0];
+      const existing = (opts.focusId ? reports.find((r) => r.id === opts.focusId) : null) || reports[0] || null;
       if (loadId !== loadIdRef.current) return;
       const builtEntries = existing
         ? (() => {
@@ -128,13 +136,14 @@ function useDeptReport<T extends object>(opts: {
         setFeedback(existing.supervisorFeedback || null);
         setReviewer(existing.reviewer?.fullName || null);
         setReviewedAt(existing.reviewedAt || null);
+        setUpdatedAt(existing.updatedAt || null);
       } else {
         setReportId(null); setRef(null); setStatus("DRAFT");
-        setFeedback(null); setReviewer(null); setReviewedAt(null);
+        setFeedback(null); setReviewer(null); setReviewedAt(null); setUpdatedAt(null);
       }
       setCorrecting(false);
       // baseline for the reporting-date guard — anything typed after this counts as unsaved
-      snapshotRef.current = JSON.stringify({ entries: builtEntries, metrics: builtMetrics, socialKpis: builtSocialKpis, info: builtInfo, challenges: builtChallenges, escalations: builtEscalations });
+      updateSnapshot(JSON.stringify({ entries: builtEntries, metrics: builtMetrics, socialKpis: builtSocialKpis, info: builtInfo, challenges: builtChallenges, escalations: builtEscalations }));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -162,9 +171,10 @@ function useDeptReport<T extends object>(opts: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
-  const save = async (submit: boolean) => {
+  const save = async (submit: boolean, silent = false) => {
     setSaving(true);
     setError(null);
+    const wasSubmitted = status === "SUBMITTED";
     try {
       const cleanEntries = entries.filter((e) => Object.values(e as Record<string, unknown>).some((v) => v && String(v).trim() !== ""));
       const body: Record<string, unknown> = {
@@ -197,10 +207,21 @@ function useDeptReport<T extends object>(opts: {
       const { report } = await api<{ report: ReportDTO }>("/api/reports", { method: "POST", body: JSON.stringify(body) });
       setReportId(report.id); setRef(report.ref); setStatus(report.status);
       setCorrecting(false);
+      setUpdatedAt(report.updatedAt || null);
       if (report.supervisorFeedback !== undefined) setFeedback(report.supervisorFeedback);
       setReviewer(report.reviewer?.fullName || null);
-      snapshotRef.current = JSON.stringify({ entries, metrics, socialKpis, info, challenges, escalations });
+      updateSnapshot(JSON.stringify({ entries, metrics, socialKpis, info, challenges, escalations }));
       setDateKept(null);
+      if (!silent) {
+        toast({
+          title: submit ? "Report submitted" : wasSubmitted ? "Corrections saved" : "Draft saved",
+          description: submit
+            ? `${report.ref} is now awaiting supervisor approval.`
+            : wasSubmitted
+              ? `${report.ref} was updated in place — it is still awaiting approval.`
+              : `${report.ref} — reopen it any time from My Drafts on your dashboard or My Reports.`,
+        });
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -208,7 +229,14 @@ function useDeptReport<T extends object>(opts: {
     }
   };
 
-  return { loading, saving, reportId, ref, status, correcting, setCorrecting, entries, setEntries, metrics, setMetrics, socialKpis, setSocialKpis, info, setInfo, challenges, setChallenges, escalations, setEscalations, feedback, reviewer, reviewedAt, error, save, load, dateKept };
+  // Unsaved-changes detection (powers the beforeunload guard + autosave + draft bar)
+  const dirty = JSON.stringify({ entries, metrics, socialKpis, info, challenges, escalations }) !== snapshot;
+  const { lastSavedAt, autosaveFailed } = useDraftAutoSave({
+    dirty, status, saving,
+    save: () => save(false, true),
+  });
+
+  return { loading, saving, reportId, ref, status, correcting, setCorrecting, entries, setEntries, metrics, setMetrics, socialKpis, setSocialKpis, info, setInfo, challenges, setChallenges, escalations, setEscalations, feedback, reviewer, reviewedAt, error, save, load, dateKept, dirty, updatedAt, lastSavedAt, autosaveFailed };
 }
 
 /** Amber note shown when the reporting date was changed while the form had unsaved entries. */
@@ -237,9 +265,9 @@ function CommonFooter({ state }: { state: { saving: boolean; status: string; cor
 
 // ─────────────────────────── TECH REPORT ───────────────────────────
 
-export function TechReportForm({ user, date }: { user: SessionUser; date: string }) {
+export function TechReportForm({ user, date, focusId = null }: { user: SessionUser; date: string; focusId?: string | null }) {
   const blank = (): TechEntry => ({ title: "", project: "", category: "", status: "In Progress", hours: "", deliverable: "", repoRef: "", blocker: "", nextSteps: "" });
-  const state = useDeptReport<TechEntry>({ user, date, type: "TECH", blankEntries: blank });
+  const state = useDeptReport<TechEntry>({ user, date, type: "TECH", blankEntries: blank, focusId });
   const { entries, setEntries, metrics, setMetrics } = state;
   const patch = (i: number, p: Partial<TechEntry>) => setEntries(entries.map((e, j) => (j === i ? { ...e, ...p } : e)));
   const locked = state.status === "APPROVED" || (state.status === "SUBMITTED" && !state.correcting);
@@ -250,10 +278,10 @@ export function TechReportForm({ user, date }: { user: SessionUser; date: string
     <div className="space-y-5">
       <DateKeptNote dateKept={state.dateKept} />
       {state.ref && state.status !== "DRAFT" && (
-        <ReportStateBanner status={state.status} ref={state.ref} feedback={state.feedback} reviewer={state.reviewer} reviewedAt={state.reviewedAt} />
+        <ReportStateBanner status={state.status} reportRef={state.ref} feedback={state.feedback} reviewer={state.reviewer} reviewedAt={state.reviewedAt} />
       )}
       {state.ref && state.status === "DRAFT" && (
-        <div className="flex items-center gap-3 text-xs text-slate-400"><span className="font-mono font-semibold text-[#b3a5ff]">{state.ref}</span><StatusBadge status={state.status} /></div>
+        <DraftInfoBar reportRef={state.ref} updatedAt={state.updatedAt} dirty={state.dirty} lastSavedAt={state.lastSavedAt} autosaveFailed={state.autosaveFailed} />
       )}
       {state.error && <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{state.error}</div>}
 
@@ -399,9 +427,9 @@ function SocialKpiTable({ rows, onChange, disabled }: { rows: KpiMetric[]; onCha
   );
 }
 
-export function SocialReportForm({ user, date }: { user: SessionUser; date: string }) {
+export function SocialReportForm({ user, date, focusId = null }: { user: SessionUser; date: string; focusId?: string | null }) {
   const blank = (): SocialTask => ({ task: "", platform: "", status: "", deliverable: "" });
-  const state = useDeptReport<SocialTask>({ user, date, type: "SOCIAL", blankEntries: blank });
+  const state = useDeptReport<SocialTask>({ user, date, type: "SOCIAL", blankEntries: blank, focusId });
   const { entries, setEntries, socialKpis, setSocialKpis } = state;
   const patch = (i: number, p: Partial<SocialTask>) => setEntries(entries.map((e, j) => (j === i ? { ...e, ...p } : e)));
   const locked = state.status === "APPROVED" || (state.status === "SUBMITTED" && !state.correcting);
@@ -419,10 +447,10 @@ export function SocialReportForm({ user, date }: { user: SessionUser; date: stri
 
       <DateKeptNote dateKept={state.dateKept} />
       {state.ref && state.status !== "DRAFT" && (
-        <ReportStateBanner status={state.status} ref={state.ref} feedback={state.feedback} reviewer={state.reviewer} reviewedAt={state.reviewedAt} />
+        <ReportStateBanner status={state.status} reportRef={state.ref} feedback={state.feedback} reviewer={state.reviewer} reviewedAt={state.reviewedAt} />
       )}
       {state.ref && state.status === "DRAFT" && (
-        <div className="flex items-center gap-3 text-xs text-slate-400"><span className="font-mono font-semibold text-[#b3a5ff]">{state.ref}</span><StatusBadge status={state.status} /></div>
+        <DraftInfoBar reportRef={state.ref} updatedAt={state.updatedAt} dirty={state.dirty} lastSavedAt={state.lastSavedAt} autosaveFailed={state.autosaveFailed} />
       )}
       {state.error && <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{state.error}</div>}
 

@@ -47,6 +47,13 @@ export async function GET(req: NextRequest) {
           pct: m.target ? Math.round(((m.actual || 0) / m.target) * 100) : null,
         }));
       }
+      // Persistent drafts: saved-but-not-submitted reports the agent can reopen.
+      const myDrafts = await db.report.findMany({
+        where: { userId: me.id, status: "DRAFT" },
+        orderBy: { updatedAt: "desc" },
+        take: 8,
+        select: { id: true, ref: true, type: true, reportDate: true, updatedAt: true },
+      });
       return ok({
         role: me.role,
         date,
@@ -61,6 +68,7 @@ export async function GET(req: NextRequest) {
           kpiAchievement,
           unreadNotifications: myNotifications,
           myRecentReports: (await db.report.findMany({ where: { userId: me.id }, orderBy: { updatedAt: "desc" }, take: 5, select: { id: true, ref: true, type: true, status: true, reportDate: true } })),
+          myDrafts,
         },
       });
     }
@@ -197,6 +205,13 @@ export async function GET(req: NextRequest) {
     // Staff actually scheduled on this date (shift mask) — part-timers off today are not outstanding
     const scheduledReporters = staff.filter((s) => s.role !== "SUPERVISOR" && worksOn(s.workDays, date));
 
+    // Supervisors draft their own daily reports too — same resume section.
+    const myDrafts = await db.report.findMany({
+      where: { userId: me.id, status: "DRAFT" },
+      orderBy: { updatedAt: "desc" },
+      take: 8,
+      select: { id: true, ref: true, type: true, reportDate: true, updatedAt: true },
+    });
     return ok({
       role: me.role,
       date,
@@ -204,6 +219,7 @@ export async function GET(req: NextRequest) {
         centreLabel,
         centreAgents,
         trend,
+        myDrafts,
         totalActiveEmployees: staff.length,
         expectedToReport: scheduledReporters.length,
         reportsSubmitted: submittedReports.length,

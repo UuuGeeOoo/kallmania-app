@@ -213,6 +213,7 @@ export function MyReportsView({ user, onNavigate }: { user: SessionUser; onNavig
   const [reports, setReports] = useState<ReportDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ReportDTO | null>(null);
+  const [statusFilter, setStatusFilter] = useState("ALL");
 
   useEffect(() => {
     api<{ reports: ReportDTO[] }>("/api/reports?mine=1").then(({ reports }) => setReports(reports)).finally(() => setLoading(false));
@@ -220,23 +221,35 @@ export function MyReportsView({ user, onNavigate }: { user: SessionUser; onNavig
 
   const [docPreview, setDocPreview] = useState<{ id: string; name: string } | null>(null);
 
-  // Jump into the Daily Report form pre-loaded with this report's date:
+  // Jump into the Daily Report form with the exact record pre-loaded (date@id):
+  // - DRAFT (saved, not submitted) → "Continue editing" — resume where you left off
   // - SUBMITTED (awaiting approval) → "Make Correction" (allowed until approval)
   // - REJECTED (returned for correction) → fix it and submit again
   // APPROVED reports are locked, so no correction entry is offered for them.
-  const correctReport = (r: ReportDTO) => onNavigate?.("daily-report", String(r.reportDate).slice(0, 10));
+  const editReport = (r: ReportDTO) => onNavigate?.("daily-report", `${String(r.reportDate).slice(0, 10)}@${r.id}`);
 
   const download = (id: string, format: string) => {
     window.open(`/api/export?format=${format}&id=${id}`, "_blank");
   };
 
+  const filtered = reports.filter((r) => (statusFilter === "ALL" ? true : r.status === statusFilter));
+
   return (
     <div>
-      <PageHeader title="My Reports" subtitle="Submission history, review status and exports" />
+      <PageHeader
+        title="My Reports"
+        subtitle="Submission history, review status and exports"
+        actions={
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-44 border-white/12 bg-white/[0.055] text-xs text-slate-200"><SelectValue /></SelectTrigger>
+            <SelectContent>{["ALL", "DRAFT", "SUBMITTED", "APPROVED", "REJECTED"].map((s) => <SelectItem key={s} value={s}>{s === "ALL" ? "All statuses" : s.replace(/_/g, " ")}</SelectItem>)}</SelectContent>
+          </Select>
+        }
+      />
       {loading ? (
         <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>
-      ) : reports.length === 0 ? (
-        <EmptyState icon={<ClipboardCheck className="h-8 w-8" />} title="No reports yet" hint="Submit your first daily report from the Daily Report page." />
+      ) : filtered.length === 0 ? (
+        <EmptyState icon={<ClipboardCheck className="h-8 w-8" />} title={statusFilter === "ALL" ? "No reports yet" : `No ${statusFilter.toLowerCase()} reports`} hint={statusFilter === "DRAFT" ? "Save a draft from the Daily Report page and it will appear here, ready to continue." : "Submit your first daily report from the Daily Report page."} />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-white/10">
           <Table>
@@ -246,28 +259,33 @@ export function MyReportsView({ user, onNavigate }: { user: SessionUser; onNavig
                 <TableHead className="text-[11px] text-slate-400">Type</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Date</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Status</TableHead>
-                <TableHead className="text-[11px] text-slate-400">Source</TableHead>
+                <TableHead className="text-[11px] text-slate-400">Updated</TableHead>
                 <TableHead className="text-[11px] text-slate-400">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {reports.map((r) => (
+              {filtered.map((r) => (
                 <TableRow key={r.id} className="border-white/5">
                   <TableCell className="py-2.5 font-mono text-xs text-[#b3a5ff]">{r.ref}</TableCell>
                   <TableCell className="py-2.5 text-xs text-slate-300">{REPORT_TYPE_LABELS[r.type]}</TableCell>
                   <TableCell className="py-2.5 text-xs text-slate-400">{fmtDate(r.reportDate)}</TableCell>
                   <TableCell className="py-2.5"><StatusBadge status={r.status} /></TableCell>
-                  <TableCell className="py-2.5 text-[11px] text-slate-500">{r.sourceType === "UPLOAD_EXTRACTED" ? "Upload" : "Manual"}</TableCell>
+                  <TableCell className="py-2.5 text-[11px] text-slate-500">{fmtDateTime(r.updatedAt)}</TableCell>
                   <TableCell className="py-2.5">
                     <div className="flex items-center gap-1">
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-slate-100" onClick={() => setSelected(r)} title="View"><Eye className="h-3.5 w-3.5" /></Button>
+                      {r.status === "DRAFT" && (
+                        <Button size="sm" variant="outline" className="h-7 border-[#8b7ff5]/50 px-2 text-[11px] text-[#b3a5ff] hover:bg-[#6c5ce7]/15" onClick={() => editReport(r)} title="Reopen this saved draft, keep editing and submit it when ready">
+                          <Pencil className="mr-1 h-3 w-3" /> Continue editing
+                        </Button>
+                      )}
                       {r.status === "SUBMITTED" && (
-                        <Button size="sm" variant="outline" className="h-7 border-amber-400/40 px-2 text-[11px] text-amber-300 hover:bg-amber-500/10" onClick={() => correctReport(r)} title="Make corrections while this report awaits approval (it cannot be submitted twice)">
+                        <Button size="sm" variant="outline" className="h-7 border-amber-400/40 px-2 text-[11px] text-amber-300 hover:bg-amber-500/10" onClick={() => editReport(r)} title="Make corrections while this report awaits approval (it cannot be submitted twice)">
                           <Pencil className="mr-1 h-3 w-3" /> Correct
                         </Button>
                       )}
                       {r.status === "REJECTED" && (
-                        <Button size="sm" variant="outline" className="h-7 border-amber-400/40 px-2 text-[11px] text-amber-300 hover:bg-amber-500/10" onClick={() => correctReport(r)} title="Update this returned report and submit it again for approval">
+                        <Button size="sm" variant="outline" className="h-7 border-amber-400/40 px-2 text-[11px] text-amber-300 hover:bg-amber-500/10" onClick={() => editReport(r)} title="Update this returned report and submit it again for approval">
                           <Pencil className="mr-1 h-3 w-3" /> Fix &amp; Resubmit
                         </Button>
                       )}

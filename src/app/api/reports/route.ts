@@ -19,6 +19,36 @@ const REPORT_TYPE_BY_ROLE: Record<string, string> = {
   TEAM_LEAD: "TEAM_LEAD",
 };
 
+/**
+ * Submit-time validation — the configured KPI requirements must be met before a
+ * report leaves Draft. Only the AGENT_BPO template carries mandatory metrics
+ * (configured per centre under KPI Configuration); an agent marked Absent is
+ * exempt since they have no numbers to report. Returns the error message or
+ * null when the report may be submitted. Nothing is persisted when this fails,
+ * so every entered value stays in the agent's form (and any saved draft).
+ */
+async function validateMandatoryKpis(
+  reportType: string,
+  ownerTeam: string | null | undefined,
+  attendance: string | null | undefined,
+  metricsJson: unknown,
+): Promise<string | null> {
+  if (reportType !== "AGENT_BPO" || attendance === "Absent") return null;
+  const cfgDept = ownerTeam === "INBOUND" ? "INBOUND" : "BPO";
+  const cfgs = await db.kpiConfig.findMany({ where: { department: cfgDept, mandatory: true, active: true } });
+  if (!cfgs.length) return null;
+  const metrics = safeParse<KpiMetric[]>(metricsJson as string | unknown[] | object | null | undefined, []);
+  const missing = [...new Set(cfgs
+    .filter((c) => {
+      const m = metrics.find((x) => x.key === c.key);
+      return !m || m.actual === null || m.actual === undefined || Number.isNaN(Number(m.actual));
+    })
+    .map((c) => c.label))];
+  return missing.length
+    ? `Cannot submit yet — the required KPI field(s) are still empty: ${missing.join(", ")}. Nothing was lost: click "Save Draft" to keep your entries, fill the highlighted fields, then submit again.`
+    : null;
+}
+
 /** GET /api/reports?mine=1&date=YYYY-MM-DD&department=&status=&type=&userId= */
 export async function GET(req: NextRequest) {
   return handle(async () => {
@@ -152,6 +182,16 @@ export async function POST(req: NextRequest) {
         if (dup) return fail(`A ${dup.status === "APPROVED" ? "finalized" : "submitted"} report for this day already exists (${dup.ref}) — a report cannot be submitted twice for the same day.`, 409);
       }
       if (!submit && existing.status === "SUBMITTED") correction = true;
+      if (submit) {
+        const owner = await db.user.findUnique({ where: { id: existing.userId }, select: { team: true } });
+        const err = await validateMandatoryKpis(
+          reportType,
+          owner?.team,
+          (data.attendanceStatus as string | null | undefined) ?? existing.attendanceStatus,
+          "kpiMetrics" in fields ? fields.kpiMetrics : existing.kpiMetrics,
+        );
+        if (err) return fail(err, 422);
+      }
       report = await db.report.update({ where: { id }, data: { ...data, status: submit ? "SUBMITTED" : existing.status === "REJECTED" && !submit ? "DRAFT" : existing.status } });
     } else {
       // Same-day duplicate guard: one live (submitted/approved) report per
@@ -165,6 +205,10 @@ export async function POST(req: NextRequest) {
         },
       });
       if (dup) return fail(`You already have a ${dup.status === "APPROVED" ? "finalized" : "submitted"} report for this day (${dup.ref}). A report cannot be submitted twice for the same day — open the Daily Report page for that date to make corrections instead.`, 409);
+      if (submit) {
+        const err = await validateMandatoryKpis(reportType, me.team, (data.attendanceStatus as string | null | undefined) ?? null, fields.kpiMetrics);
+        if (err) return fail(err, 422);
+      }
       report = await db.report.create({
         data: { ...(data as Prisma.ReportUncheckedCreateInput), ref: genRef(reportType), userId: me.id, status: submit ? "SUBMITTED" : "DRAFT" },
       });

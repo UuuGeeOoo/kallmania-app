@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { api, todayISO, type KpiMetric, type CallLogEntry, type ReportDTO, type SessionUser } from "@/lib/client";
-import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner, ReportSubmitActions } from "@/components/kallmania/shared";
+import { SectionCard, Field, inputCls, StatusBadge, ReportStateBanner, ReportSubmitActions, DraftInfoBar, useDraftAutoSave } from "@/components/kallmania/shared";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Calculator, Loader2, FileDown, Plus, Trash2, CalendarClock } from "lucide-react";
 
@@ -198,13 +199,15 @@ export function AttendanceBlock({
 }
 
 export default function AgentBpoReportForm({
-  user, date, onDone, variant = "outbound",
+  user, date, onDone, variant = "outbound", focusId = null,
 }: {
   user: SessionUser;
   date: string;
   onDone?: () => void;
   /** outbound = classic required template; inbound = same format but the required (mandatory) tasks become optional */
   variant?: "outbound" | "inbound";
+  /** When provided (My Drafts / My Reports → Continue editing), open exactly this report record. */
+  focusId?: string | null;
 }) {
   const inbound = variant === "inbound";
   const [loading, setLoading] = useState(true);
@@ -227,9 +230,14 @@ export default function AgentBpoReportForm({
   const [reviewer, setReviewer] = useState<string | null>(null);
   const [reviewedAt, setReviewedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const { toast } = useToast();
   // ── reporting-date guard: keep unsaved entries when the date changes ──
   const loadIdRef = useRef(0);
   const snapshotRef = useRef("{}");
+  // Mirror of snapshotRef for render-time dirty detection (refs must not be read during render)
+  const [snapshot, setSnapshot] = useState("{}");
+  const updateSnapshot = (v: string) => { snapshotRef.current = v; setSnapshot(v); };
   const dateRef = useRef(date);
   const mountedRef = useRef(false);
   const [dateKept, setDateKept] = useState<string | null>(null);
@@ -279,7 +287,7 @@ export default function AgentBpoReportForm({
           .then((r) => r.configs.filter((c) => c.department === dept && c.active !== false))
           .catch(() => null),
       ]);
-      const existing = reportsRes.reports[0];
+      const existing = (focusId ? reportsRes.reports.find((r) => r.id === focusId) : null) || reportsRes.reports[0] || null;
       if (loadId !== loadIdRef.current) return;
       const savedMetrics = existing?.kpiMetrics ? JSON.parse(existing.kpiMetrics) as KpiMetric[] : [];
       const builtKpis = buildKpiRows(kpiConfigs, DEFAULT_KPIS, savedMetrics, inbound);
@@ -309,13 +317,14 @@ export default function AgentBpoReportForm({
         setFeedback(existing.supervisorFeedback || null);
         setReviewer(existing.reviewer?.fullName || null);
         setReviewedAt(existing.reviewedAt || null);
+        setUpdatedAt(existing.updatedAt || null);
       } else {
         setReportId(null); setRef(null); setStatus("DRAFT");
-        setFeedback(null); setReviewer(null); setReviewedAt(null);
+        setFeedback(null); setReviewer(null); setReviewedAt(null); setUpdatedAt(null);
       }
       setCorrecting(false);
       // baseline for the reporting-date guard — anything typed after this counts as unsaved
-      snapshotRef.current = JSON.stringify({ info: builtInfo, callLogs: builtLogs, campaignName: builtCampaign, challenges: builtChallenges, escalations: builtEscalations, additional: builtAdditional, kpiMetrics: builtKpis });
+      updateSnapshot(JSON.stringify({ info: builtInfo, callLogs: builtLogs, campaignName: builtCampaign, challenges: builtChallenges, escalations: builtEscalations, additional: builtAdditional, kpiMetrics: builtKpis }));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -344,9 +353,10 @@ export default function AgentBpoReportForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
-  const save = async (submit: boolean) => {
+  const save = async (submit: boolean, silent = false) => {
     setSaving(true);
     setError(null);
+    const wasSubmitted = status === "SUBMITTED";
     try {
       // drop fully-empty call log rows so the stored log stays clean
       const cleanLogs = callLogs.filter((l) => l.leadName || l.disposition || l.followUp || l.notes);
@@ -363,8 +373,19 @@ export default function AgentBpoReportForm({
       const { report } = await api<{ report: ReportDTO }>("/api/reports", { method: "POST", body: JSON.stringify(body) });
       setReportId(report.id); setRef(report.ref); setStatus(report.status);
       setCorrecting(false);
-      snapshotRef.current = JSON.stringify({ info, callLogs, campaignName, challenges, escalations, additional, kpiMetrics });
+      setUpdatedAt(report.updatedAt || null);
+      updateSnapshot(JSON.stringify({ info, callLogs, campaignName, challenges, escalations, additional, kpiMetrics }));
       setDateKept(null);
+      if (!silent) {
+        toast({
+          title: submit ? "Report submitted" : wasSubmitted ? "Corrections saved" : "Draft saved",
+          description: submit
+            ? `${report.ref} is now awaiting supervisor approval.`
+            : wasSubmitted
+              ? `${report.ref} was updated in place — it is still awaiting approval.`
+              : `${report.ref} — reopen it any time from My Drafts on your dashboard or My Reports.`,
+        });
+      }
       onDone?.();
     } catch (e) {
       setError((e as Error).message);
@@ -372,6 +393,13 @@ export default function AgentBpoReportForm({
       setSaving(false);
     }
   };
+
+  // Unsaved-changes detection (powers the beforeunload guard + autosave + draft bar)
+  const dirty = JSON.stringify({ info, callLogs, campaignName, challenges, escalations, additional, kpiMetrics }) !== snapshot;
+  const { lastSavedAt, autosaveFailed } = useDraftAutoSave({
+    dirty, status, saving,
+    save: () => save(false, true),
+  });
 
   if (loading) {
     return <div className="flex items-center justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
@@ -393,13 +421,10 @@ export default function AgentBpoReportForm({
         </div>
       )}
       {ref && status !== "DRAFT" && (
-        <ReportStateBanner status={status} ref={ref} feedback={feedback} reviewer={reviewer} reviewedAt={reviewedAt} />
+        <ReportStateBanner status={status} reportRef={ref} feedback={feedback} reviewer={reviewer} reviewedAt={reviewedAt} />
       )}
       {ref && status === "DRAFT" && (
-        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-          <span className="font-mono font-semibold text-[#b3a5ff]">{ref}</span>
-          <StatusBadge status={status} />
-        </div>
+        <DraftInfoBar reportRef={ref} updatedAt={updatedAt} dirty={dirty} lastSavedAt={lastSavedAt} autosaveFailed={autosaveFailed} />
       )}
       {error && <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{error}</div>}
 

@@ -5,10 +5,10 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { STATUS_COLORS } from "@/lib/client";
+import { STATUS_COLORS, fmtDateTime } from "@/lib/client";
 import { REPORT_SECTION_INVENTORY } from "@/lib/template-config";
-import { type ReactNode, useState } from "react";
-import { CheckCircle2, Hourglass, Undo2, ShieldCheck, Eye, EyeOff, ChevronDown, Plus, Pencil, Save, Send, Loader2 } from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { CheckCircle2, Hourglass, Undo2, ShieldCheck, Eye, EyeOff, ChevronDown, Plus, Pencil, Save, Send, Loader2, Clock3, CloudOff, CircleAlert } from "lucide-react";
 
 export function StatusBadge({ status, className }: { status: string; className?: string }) {
   const key = status === "APPROVED" && className?.includes("user") ? "APPROVED_USER" : status;
@@ -248,6 +248,100 @@ export function DeptReportSections({ department, compact }: { department: string
   );
 }
 
+// ───────────────────── Persistent draft support ─────────────────────
+
+/**
+ * Persistent-draft lifecycle helpers shared by every daily-report form.
+ *
+ * - useDraftAutoSave: periodically saves an open DRAFT in place (45s cadence,
+ *   only while unsaved edits exist) and warns before the page is closed with
+ *   unsaved changes. Manual Save as Draft / Submit keep working exactly as
+ *   before — this never submits, never touches SUBMITTED/APPROVED/REJECTED
+ *   reports, and surfaces failures through `autosaveFailed` instead of
+ *   interrupting the agent.
+ * - DraftInfoBar: status strip shown while a DRAFT is open — reference,
+ *   last-saved time, unsaved-changes / autosave-failure hints.
+ */
+export function useDraftAutoSave({
+  dirty, status, saving, save, enabled = true, intervalMs = 45_000,
+}: {
+  dirty: boolean;
+  status: string;
+  saving: boolean;
+  /** Draft-save closure (always save(false)) — captured fresh on every render. */
+  save: () => Promise<void>;
+  enabled?: boolean;
+  intervalMs?: number;
+}) {
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [autosaveFailed, setAutosaveFailed] = useState(false);
+  const dirtyRef = useRef(dirty); dirtyRef.current = dirty;
+  const savingRef = useRef(saving); savingRef.current = saving;
+  const statusRef = useRef(status); statusRef.current = status;
+  const saveRef = useRef(save); saveRef.current = save;
+  const runningRef = useRef(false);
+
+  // Warn before closing/refreshing the page with unsaved changes.
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
+
+  // Periodic in-place autosave while a plain draft is open.
+  useEffect(() => {
+    if (!enabled) return;
+    const t = setInterval(async () => {
+      if (runningRef.current || savingRef.current || !dirtyRef.current || statusRef.current !== "DRAFT") return;
+      runningRef.current = true;
+      try {
+        await saveRef.current();
+        setLastSavedAt(new Date().toISOString());
+        setAutosaveFailed(false);
+      } catch {
+        setAutosaveFailed(true);
+      } finally {
+        runningRef.current = false;
+      }
+    }, intervalMs);
+    return () => clearInterval(t);
+  }, [enabled, intervalMs]);
+
+  return { lastSavedAt, autosaveFailed };
+}
+
+export function DraftInfoBar({
+  reportRef, updatedAt, dirty, lastSavedAt, autosaveFailed,
+}: {
+  reportRef: string;
+  updatedAt?: string | null;
+  dirty: boolean;
+  lastSavedAt?: string | null;
+  autosaveFailed?: boolean;
+}) {
+  const savedLabel = lastSavedAt
+    ? `Autosaved ${new Date(lastSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+    : updatedAt
+      ? `Last saved ${fmtDateTime(updatedAt)}`
+      : null;
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-500/25 bg-white/[0.03] px-3 py-2 text-xs text-slate-400">
+      <span className="font-mono font-semibold text-[#b3a5ff]">{reportRef}</span>
+      <StatusBadge status="DRAFT" />
+      <span className="flex items-center gap-1.5 text-slate-500"><Pencil className="h-3 w-3" /> Draft — continue editing and submit when ready</span>
+      {savedLabel && !dirty && <span className="flex items-center gap-1 text-slate-500"><Clock3 className="h-3 w-3" /> {savedLabel}</span>}
+      {dirty && <span className="flex items-center gap-1 text-amber-300"><CircleAlert className="h-3 w-3" /> Unsaved changes</span>}
+      {autosaveFailed && (
+        <span className="flex items-center gap-1 text-rose-300"><CloudOff className="h-3 w-3" /> Autosave failed — click "Save Draft" to retry</span>
+      )}
+    </div>
+  );
+}
+
 /**
  * Submission state machine banner.
  * SUBMITTED → "submitted & awaiting approval"   (form is locked)
@@ -255,10 +349,10 @@ export function DeptReportSections({ department, compact }: { department: string
  * APPROVED  → "approved & finalized"           (form locked)
  */
 export function ReportStateBanner({
-  status, ref: reportRef, feedback, reviewer, reviewedAt,
+  status, reportRef, feedback, reviewer, reviewedAt,
 }: {
   status: string;
-  ref: string;
+  reportRef: string;
   feedback?: string | null;
   reviewer?: string | null;
   reviewedAt?: string | null;

@@ -52,6 +52,10 @@ export default function Page() {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [view, setView] = useState("dashboard");
   const [focusReportId, setFocusReportId] = useState<string | null>(null);
+  // Precise draft/report resume: when navigating to the daily-report form with
+  // "<date>@<reportId>" the form opens exactly that record (a saved draft can
+  // coexist with a submitted report for the same day — the date alone is ambiguous).
+  const [focusFormReportId, setFocusFormReportId] = useState<string | null>(null);
   const [supervisorDate, setSupervisorDate] = useState(todayISO());
   const [reportDate, setReportDate] = useState(todayISO());
   const [unread, setUnread] = useState(0);
@@ -70,7 +74,11 @@ export default function Page() {
         const h = readHash();
         if (restored && h) {
           if (h.view === "review" && h.data) setFocusReportId(h.data);
-          if (h.view === "daily-report" && /^\d{4}-\d{2}-\d{2}$/.test(h.data || "")) setReportDate(h.data);
+          if (h.view === "daily-report" && /^\d{4}-\d{2}-\d{2}(@\S+)?$/.test(h.data || "")) {
+            const [d, rid] = (h.data as string).split("@");
+            setReportDate(d);
+            setFocusFormReportId(rid || null);
+          }
           setView(h.view);
         } else if (!restored) {
           clearHash();
@@ -106,11 +114,21 @@ export default function Page() {
   const navigate = (v: string, data?: string) => {
     setFocusReportId(null);
     // "daily-report/<YYYY-MM-DD>" opens the form pre-loaded on that report's
-    // date (used by My Reports → Correct / Fix & Resubmit); plain daily-report
+    // date; "daily-report/<YYYY-MM-DD>@<reportId>" opens exactly that record
+    // (used by My Reports / My Drafts → Continue editing). Plain daily-report
     // resets to today.
-    if (v === "daily-report") setReportDate(/^\d{4}-\d{2}-\d{2}$/.test(data || "") ? (data as string) : todayISO());
-    else if (v === "upload") setReportDate(todayISO());
-    if (v === "supervisor-report") setSupervisorDate(todayISO());
+    if (v === "daily-report") {
+      const raw = data || "";
+      const at = raw.indexOf("@");
+      const datePart = at === -1 ? raw : raw.slice(0, at);
+      const idPart = at === -1 ? null : raw.slice(at + 1) || null;
+      setReportDate(/^\d{4}-\d{2}-\d{2}$/.test(datePart) ? datePart : todayISO());
+      setFocusFormReportId(idPart);
+    } else if (v === "upload") {
+      setReportDate(todayISO());
+      setFocusFormReportId(null);
+    }
+    if (v === "supervisor-report") setSupervisorDate(/^\d{4}-\d{2}-\d{2}$/.test(data || "") ? (data as string) : todayISO());
     if (v === "review" && data) setFocusReportId(data);
     setView(v);
     writeHash(v, data);
@@ -157,10 +175,10 @@ export default function Page() {
       case "notice-board":
         return <NoticeBoardView user={user} />;
       case "daily-report":
-        if (user.role === "TEAM_LEAD") return <TeamLeadReportForm user={user} date={reportDate} />;
-        if (user.role === "DEVELOPER") return <WebTeamReportForm user={user} date={reportDate} />;
-        if (user.role === "SOCIAL_MEDIA") return <SocialReportForm user={user} date={reportDate} />;
-        return <AgentBpoReportForm user={user} date={reportDate} onDone={refreshUnread} variant={user.team === "INBOUND" ? "inbound" : "outbound"} />;
+        if (user.role === "TEAM_LEAD") return <TeamLeadReportForm user={user} date={reportDate} focusId={focusFormReportId} />;
+        if (user.role === "DEVELOPER") return <WebTeamReportForm user={user} date={reportDate} focusId={focusFormReportId} />;
+        if (user.role === "SOCIAL_MEDIA") return <SocialReportForm user={user} date={reportDate} focusId={focusFormReportId} />;
+        return <AgentBpoReportForm user={user} date={reportDate} focusId={focusFormReportId} onDone={refreshUnread} variant={user.team === "INBOUND" ? "inbound" : "outbound"} />;
       case "supervisor-report":
         return <SupervisorReportForm user={user} date={supervisorDate} onExport={exportReport} />;
       case "tl-template":

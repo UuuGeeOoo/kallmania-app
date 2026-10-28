@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { api, fmtDate, fmtDateTime, todayISO, DEPT_LABELS, type EscalationDTO, type SessionUser, type TaskDTO } from "@/lib/client";
+import { api, fmtDate, fmtDateTime, todayISO, DEPT_LABELS, REPORT_TYPE_LABELS, type EscalationDTO, type SessionUser, type TaskDTO } from "@/lib/client";
 import { StatCard, PageHeader, SectionCard, EmptyState, StatusBadge } from "@/components/kallmania/shared";
 import PeriodKpiPanel from "@/components/kallmania/kpi-trends";
 import { UserKpiDialog } from "@/components/kallmania/user-kpi-dialog";
@@ -14,7 +14,7 @@ import { Country, State } from "country-state-city";
 import {
   Users, FileCheck2, FileX2, ListTodo, CheckCircle2, AlarmClock, Ban, TrendingDown,
   Siren, PhoneCall, Mail, UploadCloud, MonitorSmartphone, Share2, Calendar, Loader2, MapPin, Globe2,
-  ArrowUpRight, Megaphone,
+  ArrowUpRight, Megaphone, Pencil,
 } from "lucide-react";
 
 interface EmployeeDash {
@@ -28,12 +28,16 @@ interface EmployeeDash {
   kpiAchievement: { label: string; actual: number | null; target: number | null; pct: number | null }[];
   unreadNotifications: number;
   myRecentReports: { id: string; ref: string; type: string; status: string; reportDate: string }[];
+  myDrafts: { id: string; ref: string; type: string; reportDate: string; updatedAt: string }[];
 }
+
+type DashboardDraft = { id: string; ref: string; type: string; reportDate: string; updatedAt: string };
 
 interface SupervisorDash {
   centreLabel: string | null;
   centreAgents: { id: string; fullName: string; role: string; department: string; team: string | null; country: string | null; state: string | null }[];
   trend: { date: string; label: string; submitted: number }[];
+  myDrafts: DashboardDraft[];
   totalActiveEmployees: number;
   expectedToReport: number;
   reportsSubmitted: number;
@@ -55,7 +59,7 @@ interface SupervisorDash {
   pendingReportList: { id: string; ref: string; userName: string; type: string; status: string; department: string }[];
 }
 
-export default function Dashboard({ user, onNavigate }: { user: SessionUser; onNavigate: (v: string) => void }) {
+export default function Dashboard({ user, onNavigate }: { user: SessionUser; onNavigate: (v: string, data?: string) => void }) {
   const [date, setDate] = useState(todayISO());
   const [emp, setEmp] = useState<EmployeeDash | null>(null);
   const [sup, setSup] = useState<SupervisorDash | null>(null);
@@ -231,7 +235,39 @@ function NotifyEscalateBar({ user }: { user: SessionUser }) {
   );
 }
 
-function EmployeeDashboard({ emp, user, onNavigate }: { emp: EmployeeDash; user: SessionUser; onNavigate: (v: string) => void }) {
+/**
+ * My Drafts — persistent saved-but-not-submitted reports. Reopening one loads
+ * the same record (by id) back into its report template with every value intact;
+ * saving again updates it in place, so a draft never spawns a duplicate report.
+ */
+function MyDraftsCard({ drafts, onOpen, subtitle }: { drafts: DashboardDraft[] | undefined; onOpen: (d: DashboardDraft) => void; subtitle: string }) {
+  if (!drafts || drafts.length === 0) return null;
+  return (
+    <SectionCard title="My Drafts" subtitle={subtitle}>
+      <div className="space-y-2">
+        {drafts.map((d) => (
+          <div key={d.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2.5">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-xs text-[#b3a5ff]">{d.ref}</span>
+                <StatusBadge status="DRAFT" />
+                <span className="text-[11px] text-slate-400">{REPORT_TYPE_LABELS[d.type] || d.type}</span>
+              </div>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                Reporting date {fmtDate(d.reportDate)} · last modified {fmtDateTime(d.updatedAt)}
+              </p>
+            </div>
+            <Button size="sm" variant="outline" className="h-8 shrink-0 border-[#8b7ff5]/50 px-3 text-[11px] text-[#b3a5ff] hover:bg-[#6c5ce7]/15" onClick={() => onOpen(d)}>
+              <Pencil className="mr-1.5 h-3 w-3" /> Continue editing
+            </Button>
+          </div>
+        ))}
+      </div>
+    </SectionCard>
+  );
+}
+
+function EmployeeDashboard({ emp, user, onNavigate }: { emp: EmployeeDash; user: SessionUser; onNavigate: (v: string, data?: string) => void }) {
   const roleReportLabel = user.role === "DEVELOPER" ? "Technical report" : user.role === "SOCIAL_MEDIA" ? "Social media report" : "Daily report";
   return (
     <div className="space-y-5">
@@ -253,6 +289,12 @@ function EmployeeDashboard({ emp, user, onNavigate }: { emp: EmployeeDash; user:
           <span className="k-btn-primary rounded-full px-4 py-2 text-xs font-semibold text-white">Complete now</span>
         </button>
       )}
+
+      <MyDraftsCard
+        drafts={emp.myDrafts}
+        onOpen={(d) => onNavigate("daily-report", `${String(d.reportDate).slice(0, 10)}@${d.id}`)}
+        subtitle="Saved reports you can reopen, finish and submit — every entered value is kept between sessions"
+      />
 
       <div className="grid gap-5 lg:grid-cols-2">
         <SectionCard title="KPI achievement (latest report)" subtitle="Actual vs target from your most recent submission">
@@ -317,11 +359,16 @@ function EmployeeDashboard({ emp, user, onNavigate }: { emp: EmployeeDash; user:
   );
 }
 
-function SupervisorDashboard({ sup, user, onNavigate }: { sup: SupervisorDash; user: SessionUser; onNavigate: (v: string) => void }) {
+function SupervisorDashboard({ sup, user, onNavigate }: { sup: SupervisorDash; user: SessionUser; onNavigate: (v: string, data?: string) => void }) {
   const [kpiUser, setKpiUser] = useState<{ id: string; fullName: string; role: string } | null>(null);
   return (
     <div className="space-y-5">
       <NotifyEscalateBar user={user} />
+      <MyDraftsCard
+        drafts={sup.myDrafts}
+        onOpen={(d) => onNavigate("supervisor-report", String(d.reportDate).slice(0, 10))}
+        subtitle="Your saved supervisor reports — reopen one to continue editing before submitting"
+      />
       {sup.centreLabel && (
         <div className="flex w-fit items-center gap-2 rounded-full border border-[#e8935a]/40 bg-[#e8935a]/10 px-3.5 py-1.5 text-xs font-semibold text-[#f0b285]">
           <MapPin className="h-3.5 w-3.5" />

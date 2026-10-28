@@ -6,7 +6,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, fmtDate, type ReportDTO, type SessionUser } from "@/lib/client";
-import { PageHeader, ReportStateBanner, ReportSubmitActions } from "@/components/kallmania/shared";
+import { PageHeader, ReportStateBanner, ReportSubmitActions, DraftInfoBar, useDraftAutoSave } from "@/components/kallmania/shared";
+import { useToast } from "@/hooks/use-toast";
 import { Loader2, FileText, CalendarClock } from "lucide-react";
 
 /**
@@ -36,7 +37,7 @@ interface WebTaskRow { task: string; project: string; status: string; deliverabl
 
 const blankTasks = (): WebTaskRow[] => Array.from({ length: WEB_TASK_ROWS }, () => ({ task: "", project: "", status: "", deliverable: "" }));
 
-export default function WebTeamReportForm({ user, date }: { user: SessionUser; date: string }) {
+export default function WebTeamReportForm({ user, date, focusId = null }: { user: SessionUser; date: string; focusId?: string | null }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [reportId, setReportId] = useState<string | null>(null);
@@ -47,6 +48,8 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
   const [correcting, setCorrecting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const [info, setInfo] = useState({ staffName: user.fullName, role: "", shiftTime: "", clockIn: "", clockOut: "", attendanceStatus: "Present", lateness: "" });
   const [kpis, setKpis] = useState(() => WEB_KPI_ROWS.map((d) => ({ key: d.key, label: d.label, unit: d.unit, target: "", actual: "", variance: "", notes: "" })));
@@ -58,6 +61,9 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
   // ── reporting-date guard: keep unsaved entries when the date changes ──
   const loadIdRef = useRef(0);
   const snapshotRef = useRef("{}");
+  // Mirror of snapshotRef for render-time dirty detection (refs must not be read during render)
+  const [snapshot, setSnapshot] = useState("");
+  const updateSnapshot = (v: string) => { snapshotRef.current = v; setSnapshot(v); };
   const dateRef = useRef(date);
   const mountedRef = useRef(false);
   const [dateKept, setDateKept] = useState<string | null>(null);
@@ -70,7 +76,7 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
     setError(null);
     try {
       const { reports } = await api<{ reports: ReportDTO[] }>(`/api/reports?mine=1`);
-      const existing = reports.find((r) => r.type === "TECH" && new Date(r.reportDate).toISOString().slice(0, 10) === date);
+      const existing = (focusId ? reports.find((r) => r.id === focusId) : null) || reports.find((r) => r.type === "TECH" && new Date(r.reportDate).toISOString().slice(0, 10) === date) || null;
       if (loadId !== loadIdRef.current) return;
       const builtKpis = (() => {
         if (!existing) return blankKpis();
@@ -123,12 +129,13 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
         setRef(existing.ref);
         setStatus(existing.status);
         setFeedback(existing.supervisorFeedback || null);
+        setUpdatedAt(existing.updatedAt || null);
       } else {
-        setReportId(null); setRef(null); setStatus("DRAFT"); setFeedback(null);
+        setReportId(null); setRef(null); setStatus("DRAFT"); setFeedback(null); setUpdatedAt(null);
       }
       setCorrecting(false);
       // baseline for the reporting-date guard — anything typed after this counts as unsaved
-      snapshotRef.current = JSON.stringify({ info: builtInfo, kpis: builtKpis, tasks: builtTasks, challenges: builtChallenges, escalations: builtEscalations, supervisorName: builtSupervisor, signatureDate: builtSignature });
+      updateSnapshot(JSON.stringify({ info: builtInfo, kpis: builtKpis, tasks: builtTasks, challenges: builtChallenges, escalations: builtEscalations, supervisorName: builtSupervisor, signatureDate: builtSignature }));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -156,9 +163,10 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
 
   const locked = status === "APPROVED" || (status === "SUBMITTED" && !correcting);
 
-  const save = async (submit: boolean) => {
+  const save = async (submit: boolean, silent = false) => {
     setSaving(true);
     setError(null);
+    const wasSubmitted = status === "SUBMITTED";
     try {
       const kpiMetrics = kpis.map((k) => ({
         key: k.key,
@@ -211,14 +219,32 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
       setStatus(report.status);
       setCorrecting(false);
       setFeedback(report.supervisorFeedback || null);
-      snapshotRef.current = JSON.stringify({ info, kpis, tasks, challenges, escalations, supervisorName, signatureDate });
+      setUpdatedAt(report.updatedAt || null);
+      updateSnapshot(JSON.stringify({ info, kpis, tasks, challenges, escalations, supervisorName, signatureDate }));
       setDateKept(null);
+      if (!silent) {
+        toast({
+          title: submit ? "Report submitted" : wasSubmitted ? "Corrections saved" : "Draft saved",
+          description: submit
+            ? `${report.ref} is now awaiting supervisor approval.`
+            : wasSubmitted
+              ? `${report.ref} was updated in place — it is still awaiting approval.`
+              : `${report.ref} — reopen it any time from My Drafts on your dashboard or My Reports.`,
+        });
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setSaving(false);
     }
   };
+
+  // Unsaved-changes detection (powers the beforeunload guard + autosave + draft bar)
+  const dirty = JSON.stringify({ info, kpis, tasks, challenges, escalations, supervisorName, signatureDate }) !== snapshot;
+  const { lastSavedAt, autosaveFailed } = useDraftAutoSave({
+    dirty, status, saving,
+    save: () => save(false, true),
+  });
 
   const infoCell = "h-9 w-full border-b border-dashed border-white/20 bg-transparent px-2 text-sm text-slate-100 placeholder:text-slate-600 focus-visible:outline-none disabled:opacity-60";
 
@@ -234,9 +260,12 @@ export default function WebTeamReportForm({ user, date }: { user: SessionUser; d
           <CalendarClock className="h-3.5 w-3.5 shrink-0" /> Reporting date changed to {dateKept} — your entries were kept and will be saved under this date.
         </div>
       )}
-      {status === "SUBMITTED" && <div className="mb-4"><ReportStateBanner status="SUBMITTED" ref={ref || ""} /></div>}
-      {status === "APPROVED" && <div className="mb-4"><ReportStateBanner status="APPROVED" ref={ref || ""} reviewer={feedback ? undefined : undefined} /></div>}
-      {status === "REJECTED" && <div className="mb-4"><ReportStateBanner status="REJECTED" ref={ref || ""} feedback={feedback} /></div>}
+      {status === "SUBMITTED" && <div className="mb-4"><ReportStateBanner status="SUBMITTED" reportRef={ref || ""} /></div>}
+      {status === "APPROVED" && <div className="mb-4"><ReportStateBanner status="APPROVED" reportRef={ref || ""} reviewer={feedback ? undefined : undefined} /></div>}
+      {status === "REJECTED" && <div className="mb-4"><ReportStateBanner status="REJECTED" reportRef={ref || ""} feedback={feedback} /></div>}
+      {status === "DRAFT" && ref && (
+        <div className="mb-4"><DraftInfoBar reportRef={ref} updatedAt={updatedAt} dirty={dirty} lastSavedAt={lastSavedAt} autosaveFailed={autosaveFailed} /></div>
+      )}
 
       <div className="k-card space-y-6 p-6">
         {/* Document header — exact replica */}
