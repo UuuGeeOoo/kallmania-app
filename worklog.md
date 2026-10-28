@@ -897,3 +897,17 @@ Work Log:
 
 Stage Summary:
 - "Save as Draft" is now a true persistent draft: every field lands in Postgres under a stable ref, the agent finds it on the dashboard (My Drafts) and in My Reports (filterable), reopening loads the exact record with all values, repeated saves update in place (never duplicating), autosave + beforeunload guard protect unsaved work, submission validates the configured mandatory KPIs (explaining exactly what is missing while preserving input), and the same one-live-report-per-day / correction-until-approval / approved-locked rules from Task 41 remain fully enforced.
+
+---
+Task ID: 43 (incident note)
+Agent: main (Z.ai)
+Task: Environment incident — .env was overwritten with a SQLite placeholder; recovered Supabase DATABASE_URL and verified full system health
+
+Work Log:
+- Found .env (mtime Oct 28 17:18) replaced with a single line `DATABASE_URL=file:/home/z/my-project/db/custom.db` (file does not exist); the sandbox shell also exports the same broken value globally, which is why `bunx prisma db push` failed with P1012 ("URL must start with postgresql://") even after .env was restored — Prisma gives real env vars precedence over .env. Past sessions' convention `DATABASE_URL=$(grep -oP '^DATABASE_URL=\K.*' .env) <cmd>` exists precisely because of this.
+- No data impact: the dev server (started 18:25, after the corruption) kept working via the 3-layer fallback in src/lib/db.ts (process env → env files → committed KALLMANIA_FALLBACK_DATABASE_URL, mirrored in scripts/dev-daemon.js), and Next dev hot-reloaded the restored .env ("Reload env: .env" in dev.log).
+- Recovery: .env restored with the Supabase pooler URL extracted programmatically from scripts/dev-daemon.js (no hardcoding); verified with `DATABASE_URL=$(grep ...) bunx prisma db push --skip-generate` → "already in sync".
+- Post-incident health sweep: DB intact (21 users, 34 reports: DRAFT=1, REJECTED=6, APPROVED=26, SUBMITTED=1); live app round-trip OK (POST /api/auth action=login with unknown user → controlled 401, not 500); heal-masters → ALL MASTERS HEALTHY (AGENT_BPO 23edb6d4, SUPERVISOR 30922896, TECH f1c47304, SOCIAL d739f7b7, TL_SOCIAL 8d520f88 — TL_SOCIAL was uploaded through the app by the Enugu social media team lead in commit 3c644ea); git tree clean, HEAD ce06730 == origin/main (0 ahead / 0 behind after fetch).
+
+Stage Summary:
+- System fully verified healthy after the .env corruption: Supabase schema + data intact, all 5 masters OK, dev server serving with working DB round-trips, git fully pushed. Standing guidance: always run Prisma CLI/DB commands with the inline `DATABASE_URL=$(grep -oP '^DATABASE_URL=\K.*' .env)` override; the sandbox may re-export the broken SQLite value at any time.
