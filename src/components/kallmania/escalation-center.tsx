@@ -40,10 +40,13 @@ function personLabel(u: { fullName: string; team: string | null }): string {
 
 /**
  * Notify / escalate composer.
- *  - Staff escalate to a NAMED team lead, supervisor or administrator —
- *    the picker shows the actual eligible people, resolved live from user
- *    records (their team's lead, every supervisor of their centre, admins).
- *  - Management can additionally notify any agent of their choice directly.
+ *  - "Notify a person" targets one named person (management only).
+ *  - "Escalate to a role" routes the escalation to EVERYONE occupying a role:
+ *    administrators reach every centre (management + agent roles), other
+ *    management their own centre's leadership tiers — options resolved live
+ *    from user records with real occupant counts (never hardcoded).
+ *  - Staff (agents) escalate by picking a named, live-resolved recipient:
+ *    their team's lead, every supervisor of their centre, or the admins.
  */
 export function EscalationComposer({ user, open, setOpen, onSent }: { user: SessionUser; open: boolean; setOpen: (v: boolean) => void; onSent?: () => void }) {
   const isManagement = ["TEAM_LEAD", "SUPERVISOR", "ADMIN"].includes(user.role);
@@ -51,6 +54,7 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
   const [groups, setGroups] = useState<EscalationRecipientGroups | null>(null);
   const [people, setPeople] = useState<{ id: string; fullName: string; role: string }[]>([]);
   const [recipientId, setRecipientId] = useState("");
+  const [targetRole, setTargetRole] = useState("");
   const [severity, setSeverity] = useState("NORMAL");
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
@@ -65,7 +69,8 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
     setMessage("");
     setSeverity("NORMAL");
     setRecipientId("");
-    // Named escalation recipients — dynamic, scoped to the requester.
+    setTargetRole("");
+    // Named + role escalation targets — dynamic, scoped to the requester.
     api<EscalationRecipientGroups>("/api/escalations/recipients")
       .then(setGroups)
       .catch(() => setGroups(null));
@@ -77,14 +82,22 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
     }
   }, [open, isManagement, user.id]);
 
+  const roleOptions = groups?.roles ?? [];
+
   const send = async () => {
     setSending(true);
     setError(null);
     try {
-      if (mode === "USER") {
+      if (isManagement && mode === "USER") {
         await api("/api/escalations", {
           method: "POST",
           body: JSON.stringify({ subject, message, severity, targetType: "TARGET_USER", targetUserId: recipientId }),
+        });
+      } else if (isManagement) {
+        if (!targetRole) { setError("Choose the role that should handle this"); setSending(false); return; }
+        await api("/api/escalations", {
+          method: "POST",
+          body: JSON.stringify({ subject, message, severity, targetType: "TARGET_ROLE", targetRole }),
         });
       } else {
         if (!recipientId) { setError("Choose who should handle this"); setSending(false); return; }
@@ -119,12 +132,12 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
               <button onClick={() => { setMode("USER"); setRecipientId(""); }} className={cn("rounded-lg border px-3 py-2 text-xs font-semibold transition", mode === "USER" ? "border-[#e8935a]/50 bg-[#e8935a]/10 text-[#f0b285]" : "border-white/10 text-slate-400 hover:bg-white/5")}>
                 <User2 className="mr-1.5 inline h-3.5 w-3.5" /> Notify a person
               </button>
-              <button onClick={() => { setMode("ROLE"); setRecipientId(""); }} className={cn("rounded-lg border px-3 py-2 text-xs font-semibold transition", mode === "ROLE" ? "border-[#e8935a]/50 bg-[#e8935a]/10 text-[#f0b285]" : "border-white/10 text-slate-400 hover:bg-white/5")}>
-                <Users2 className="mr-1.5 inline h-3.5 w-3.5" /> Escalate to a person
+              <button onClick={() => { setMode("ROLE"); setTargetRole(""); }} className={cn("rounded-lg border px-3 py-2 text-xs font-semibold transition", mode === "ROLE" ? "border-[#e8935a]/50 bg-[#e8935a]/10 text-[#f0b285]" : "border-white/10 text-slate-400 hover:bg-white/5")}>
+                <Users2 className="mr-1.5 inline h-3.5 w-3.5" /> Escalate to a role
               </button>
             </div>
           )}
-          {mode === "USER" ? (
+          {isManagement && mode === "USER" ? (
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-slate-300">Send to</label>
               <Select value={recipientId || undefined} onValueChange={setRecipientId}>
@@ -133,6 +146,25 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
                   {people.map((p) => <SelectItem key={p.id} value={p.id}>{p.fullName} — {ROLE_LABELS[p.role] || p.role}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+          ) : isManagement ? (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-slate-300">Escalate to role</label>
+              <Select value={targetRole || undefined} onValueChange={setTargetRole}>
+                <SelectTrigger className={inputCls}>
+                  <SelectValue placeholder={roleOptions.length > 0 ? "Choose the role that should handle this" : "Loading roles…"} />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  {roleOptions.map((r) => (
+                    <SelectItem key={r.role} value={r.role}>
+                      {r.label} — {r.scopeLabel} ({r.count} {r.count === 1 ? "person" : "people"})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-slate-500">
+                Everyone occupying this role gets the escalation{user.role === "ADMIN" ? " — across ALL centres, not just your own" : " — everyone in your centre with that role"}. The first person to acknowledge becomes the handler.
+              </p>
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -187,7 +219,7 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
           {error && <p className="text-xs text-rose-400">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button variant="outline" className="border-slate-600 text-slate-200 hover:bg-white/10" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button disabled={sending || !subject || !message || !recipientId} onClick={send} className="bg-[#e8935a] font-semibold text-[#1a120b] hover:bg-[#dd8040]">
+            <Button disabled={sending || !subject || !message || (isManagement && mode === "ROLE" ? !targetRole : !recipientId)} onClick={send} className="bg-[#e8935a] font-semibold text-[#1a120b] hover:bg-[#dd8040]">
               {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Send
             </Button>
           </div>
@@ -315,9 +347,9 @@ export function EscalationDetail({ user, id, onBack, onChanged }: { user: Sessio
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-600">
           <span>From: <span className="font-semibold text-slate-400">{isAuthor ? "You" : esc.fromName}</span> ({ROLE_LABELS[esc.fromRole] || esc.fromRole})</span>
           {esc.targetUser && <span>To: <span className="font-semibold text-slate-400">{esc.targetUser.id === user.id ? "You" : esc.targetUser.fullName}</span> ({ROLE_LABELS[esc.targetUser.role] || esc.targetUser.role})</span>}
-          {esc.targetType === "TARGET_ROLE" && !esc.targetUser && <span>Routed to: <span className="font-semibold text-slate-400">{ROLE_LABELS[esc.targetRole || ""] || esc.targetRole}</span></span>}
+          {esc.targetType === "TARGET_ROLE" && !esc.targetUser && <span>Routed to: <span className="font-semibold text-slate-400">{ROLE_LABELS[esc.targetRole || ""] || esc.targetRole}{esc.fromRole === "ADMIN" ? " · all centres" : ""}</span></span>}
           {esc.targetType === "ALL_MANAGEMENT" && <span>Routed to: <span className="font-semibold text-slate-400">All management</span></span>}
-          {(esc.centreCountry || esc.team) && <span>{[esc.centreState && `${esc.centreCountry}/${esc.centreState}`, esc.team && (TEAM_LABELS[esc.team] ?? esc.team)].filter(Boolean).join(" · ")}</span>}
+          {(esc.centreCountry || esc.team) && esc.fromRole !== "ADMIN" && <span>{[esc.centreState && `${esc.centreCountry}/${esc.centreState}`, esc.team && (TEAM_LABELS[esc.team] ?? esc.team)].filter(Boolean).join(" · ")}</span>}
           {esc.ackByName && <span className="flex items-center gap-1"><ShieldCheck className="h-3 w-3 text-sky-400" /> Handler: {esc.ackByName}</span>}
           {esc.resolvedByName && <span className="flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-emerald-400" /> Resolved by {esc.resolvedByName}</span>}
         </div>
@@ -592,7 +624,7 @@ export function EscalationsPanel({ user, focusId }: { user: SessionUser; focusId
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-600">
                   <span>From: <span className="font-semibold text-slate-400">{mine ? "You" : e.fromName}</span> ({ROLE_LABELS[e.fromRole] || e.fromRole})</span>
                   {e.targetUser && <span>To: <span className="font-semibold text-slate-400">{e.targetUser.id === user.id ? "You" : e.targetUser.fullName}</span></span>}
-                  {e.targetType === "TARGET_ROLE" && !e.targetUser && <span>Routed to: <span className="font-semibold text-slate-400">{ROLE_LABELS[e.targetRole || ""] || e.targetRole}</span></span>}
+                  {e.targetType === "TARGET_ROLE" && !e.targetUser && <span>Routed to: <span className="font-semibold text-slate-400">{ROLE_LABELS[e.targetRole || ""] || e.targetRole}{e.fromRole === "ADMIN" ? " · all centres" : ""}</span></span>}
                   {e.targetType === "ALL_MANAGEMENT" && <span>Routed to: <span className="font-semibold text-slate-400">All management</span></span>}
                   <span className="flex items-center gap-1"><MessagesSquare className="h-3 w-3" /> {e._count?.messages ?? 0} · {e._count?.events ?? 0} events</span>
                   {e.ackByName && <span className="flex items-center gap-1"><ShieldCheck className="h-3 w-3 text-sky-400" /> {e.ackByName}</span>}

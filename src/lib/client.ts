@@ -332,10 +332,20 @@ export interface EscalationEventDTO {
   createdAt: string;
 }
 
+export interface EscalationRoleTargetOption {
+  role: string;
+  label: string;
+  scopeLabel: string;
+  count: number;
+}
+
 export interface EscalationRecipientGroups {
   teamLead: { id: string; fullName: string; role: string; team: string | null } | null;
   supervisors: { id: string; fullName: string; role: string; team: string | null }[];
   admins: { id: string; fullName: string; role: string; team: string | null }[];
+  /** ROLE-targeting options for management (empty for agents): who can be
+   *  reached by routing to a role, with live occupant counts + scope. */
+  roles?: EscalationRoleTargetOption[];
 }
 
 export interface EscalationDTO {

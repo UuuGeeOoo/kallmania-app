@@ -15,6 +15,23 @@ export const ESCALATION_STATUSES = ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS", "RESO
 const MANAGEMENT_ROLES = ["TEAM_LEAD", "SUPERVISOR", "ADMIN"];
 const AGENT_ROLES = ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA"];
 
+/** Roles that may be TARGETED by an escalation, per author role.
+ *  Management authors can route to the management tiers of their centre;
+ *  administrators additionally reach agent roles — and, being global,
+ *  their role routes span ALL centres (see isGlobalRoleRoute). */
+export function targetableRoles(authorRole: string): string[] {
+  if (authorRole === "ADMIN") return [...MANAGEMENT_ROLES, ...AGENT_ROLES];
+  if (MANAGEMENT_ROLES.includes(authorRole)) return ["TEAM_LEAD", "SUPERVISOR", "ADMIN"];
+  return [];
+}
+
+/** Role-routed escalations authored by an ADMIN span every centre — the
+ *  recipients are everyone occupying the target role anywhere, not just the
+ *  admin's own centre. Supervisors/team leads keep centre-scoped routing. */
+export function isGlobalRoleRoute(esc: { targetType: string; fromRole: string }): boolean {
+  return esc.targetType === "TARGET_ROLE" && esc.fromRole === "ADMIN";
+}
+
 /** Minimal shape needed for permission checks (escalation + author centre). */
 export interface EscalationLike {
   id: string;
@@ -55,23 +72,30 @@ function sameCentre(me: MeLike, centre: { country: string | null; state: string 
  *    is derived from targetUserId/ack which are already covered)
  *  - SUPERVISOR: role-routed SUPERVISOR, ALL_MANAGEMENT, and anything authored
  *    by team leads or agents of their centre
- *  - TEAM_LEAD: role-routed TEAM_LEAD (centre-scoped) and escalations authored
- *    by members of their own team
- *  - agents: only own sent + directly targeted
+ *  - TEAM_LEAD: role-routed TEAM_LEAD (centre-scoped, or global when the
+ *    route came from an administrator) and escalations authored by members
+ *    of their own team
+ *  - agents: own sent + directly targeted + role-routed to their own role
+ *    (admin-authored routes are global; centre-scoped ones need same centre)
  */
 export function canSeeEscalation(me: MeLike, esc: EscalationLike): boolean {
   if (me.role === "ADMIN") return true;
   if (esc.fromId === me.id || esc.targetUserId === me.id) return true;
   const from = authorCentre(esc);
+  const globalRoute = isGlobalRoleRoute(esc);
   if (me.role === "SUPERVISOR") {
     if ((esc.targetType === "TARGET_ROLE" && esc.targetRole === "SUPERVISOR") || esc.targetType === "ALL_MANAGEMENT") return true;
     if (["TEAM_LEAD", ...AGENT_ROLES].includes(esc.fromRole) && sameCentre(me, from)) return true;
     return false;
   }
   if (me.role === "TEAM_LEAD") {
-    if (esc.targetType === "TARGET_ROLE" && esc.targetRole === "TEAM_LEAD" && sameCentre(me, from)) return true;
+    if (esc.targetType === "TARGET_ROLE" && esc.targetRole === "TEAM_LEAD" && (globalRoute || sameCentre(me, from))) return true;
     if (AGENT_ROLES.includes(esc.fromRole) && sameCentre(me, from) && (from.team ?? null) === (me.team ?? null)) return true;
     return false;
+  }
+  // Agents: an escalation routed to THEIR role is addressed to them.
+  if (esc.targetType === "TARGET_ROLE" && esc.targetRole === me.role) {
+    return globalRoute || sameCentre(me, from);
   }
   return false;
 }
@@ -99,8 +123,12 @@ export function canManageStatus(me: MeLike, esc: EscalationLike): boolean {
   if (esc.targetUserId === me.id) return true;
   if (esc.ackById && esc.ackById === me.id) return true;
   const from = authorCentre(esc);
-  if (esc.targetType === "TARGET_ROLE" && esc.targetRole === me.role && sameCentre(me, from)) {
-    // Team leads additionally must match the author's team.
+  if (esc.targetType === "TARGET_ROLE" && esc.targetRole === me.role) {
+    // Admin-authored role routes span all centres — any occupant of the role
+    // may take ownership; centre-scoped routes stay centre-limited.
+    if (isGlobalRoleRoute(esc)) return true;
+    if (!sameCentre(me, from)) return false;
+    // Centre-scoped team-lead routes additionally must match the author's team.
     if (me.role === "TEAM_LEAD" && (from.team ?? null) !== (me.team ?? null)) return false;
     return true;
   }
@@ -153,6 +181,77 @@ export async function namedRecipients(me: MeLike): Promise<{
 
   return { teamLead, supervisors, admins };
 }
+
+/**
+ * Everyone occupying `targetRole` (APPROVED accounts) within the author's
+ * reach: administrators route across ALL centres (the whole point of role
+ * escalation for admins); other management route within their own centre
+ * (a centre-less author degrades to all centres, mirroring recipientsFor).
+ * Returns [] when the role has no active occupants — callers turn that into
+ * a clear error instead of creating an escalation nobody could act on.
+ */
+export async function roleRecipients(
+  author: MeLike,
+  targetRole: string
+): Promise<{ id: string; fullName: string; role: string }[]> {
+  // Admins are centre-hopping by design (namedRecipients lists them globally),
+  // so routing to the ADMIN role always reaches every administrator.
+  const global = author.role === "ADMIN" || !(author.country && author.state) || targetRole === "ADMIN";
+  const centreWhere = global ? {} : { country: author.country, state: author.state };
+  return db.user.findMany({
+    where: { role: targetRole, status: "APPROVED", ...centreWhere },
+    select: { id: true, fullName: true, role: true },
+    orderBy: { fullName: "asc" },
+  });
+}
+
+export interface RoleTargetOption {
+  role: string;
+  label: string;
+  scopeLabel: string;
+  count: number;
+}
+
+/**
+ * Role-targeting options for the composer, resolved LIVE (never hardcoded):
+ * every targetable role that currently has at least one active occupant,
+ * with a human count. Admins see all-centre reach across management AND
+ * agent roles; supervisors/team leads see their centre's management tiers.
+ */
+export async function roleTargetOptions(me: MeLike): Promise<RoleTargetOption[]> {
+  const roles = targetableRoles(me.role);
+  if (roles.length === 0) return [];
+  const global = me.role === "ADMIN" || !(me.country && me.state);
+  const centreWhere = global ? {} : { country: me.country, state: me.state };
+  // Centre-scoped counting for the leadership tiers…
+  const groups = await db.user.groupBy({
+    by: ["role"],
+    where: { role: { in: roles.filter((r) => r !== "ADMIN") }, status: "APPROVED", ...centreWhere },
+    _count: { _all: true },
+  });
+  const counts = new Map(groups.map((g) => [g.role, g._count._all]));
+  // …while administrators are global regardless of the requester's centre.
+  if (roles.includes("ADMIN")) {
+    counts.set("ADMIN", await db.user.count({ where: { role: "ADMIN", status: "APPROVED" } }));
+  }
+  return roles
+    .filter((r) => (counts.get(r) ?? 0) > 0)
+    .map((r) => ({
+      role: r,
+      label: ROLE_LABELS[r] ?? r,
+      scopeLabel: r === "ADMIN" || global ? "all centres" : "your centre",
+      count: counts.get(r) ?? 0,
+    }));
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: "Administrators",
+  SUPERVISOR: "Supervisors",
+  TEAM_LEAD: "Team Leads",
+  AGENT_BPO: "Call Centre Agents",
+  DEVELOPER: "Web & Technical Team",
+  SOCIAL_MEDIA: "Social Media Team",
+};
 
 /** Is `candidateId` an eligible named recipient for `me` (used to validate composer submissions server-side)? */
 export async function isEligibleRecipient(me: MeLike, candidateId: string): Promise<{ id: string; fullName: string; role: string } | null> {
@@ -241,6 +340,21 @@ export async function participantsToNotify(esc: EscalationLike & { severity?: st
   if (esc.fromId) ids.add(esc.fromId);
   if (esc.targetUserId) ids.add(esc.targetUserId);
   if (esc.ackById) ids.add(esc.ackById);
+  if (ids.size <= 1 && esc.targetType === "TARGET_ROLE" && esc.targetRole) {
+    // Role-routed escalation with no assigned handler yet: the whole role is
+    // the conversation's other side, so author messages reach every occupant.
+    // (Once someone acknowledges, ids contains the handler and notifications
+    // narrow back to the author ↔ handler pair.)
+    const author: MeLike = {
+      id: esc.fromId,
+      role: esc.fromRole,
+      country: esc.centreCountry ?? esc.from?.country ?? null,
+      state: esc.centreState ?? esc.from?.state ?? null,
+      team: esc.team ?? esc.from?.team ?? null,
+    };
+    const occupants = await roleRecipients(author, esc.targetRole);
+    occupants.forEach((u) => ids.add(u.id));
+  }
   if (ids.size === 0) {
     // Legacy role-routed row with no named participant: resolve role recipients.
     const centreWhere = esc.centreCountry ? { country: esc.centreCountry, state: esc.centreState ?? undefined } : {};

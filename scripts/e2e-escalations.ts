@@ -218,11 +218,14 @@ check("12g. new handler can post after reassignment", sup1CanPost.status === 201
 const prioRes = await call(admin, "/api/escalations", { id: tlEscId, action: "priority", severity: "URGENT" }, "PATCH");
 check("12h. priority change recorded", prioRes.status === 200 && (prioRes.json.escalation as { severity: string }).severity === "URGENT");
 
-// ── Legacy TARGET_ROLE route still works (backward compat) ──
-const roleRoute = await call(agent, "/api/escalations", { subject: "Role-routed legacy", message: "General escalation to the supervisor role.", severity: "NORMAL", targetType: "TARGET_ROLE", targetRole: "SUPERVISOR" });
-check("13a. legacy role-routed create still works (notifies centre supervisors + admins)", roleRoute.status === 201 && (roleRoute.json.escalation as { targetType: string }).targetType === "TARGET_ROLE");
-const sup1RoleNotif = await db.notification.count({ where: { userId: sup1User!.id, linkData: { contains: (roleRoute.json.escalation as { id: string }).id } } });
-check("13b. role-routed notifies eligible supervisors", sup1RoleNotif >= 1);
+// ── Legacy TARGET_ROLE route (backward compat, now management-only) ──
+const agentRoleRoute = await call(agent, "/api/escalations", { subject: "Agent role-route attempt", message: "Agents no longer route to roles — they pick a named recipient.", severity: "NORMAL", targetType: "TARGET_ROLE", targetRole: "SUPERVISOR" });
+check("13a. AGENT role-routing is refused (role escalation is management-only)", agentRoleRoute.status === 403);
+const supRoleRoute = await call(sup1, "/api/escalations", { subject: "Role-routed legacy", message: "General escalation to the supervisor role.", severity: "NORMAL", targetType: "TARGET_ROLE", targetRole: "SUPERVISOR" });
+check("13a2. supervisor role-route still works (TARGET_ROLE, no named target)", supRoleRoute.status === 201 && (supRoleRoute.json.escalation as { targetType: string; targetRole: string }).targetType === "TARGET_ROLE" && (supRoleRoute.json.escalation as { targetRole: string }).targetRole === "SUPERVISOR");
+const sup2RoleNotif = await db.notification.count({ where: { userId: sup2User!.id, linkData: { contains: (supRoleRoute.json.escalation as { id: string }).id } } });
+const sup3RoleNotif = await db.notification.count({ where: { userId: sup3User!.id, linkData: { contains: (supRoleRoute.json.escalation as { id: string }).id } } });
+check("13b. role-routed notifies centre supervisors only (author self-skip; cross-centre supervisor NOT notified)", sup2RoleNotif >= 1 && sup3RoleNotif === 0);
 
 // ── Criterion 13: legacy data preserved + unrelated functionality intact ──
 const legacyCount = await db.escalationMessage.count();

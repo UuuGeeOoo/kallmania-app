@@ -63,12 +63,13 @@ export default function Page() {
   const [reportDate, setReportDate] = useState(todayISO());
   const [unread, setUnread] = useState(0);
 
-  // Bootstrap (seeds admin on first run) + session restore
+  // Bootstrap (seeds admin on first run) + session restore — run in PARALLEL:
+  // bootstrap is idempotent seeding and session restore does not depend on it,
+  // so awaiting them sequentially just added a full server round-trip to every
+  // page load / reload before the UI could even check who is logged in.
   useEffect(() => {
     (async () => {
-      try {
-        await api("/api/bootstrap");
-      } catch { /* non-fatal */ }
+      const bootstrap = api("/api/bootstrap").catch(() => null); // non-fatal
       try {
         const { user } = await api<{ user: SessionUser | null }>("/api/auth");
         const restored = user && user.status === "APPROVED" ? user : null;
@@ -87,6 +88,7 @@ export default function Page() {
           clearHash();
         }
       } catch { /* not logged in */ }
+      await bootstrap; // still awaited before clearing the boot splash
       setBooted(true);
     })();
   }, []);

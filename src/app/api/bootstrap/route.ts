@@ -21,9 +21,16 @@ const SOCIAL_KPI_META: Record<string, { unit: string; defaultTarget: number }> =
  */
 export async function GET() {
   return handle(async () => {
+    // Fast path: ONE round-trip when every seed has already run (the normal
+    // case — this endpoint runs on every app load, and each skipped lookup
+    // was a full Supabase round-trip delaying first paint).
+    const SEED_FLAGS = ["seeded_inbound_kpis_v1", "seeded_social_kpis_v1", "seeded_admin_v1"];
+    const seedFlags = await db.systemFlag.findMany({ where: { key: { in: SEED_FLAGS } }, select: { key: true } });
+    const seeded = new Set(seedFlags.map((f) => f.key));
+    if (seeded.size === SEED_FLAGS.length) return ok({ seeded: true });
+
     // Seed the Inbound Call Centre KPI catalogue (same metrics as outbound, all optional) — runs once.
-    const inboundFlag = await db.systemFlag.findUnique({ where: { key: "seeded_inbound_kpis_v1" } });
-    if (!inboundFlag) {
+    if (!seeded.has("seeded_inbound_kpis_v1")) {
       const existingInbound = await db.kpiConfig.count({ where: { department: "INBOUND" } });
       if (existingInbound === 0) {
         await db.kpiConfig.createMany({
@@ -45,8 +52,7 @@ export async function GET() {
     }
 
     // Seed the Social Media Team KPI catalogue — runs once, self-heals fresh environments.
-    const socialFlag = await db.systemFlag.findUnique({ where: { key: "seeded_social_kpis_v1" } });
-    if (!socialFlag) {
+    if (!seeded.has("seeded_social_kpis_v1")) {
       const existingSocial = await db.kpiConfig.count({ where: { department: "SOCIAL_MEDIA" } });
       if (existingSocial === 0) {
         await db.kpiConfig.createMany({
@@ -67,8 +73,7 @@ export async function GET() {
       await db.systemFlag.create({ data: { key: "seeded_social_kpis_v1", value: new Date().toISOString() } });
     }
 
-    const flag = await db.systemFlag.findUnique({ where: { key: "seeded_admin_v1" } });
-    if (!flag) {
+    if (!seeded.has("seeded_admin_v1")) {
       const email = "echristian@kallmania.com";
       let admin = await db.user.findUnique({ where: { email } });
       if (!admin) {

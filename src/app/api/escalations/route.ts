@@ -11,6 +11,8 @@ import {
   isEligibleRecipient,
   namedRecipients,
   participantsToNotify,
+  roleRecipients,
+  targetableRoles,
 } from "@/lib/escalations";
 
 /**
@@ -47,9 +49,12 @@ import {
 const MANAGEMENT_ROLES = ["TEAM_LEAD", "SUPERVISOR", "ADMIN"];
 const AGENT_ROLES = ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA"];
 
-/** Users allowed to see an escalation authored by `from` when routed to their role. */
-async function recipientsFor(from: { id: string; country: string | null; state: string | null; role: string }, targetType: string, targetRole: string | null): Promise<{ id: string; fullName: string }[]> {
-  const centreWhere = from.country && from.state ? { country: from.country, state: from.state } : {};
+/** Users allowed to see an escalation authored by `from` when routed to their role.
+ *  Administrators route across ALL centres ("escalate to everyone occupying a
+ *  role in all centres"); every other author stays within their own centre. */
+async function recipientsFor(from: { id: string; role: string; country: string | null; state: string | null }, targetType: string, targetRole: string | null): Promise<{ id: string; fullName: string }[]> {
+  const global = from.role === "ADMIN" || !(from.country && from.state);
+  const centreWhere = global ? {} : { country: from.country, state: from.state };
   if (targetType === "TARGET_USER") return [];
   if (targetType === "ALL_MANAGEMENT") {
     const users = await db.user.findMany({
@@ -106,16 +111,24 @@ export async function GET(req: NextRequest) {
         // …and everything agents send (agent notices are for supervisor + admin).
         or.push({ fromRole: { in: AGENT_ROLES }, ...(myCentre ? { from: myCentre } : {}) });
       } else if (me.role === "TEAM_LEAD") {
-        // Routed to team leads (centre-scoped when the lead has a centre).
-        or.push({ targetType: "TARGET_ROLE", targetRole: "TEAM_LEAD", ...(myCentre ? { from: myCentre } : {}) });
+        // Routed to team leads: centre-scoped when the lead has a centre, and
+        // admin-authored role routes (which span every centre) always show up.
+        or.push({
+          targetType: "TARGET_ROLE",
+          targetRole: "TEAM_LEAD",
+          ...(myCentre ? { OR: [{ fromRole: "ADMIN" }, { from: myCentre }] } : {}),
+        });
         // A lead only sees escalations sent by members of their own team —
         // agent→supervisor/admin escalations of other teams stay private.
         or.push({
           fromRole: { in: AGENT_ROLES },
           ...(myCentre ? { from: { country: me.country, state: me.state, team: me.team } } : {}),
         });
+      } else {
+        // Agents: own sent + directly targeted + role-routed to their own role
+        // (only administrators can target agent roles, and their routes are global).
+        or.push({ targetType: "TARGET_ROLE", targetRole: me.role, fromRole: "ADMIN" });
       }
-      // Agents: nothing beyond own sent + directly targeted (already in `or`).
 
       where = { OR: or };
     }
@@ -178,8 +191,8 @@ export async function POST(req: NextRequest) {
       type = "TARGET_USER";
       targetUser = eligible;
     } else {
-      // Legacy / management paths.
-      type = targetType || (["TEAM_LEAD", "SUPERVISOR", "ADMIN"].includes(me.role) ? "TARGET_USER" : "TARGET_ROLE");
+      // Management paths: notify a person directly, or route to a ROLE.
+      type = targetType || (MANAGEMENT_ROLES.includes(me.role) ? "TARGET_USER" : "TARGET_ROLE");
       if (!["TARGET_ROLE", "TARGET_USER", "ALL_MANAGEMENT"].includes(type)) return fail("Invalid targetType");
 
       if (type === "TARGET_USER") {
@@ -196,9 +209,23 @@ export async function POST(req: NextRequest) {
       }
 
       if (type === "TARGET_ROLE") {
-        routedRole = targetRole || "SUPERVISOR";
-        if (!routedRole || !["TEAM_LEAD", "SUPERVISOR", "ADMIN"].includes(routedRole)) return fail("Invalid target role");
+        // Route to everyone occupying a role. Management-only; administrators
+        // reach every role across ALL centres, other management their centre's
+        // leadership tiers (validation mirrors targetableRoles).
+        if (!MANAGEMENT_ROLES.includes(me.role)) return fail("Only management can escalate to a role", 403);
+        const role = targetRole || "SUPERVISOR";
+        if (!targetableRoles(me.role).includes(role)) {
+          return fail("Invalid target role for your position", 400);
+        }
+        routedRole = role;
       }
+    }
+
+    // Resolve role recipients BEFORE creating anything: a role with no active
+    // occupants must fail with a clear error, not orphan an unactionable ticket.
+    const roleRecipientsList = type === "TARGET_ROLE" ? await roleRecipients(me, routedRole as string) : [];
+    if (type === "TARGET_ROLE" && roleRecipientsList.length === 0) {
+      return fail(`No active ${routedRole === "ADMIN" ? "administrators" : routedRole === "SUPERVISOR" ? "supervisors" : routedRole === "TEAM_LEAD" ? "team leads" : "members of that role"} exist to receive this escalation`, 400);
     }
 
     const severityValue = severity === "URGENT" ? "URGENT" : "NORMAL";
@@ -249,8 +276,10 @@ export async function POST(req: NextRequest) {
       return created;
     });
 
-    // Route notifications to the recipients (named, or role-routed centre-scoped).
-    const recipients = targetUser ? [targetUser] : await recipientsFor(me, type, routedRole);
+    // Route notifications to the recipients (named, or role-routed — admins
+    // reach everyone occupying the role in ALL centres, others their centre).
+    const recipients = targetUser ? [targetUser] : type === "TARGET_ROLE" ? roleRecipientsList : await recipientsFor(me, type, routedRole);
+    const routeLabel = type === "TARGET_ROLE" ? `${me.role === "ADMIN" ? "all centres" : "your centre"}` : "";
     for (const r of recipients) {
       if (r.id === me.id) continue;
       await notify({
@@ -264,7 +293,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    await audit({ userId: me.id, actorName: me.fullName, action: "CREATE_ESCALATION", entity: "Escalation", entityId: escalation.id, details: `${type}${targetUser ? `:${targetUser.fullName}` : routedRole ? `:${routedRole}` : ""} — ${escalation.subject}` });
+    await audit({ userId: me.id, actorName: me.fullName, action: "CREATE_ESCALATION", entity: "Escalation", entityId: escalation.id, details: `${type}${targetUser ? `:${targetUser.fullName}` : routedRole ? `:${routedRole} (${routeLabel})` : ""} — ${escalation.subject}` });
     return ok({ escalation: { ...escalation, unread: false, _count: { messages: 1, events: 1 } } }, 201);
   });
 }

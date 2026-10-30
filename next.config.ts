@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // The preview proxy loads the app from *.space-z.ai origins while the dev
+  // server listens on localhost — without this allow-list Next warns on every
+  // /_next/* asset request and FUTURE versions will block them outright
+  // (which would present as "the app doesn't load at all").
+  allowedDevOrigins: ["*.space-z.ai"],
   /* config options here */
   typescript: {
     ignoreBuildErrors: true,
