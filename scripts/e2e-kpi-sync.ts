@@ -227,6 +227,9 @@ let deleted = false;
 for (let i = 0; i < 6 && !deleted; i++) {
   try {
     await db.notification.deleteMany({ where: { userId: { in: ids } } });
+    await db.pushDelivery.deleteMany({ where: { subscription: { userId: { in: ids } } } });
+    await db.pushEvent.deleteMany({ where: { userId: { in: ids } } });
+    await db.pushSubscription.deleteMany({ where: { userId: { in: ids } } });
     await db.user.deleteMany({ where: { email: { in: ALL_USERS.map((u) => u.email) } } });
     deleted = true;
   } catch {

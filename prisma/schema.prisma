@@ -56,6 +56,9 @@ model User {
   escalationsSent     Escalation[] @relation("EscalationFrom")
   escalationsReceived Escalation[] @relation("EscalationTarget")
   memberKpiConfigs MemberKpiConfig[]
+  pushSubscriptions PushSubscription[]
+  pushEvents        PushEvent[]
+  pushPreference    PushPreference?
 }
 
 // Individual (per-member) KPI configuration — overrides of the centre/global
@@ -431,6 +434,100 @@ model EscalationRead {
 
   @@unique([escalationId, userId])
   @@index([userId])
+}
+
+// ── Browser push notifications (Web Push / VAPID) ─────────────────────────
+// Push endpoints and subscription keys are SENSITIVE: rows are only ever read
+// through server-side API routes (session-checked); no client-facing query
+// returns endpoint or key material.
+model PushSubscription {
+  id            String    @id @default(cuid())
+  userId        String
+  // Human-readable device/browser label shown in the user's settings list
+  label         String    @default("Browser")
+  // Web Push subscription endpoint URL (unique per browser subscription)
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  // false once the push service reports 404/410 (expired/unsubscribed)
+  active        Boolean   @default(true)
+  lastSuccessAt DateTime?
+  lastError     String?
+  // EXPIRED | UNAUTHORIZED | PAYLOAD_TOO_LARGE | NETWORK | UNKNOWN
+  lastErrorCategory String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user        User           @relation(fields: [userId], references: [id])
+  deliveries  PushDelivery[]
+
+  @@index([userId])
+  @@index([active])
+}
+
+// One queued logical notification per intended recipient. Created by trusted
+// server-side producers (via notify()), dispatched to the recipient's active
+// subscriptions. Idempotency: dedupeKey (when present) is unique per recipient;
+// claim/lease semantics prevent concurrent workers from double-processing.
+model PushEvent {
+  id          String    @id @default(cuid())
+  userId      String
+  type        String
+  severity    String    @default("INFO")
+  title       String
+  body        String
+  // Safe internal hash-route destination (allowlisted view names only)
+  url         String    @default("#/notifications")
+  relatedType String?
+  relatedId   String?
+  // PENDING | PROCESSING | SENT | FAILED | SKIPPED
+  status      String    @default("PENDING")
+  attempts    Int       @default(0)
+  lastError   String?
+  // Lease: set to now+2min on claim so a crashed worker's lease expires
+  nextAttemptAt DateTime @default(now())
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
+  dedupeKey   String?   @unique
+
+  user       User           @relation(fields: [userId], references: [id])
+  deliveries PushDelivery[]
+
+  @@index([status, nextAttemptAt])
+  @@index([userId, createdAt])
+}
+
+// One row per (event × subscription × attempt) with the real push-service
+// response. outcome: ACCEPTED | RETRY_LATER | FAILED | DEACTIVATED
+model PushDelivery {
+  id             String    @id @default(cuid())
+  eventId        String
+  subscriptionId String
+  attempt        Int       @default(1)
+  statusCode     Int?
+  outcome        String
+  error          String?
+  retryEligible  Boolean   @default(false)
+  nextRetryAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  event        PushEvent        @relation(fields: [eventId], references: [id])
+  subscription PushSubscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([eventId])
+  @@index([subscriptionId])
+}
+
+// Per-user browser push preferences. pushEnabled=false silences all push
+// except MANDATORY categories (administrator-defined, SystemFlag `push:mandatory`).
+model PushPreference {
+  userId      String   @id
+  pushEnabled Boolean  @default(true)
+  // JSON Record<category, boolean>; absent/false → default unless mandatory
+  categories  String?
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
 }
 
 model AuditLog {

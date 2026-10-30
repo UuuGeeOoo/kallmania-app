@@ -10,6 +10,7 @@ import { EMPLOYMENT_LABELS, WORKDAY_SHORT, formatWorkDays, shiftHours, includesW
 import { useToast } from "@/hooks/use-toast";
 import { Country, State, City } from "country-state-city";
 import { Loader2, Save, UserCircle2, KeyRound, Info, CalendarClock } from "lucide-react";
+import PushSettings from "@/components/kallmania/push-settings";
 
 const ALL_COUNTRIES = Country.getAllCountries().slice().sort((a, b) => a.name.localeCompare(b.name));
 
@@ -241,6 +242,9 @@ export default function ProfileView({ user }: { user: SessionUser }) {
             </Button>
           </div>
         </SectionCard>
+
+        {/* Browser push notifications — enable/test per device + category prefs */}
+        <PushSettings />
 
         {/* Password */}
         <SectionCard title="Change password" subtitle="Confirm your current password, then set the new one" className="lg:col-span-3">

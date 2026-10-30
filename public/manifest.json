@@ -1,0 +1,14 @@
+{
+  "name": "Kallmania — SBTS Group Reporting",
+  "short_name": "Kallmania",
+  "description": "Multi-team task management, KPI tracking & report consolidation for SBTS Group Global.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b0e14",
+  "theme_color": "#8b7ff5",
+  "icons": [
+    { "src": "/logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/brand-login.webp", "sizes": "512x512", "type": "image/webp", "purpose": "any" }
+  ]
+}

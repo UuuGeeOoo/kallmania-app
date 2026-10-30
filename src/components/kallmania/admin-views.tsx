@@ -19,7 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Country } from "country-state-city";
-import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2, Loader2, Bell, Settings2, ScrollText, Info, MapPin, CalendarClock, Download } from "lucide-react";
+import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2, Loader2, Bell, Settings2, ScrollText, Info, MapPin, CalendarClock, Download, RefreshCw } from "lucide-react";
 
 const ALL_ROLES = ["AGENT_BPO", "TEAM_LEAD", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR", "ADMIN"];
 const ALL_TEAMS = ["OUTBOUND", "INBOUND", "EMAIL", "SOCIAL", "TECH"];
@@ -974,6 +974,273 @@ export function UploadsAdminView() {
       )}
       {viewing && <DocumentViewerModal uploadId={viewing.id} name={viewing.name} onClose={() => setViewing(null)} />}
       {drafting && <TextDraftModal uploadId={drafting.id} name={drafting.name} onClose={() => setDrafting(null)} onDiscarded={() => setUploads((prev) => prev.map((u) => (u.id === drafting.id ? { ...u, fileDiscarded: true } : u)))} />}
+    </div>
+  );
+}
+
+// ───────────────────────── PUSH HEALTH (browser notifications) ─────────────────────────
+
+interface PushHealthDTO {
+  configured: boolean;
+  subject: string;
+  publicKeyPresent: boolean;
+  counts: { queued: number; processing: number; sent: number; failed: number; skipped: number };
+  attempts: { total: number; accepted: number; retryLater: number; failed: number; deactivated: number };
+  subscriptions: { total: number; active: number; inactive: number };
+  maxAttempts: number;
+  recentFailures: { eventId: string; title: string; type: string; status: string; attempts: number; lastError: string | null; createdAt: string }[];
+  recentAttempts: { at: string; eventTitle: string; subscriptionLabel: string; statusCode: number | null; outcome: string; error: string | null }[];
+}
+
+/** Administrative view: subscription health, dispatch failures, retries,
+ *  mandatory categories and the unattended cron processor credentials. */
+export function PushAdminView() {
+  const { toast } = useToast();
+  const [health, setHealth] = useState<PushHealthDTO | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState("");
+  const [mandatory, setMandatory] = useState<{ type: string; label: string }[]>([]);
+  const [mandatoryTypes, setMandatoryTypes] = useState<Set<string>>(new Set());
+  const [mandatoryDirty, setMandatoryDirty] = useState(false);
+  const [cron, setCron] = useState<{ cronUrl: string; cronSecret: string } | null>(null);
+  const [showSecret, setShowSecret] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [h, prefs] = await Promise.all([
+        api<PushHealthDTO>("/api/push/admin"),
+        api<{ categories: { type: string; label: string }[]; mandatory: string[] }>("/api/push/preferences"),
+      ]);
+      setHealth(h);
+      setMandatory(prefs.categories);
+      setMandatoryTypes(new Set(prefs.mandatory));
+    } catch (e) {
+      toast({ title: "Could not load push health", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { void load(); }, []);
+
+  const toggleMandatory = (type: string, on: boolean) => {
+    setMandatoryTypes((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(type); else next.delete(type);
+      return next;
+    });
+    setMandatoryDirty(true);
+  };
+
+  const saveMandatory = async () => {
+    setBusy("mandatory");
+    try {
+      await api("/api/push/admin", { method: "POST", body: JSON.stringify({ action: "setMandatory", types: [...mandatoryTypes] }) });
+      toast({ title: "Mandatory categories saved", description: `${mandatoryTypes.size} categories are now required for every user.` });
+      setMandatoryDirty(false);
+      await load();
+    } catch (e) {
+      toast({ title: "Could not save", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const retry = async (eventId: string) => {
+    setBusy(eventId);
+    try {
+      await api("/api/push/admin", { method: "POST", body: JSON.stringify({ action: "retry", eventId }) });
+      toast({ title: "Event re-queued", description: "The dispatcher will retry it shortly." });
+      await load();
+    } catch (e) {
+      toast({ title: "Could not re-queue", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const processQueue = async () => {
+    setBusy("queue");
+    try {
+      const res = await api<{ processed: number; sent: number; failed: number; skipped: number }>("/api/push/admin", { method: "POST", body: JSON.stringify({ action: "processQueue" }) });
+      toast({ title: "Queue processed", description: `${res.processed} due events — ${res.sent} accepted, ${res.failed} failed, ${res.skipped} skipped.` });
+      await load();
+    } catch (e) {
+      toast({ title: "Could not process queue", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const loadCron = async () => {
+    try {
+      setCron(await api<{ cronUrl: string; cronSecret: string }>("/api/push/admin", { method: "POST", body: JSON.stringify({ action: "cronInfo" }) }));
+    } catch (e) {
+      toast({ title: "Could not load cron info", description: (e as Error).message, variant: "destructive" });
+    }
+  };
+
+  if (loading) return <div className="flex justify-center py-16 text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
+  if (!health) return <div className="py-10 text-center text-sm text-rose-300">Push health unavailable.</div>;
+
+  const stat = (label: string, value: string | number, tone = "text-slate-100") => (
+    <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
+      <p className="text-[10px] uppercase tracking-wide text-slate-500">{label}</p>
+      <p className={`text-lg font-semibold ${tone}`}>{value}</p>
+    </div>
+  );
+
+  return (
+    <div>
+      <PageHeader title="Push Health" subtitle="Browser push notifications — queue, delivery outcomes, subscriptions and configuration" />
+
+      {!health.configured && (
+        <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-200">
+          Push is NOT configured — VAPID keys are missing. Nothing will be delivered and users see a “push not set up” state. Run{" "}
+          <code className="rounded bg-black/30 px-1 font-mono text-[11px]">scripts/setup-vapid.ts</code> once to fix.
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {stat("Queue pending", health.counts.queued, health.counts.queued > 0 ? "text-sky-300" : "text-slate-100")}
+        {stat("Processing", health.counts.processing)}
+        {stat("Sent (accepted)", health.counts.sent, "text-emerald-300")}
+        {stat("Failed", health.counts.failed, health.counts.failed > 0 ? "text-rose-300" : "text-slate-100")}
+        {stat("Skipped (no device)", health.counts.skipped, "text-slate-300")}
+        {stat("Subscriptions", `${health.subscriptions.active}/${health.subscriptions.total}`, health.subscriptions.active > 0 ? "text-emerald-300" : "text-slate-100")}
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+        {stat("Delivery attempts", health.attempts.total)}
+        {stat("Accepted by push service", health.attempts.accepted, "text-emerald-300")}
+        {stat("Retry scheduled", health.attempts.retryLater, "text-amber-300")}
+        {stat("Permanent failures", health.attempts.failed, "text-rose-300")}
+        {stat("Expired / deactivated", health.attempts.deactivated, "text-slate-400")}
+      </div>
+
+      <p className="mt-2 text-[11px] text-slate-500">
+        “Sent” means the Web Push service accepted the message (HTTP 2xx) — actual display depends on the device and browser. Subject: <span className="font-mono text-slate-400">{health.subject || "—"}</span>. Retry cap: {health.maxAttempts} attempts with exponential backoff.
+      </p>
+
+      {/* Failed events + retry */}
+      <div className="mt-5 flex items-center justify-between">
+        <p className="text-xs font-semibold text-slate-300">Failed / stuck notifications</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={processQueue} disabled={busy === "queue"}>
+            {busy === "queue" ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-2 h-3.5 w-3.5" />}
+            Process queue now
+          </Button>
+        </div>
+      </div>
+      <div className="mt-2 overflow-x-auto rounded-xl border border-white/10">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-white/10 bg-white/[0.03]">
+              <TableHead className="text-[11px] text-slate-400">Created</TableHead>
+              <TableHead className="text-[11px] text-slate-400">Notification</TableHead>
+              <TableHead className="text-[11px] text-slate-400">Type</TableHead>
+              <TableHead className="text-[11px] text-slate-400">Status</TableHead>
+              <TableHead className="text-[11px] text-slate-400">Attempts</TableHead>
+              <TableHead className="text-[11px] text-slate-400">Last error</TableHead>
+              <TableHead className="text-[11px] text-slate-400"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {health.recentFailures.length === 0 ? (
+              <TableRow><TableCell colSpan={7} className="py-6 text-center text-xs text-slate-500">No failed notifications — everything delivered or queued.</TableCell></TableRow>
+            ) : (
+              health.recentFailures.map((f) => (
+                <TableRow key={f.eventId} className="border-white/5">
+                  <TableCell className="whitespace-nowrap py-2 text-[11px] text-slate-500">{fmtDateTime(f.createdAt)}</TableCell>
+                  <TableCell className="max-w-xs truncate py-2 text-xs text-slate-200">{f.title}</TableCell>
+                  <TableCell className="py-2"><span className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-[#b3a5ff]">{f.type}</span></TableCell>
+                  <TableCell className="py-2 text-[11px] text-slate-300">{f.status}</TableCell>
+                  <TableCell className="py-2 text-[11px] text-slate-400">{f.attempts}/{health.maxAttempts}</TableCell>
+                  <TableCell className="max-w-sm truncate py-2 text-[11px] text-rose-300/80" title={f.lastError || ""}>{f.lastError || "—"}</TableCell>
+                  <TableCell className="py-2 text-right">
+                    <Button variant="outline" size="sm" onClick={() => retry(f.eventId)} disabled={busy === f.eventId || f.attempts >= health.maxAttempts}>
+                      {busy === f.eventId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Retry"}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Recent rejected attempts */}
+      <p className="mt-5 text-xs font-semibold text-slate-300">Recent rejected delivery attempts</p>
+      <div className="mt-2 overflow-x-auto rounded-xl border border-white/10">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-white/10 bg-white/[0.03]">
+              <TableHead className="text-[11px] text-slate-400">Time</TableHead>
+              <TableHead className="text-[11px] text-slate-400">Notification</TableHead>
+              <TableHead className="text-[11px] text-slate-400">Device</TableHead>
+              <TableHead className="text-[11px] text-slate-400">HTTP</TableHead>
+              <TableHead className="text-[11px] text-slate-400">Outcome</TableHead>
+              <TableHead className="text-[11px] text-slate-400">Error</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {health.recentAttempts.length === 0 ? (
+              <TableRow><TableCell colSpan={6} className="py-6 text-center text-xs text-slate-500">No rejected attempts recorded.</TableCell></TableRow>
+            ) : (
+              health.recentAttempts.map((a, i) => (
+                <TableRow key={i} className="border-white/5">
+                  <TableCell className="whitespace-nowrap py-2 text-[11px] text-slate-500">{fmtDateTime(a.at)}</TableCell>
+                  <TableCell className="max-w-xs truncate py-2 text-xs text-slate-200">{a.eventTitle}</TableCell>
+                  <TableCell className="py-2 text-[11px] text-slate-400">{a.subscriptionLabel}</TableCell>
+                  <TableCell className="py-2 text-[11px] font-mono text-slate-300">{a.statusCode ?? "—"}</TableCell>
+                  <TableCell className="py-2"><span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${a.outcome === "DEACTIVATED" ? "bg-slate-500/20 text-slate-300" : a.outcome === "RETRY_LATER" ? "bg-amber-500/20 text-amber-300" : "bg-rose-500/20 text-rose-300"}`}>{a.outcome}</span></TableCell>
+                  <TableCell className="max-w-sm truncate py-2 text-[11px] text-slate-500" title={a.error || ""}>{a.error || "—"}</TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Mandatory categories */}
+      <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+        <p className="text-xs font-semibold text-slate-300">Mandatory notification categories</p>
+        <p className="mt-1 text-[11px] text-slate-500">Selected categories bypass each user&apos;s preferences — every recipient with an active browser subscription receives them. Defaults: escalations, report submissions, overdue reports and notices.</p>
+        <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+          {mandatory.map((c) => (
+            <label key={c.type} className="flex items-center justify-between gap-2 rounded-md border border-white/5 bg-white/[0.03] px-2.5 py-2 text-[11px]">
+              <span className="min-w-0 truncate text-slate-300">{c.label}</span>
+              <Checkbox checked={mandatoryTypes.has(c.type)} onCheckedChange={(v) => toggleMandatory(c.type, v === true)} />
+            </label>
+          ))}
+        </div>
+        <div className="mt-3 flex justify-end">
+          <Button size="sm" onClick={saveMandatory} disabled={!mandatoryDirty || busy === "mandatory"} className="bg-[#6c5ce7] hover:bg-[#5b4bd4]">
+            {busy === "mandatory" ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-2 h-3.5 w-3.5" />}
+            Save mandatory categories
+          </Button>
+        </div>
+      </div>
+
+      {/* Cron processor */}
+      <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold text-slate-300">Unattended queue processor (cron)</p>
+            <p className="mt-1 text-[11px] text-slate-500">Retries exhausted in-app drains happen on dashboard loads; for closed-site retries, schedule a periodic POST to the processor endpoint with the secret header.</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => { if (!cron) loadCron(); else setShowSecret((s) => !s); }}>
+            {cron ? (showSecret ? "Hide credentials" : "Show credentials") : <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />Load</>}
+          </Button>
+        </div>
+        {cron && showSecret && (
+          <div className="mt-3 space-y-1.5 rounded-lg bg-black/30 p-3 font-mono text-[11px] text-slate-300">
+            <p>POST {cron.cronUrl}</p>
+            <p>x-push-cron-secret: {cron.cronSecret}</p>
+            <p className="text-slate-500"># e.g. Supabase pg_cron + pg_net every 60s — see worklog Task 49 for the exact SQL.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

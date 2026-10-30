@@ -253,6 +253,9 @@ for (let attempt = 1; attempt <= 6 && !cleanupOk; attempt++) {
       db.escalation.deleteMany({ where: { OR: [{ fromId: { in: oldIds } }, { targetUserId: { in: oldIds } }, { ackById: { in: oldIds } }] } }),
       db.auditLog.deleteMany({ where: { userId: { in: oldIds } } }),
       db.escalationRead.deleteMany({ where: { userId: { in: oldIds } } }),
+      db.pushDelivery.deleteMany({ where: { subscription: { userId: { in: oldIds } } } }),
+      db.pushEvent.deleteMany({ where: { userId: { in: oldIds } } }),
+      db.pushSubscription.deleteMany({ where: { userId: { in: oldIds } } }),
       db.notification.deleteMany({ where: { userId: { in: oldIds } } }),
       db.user.deleteMany({ where: { id: { in: oldIds } } }),
     ]);

@@ -21,6 +21,7 @@ export const metadata: Metadata = {
     "Multi-team task management, KPI tracking & intelligent report consolidation for SBTS Group Global.",
   keywords: ["Kallmania", "SBTS Group", "BPO", "task management", "KPI", "reporting"],
   authors: [{ name: "SBTS Group" }],
+  manifest: "/manifest.json",
   openGraph: {
     title: "Kallmania — SBTS Group",
     description: "Multi-team task management, KPI tracking & intelligent report consolidation.",

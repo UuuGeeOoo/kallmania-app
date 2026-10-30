@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { requireUser, isSupervisorLike } from "@/lib/auth";
 import { handle, ok, safeParse } from "@/lib/api-utils";
 import { checkOverdueReports } from "@/lib/notify";
+import { lazyDrainPushQueue } from "@/lib/push";
 import { aggregateTeamKpis, type KpiMetric } from "@/lib/kpi";
 import { worksOn } from "@/lib/schedule";
 import { resolveKpiCatalogue, kpiTargetMap, hasCentre } from "@/lib/kpi-resolve";
@@ -20,8 +21,10 @@ export async function GET(req: NextRequest) {
     const dayEnd = new Date(date + "T23:59:59.999Z");
     const supervisor = isSupervisorLike(me);
 
-    // Lazy overdue check (deduped internally)
+    // Lazy overdue check (deduped internally) + push-queue retry drain
+    // (same lazy-scheduler pattern; rate-limited and fire-and-forget).
     checkOverdueReports(date).catch(() => {});
+    lazyDrainPushQueue();
 
     const myTasks = await db.task.findMany({
       where: { assigneeId: me.id, status: { in: ["NOT_STARTED", "IN_PROGRESS", "BLOCKED", "PENDING_DEPLOYMENT", "AWAITING_APPROVAL"] } },

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { worksOn } from "@/lib/schedule";
+import { enqueuePush } from "@/lib/push";
 
 export interface NotifyInput {
   userId: string;
@@ -11,10 +12,13 @@ export interface NotifyInput {
   dedupeKey?: string | null;
 }
 
-/** Create a notification with dedup support. Dedupe key is scoped per-recipient. */
+/** Create a notification with dedup support. Dedupe key is scoped per-recipient.
+ *  Every in-app notification also enqueues a browser push event (subject to the
+ *  recipient's push preferences and administrator-defined mandatory categories)
+ *  — see src/lib/push.ts. */
 export async function notify(input: NotifyInput): Promise<void> {
   try {
-    await db.notification.create({
+    const row = await db.notification.create({
       data: {
         userId: input.userId,
         type: input.type,
@@ -24,6 +28,18 @@ export async function notify(input: NotifyInput): Promise<void> {
         linkData: input.linkData ? JSON.stringify(input.linkData) : null,
         dedupeKey: input.dedupeKey ? `${input.dedupeKey}#${input.userId}` : null,
       },
+    });
+    // Browser push for the same logical notification (idempotent via the same
+    // per-recipient dedupe key; dispatch runs in the background).
+    await enqueuePush({
+      userId: input.userId,
+      type: input.type,
+      severity: input.severity,
+      title: input.title,
+      body: input.message,
+      linkData: row.linkData,
+      dedupeKey: input.dedupeKey ? `${input.dedupeKey}#${input.userId}` : null,
+      relatedId: (input.linkData?.id as string) || null,
     });
   } catch (e: unknown) {
     // Unique constraint violation on dedupeKey → notification already sent. Safe to skip.

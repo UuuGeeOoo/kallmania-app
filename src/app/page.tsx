@@ -14,11 +14,12 @@ import TasksView from "@/components/kallmania/tasks-view";
 import { MyReportsView, ReviewView } from "@/components/kallmania/reports-view";
 import ReportsArchiveView from "@/components/kallmania/archive-view";
 import ConsolidatedView from "@/components/kallmania/consolidated-view";
-import { AdminUsersView, KpiConfigView, AuditView, NotificationsView, UploadsAdminView } from "@/components/kallmania/admin-views";
+import { AdminUsersView, KpiConfigView, AuditView, NotificationsView, UploadsAdminView, PushAdminView } from "@/components/kallmania/admin-views";
 import { EscalationsPanel } from "@/components/kallmania/escalation-center";
 import NoticeBoardView from "@/components/kallmania/notice-board";
 import ProfileView from "@/components/kallmania/profile-view";
 import { api, todayISO, type SessionUser } from "@/lib/client";
+import { listenForPushNavigation } from "@/lib/push-client";
 import { Loader2 } from "lucide-react";
 
 // ── Reload persistence (hash routing) ──
@@ -155,6 +156,24 @@ export default function Page() {
     clearHash();
   };
 
+  // Browser push: silent service-worker registration once logged in (permission
+  // is requested ONLY from the explicit Enable action in Profile), plus routing
+  // for notifications clicked while an app tab is already open.
+  useEffect(() => {
+    if (!user) return;
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+    }
+    const cleanup = listenForPushNavigation((url) => {
+      const raw = url.replace(/^#\/?/, "");
+      const slash = raw.indexOf("/");
+      const view = slash === -1 ? raw : raw.slice(0, slash);
+      const data = slash === -1 ? undefined : raw.slice(slash + 1) || undefined;
+      if (view) navigate(view, data);
+    });
+    return cleanup;
+  }, [user?.id]);
+
   const exportReport = (id: string) => window.open(`/api/export?format=docx&id=${id}`, "_blank");
 
   if (!booted) {
@@ -213,6 +232,8 @@ export default function Page() {
         return <KpiConfigView user={user} />;
       case "audit":
         return <AuditView />;
+      case "push-health":
+        return <PushAdminView />;
       case "notifications":
         return <NotificationsView user={user} onNavigate={navigate} />;
       case "escalations":
