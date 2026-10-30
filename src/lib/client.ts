@@ -332,20 +332,25 @@ export interface EscalationEventDTO {
   createdAt: string;
 }
 
-export interface EscalationRoleTargetOption {
+/** One pickable person in the escalation composer — carries the centre
+ *  (country/state) so cross-centre leaders can be labelled with their centre. */
+export interface EscalationPerson {
+  id: string;
+  fullName: string;
   role: string;
-  label: string;
-  scopeLabel: string;
-  count: number;
+  team: string | null;
+  country: string | null;
+  state: string | null;
 }
 
 export interface EscalationRecipientGroups {
-  teamLead: { id: string; fullName: string; role: string; team: string | null } | null;
-  supervisors: { id: string; fullName: string; role: string; team: string | null }[];
-  admins: { id: string; fullName: string; role: string; team: string | null }[];
-  /** ROLE-targeting options for management (empty for agents): who can be
-   *  reached by routing to a role, with live occupant counts + scope. */
-  roles?: EscalationRoleTargetOption[];
+  /** The requester's own team lead (non-admin authors; admins get teamLeads). */
+  teamLead: EscalationPerson | null;
+  /** ALL active team leads across EVERY centre — ADMIN authors only. */
+  teamLeads?: EscalationPerson[];
+  /** Own centre's supervisors; for ADMIN authors, every centre's supervisors. */
+  supervisors: EscalationPerson[];
+  admins: EscalationPerson[];
 }
 
 export interface EscalationDTO {

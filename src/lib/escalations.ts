@@ -15,19 +15,11 @@ export const ESCALATION_STATUSES = ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS", "RESO
 const MANAGEMENT_ROLES = ["TEAM_LEAD", "SUPERVISOR", "ADMIN"];
 const AGENT_ROLES = ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA"];
 
-/** Roles that may be TARGETED by an escalation, per author role.
- *  Management authors can route to the management tiers of their centre;
- *  administrators additionally reach agent roles — and, being global,
- *  their role routes span ALL centres (see isGlobalRoleRoute). */
-export function targetableRoles(authorRole: string): string[] {
-  if (authorRole === "ADMIN") return [...MANAGEMENT_ROLES, ...AGENT_ROLES];
-  if (MANAGEMENT_ROLES.includes(authorRole)) return ["TEAM_LEAD", "SUPERVISOR", "ADMIN"];
-  return [];
-}
-
-/** Role-routed escalations authored by an ADMIN span every centre — the
- *  recipients are everyone occupying the target role anywhere, not just the
- *  admin's own centre. Supervisors/team leads keep centre-scoped routing. */
+/** Role-routed LEGACY rows authored by an ADMIN span every centre — the
+ *  recipients were everyone occupying the target role anywhere, not just the
+ *  admin's own centre. Supervisors/team leads kept centre-scoped routing.
+ *  Role routing is no longer creatable; this exists only so historical rows
+ *  keep rendering and notifying correctly. */
 export function isGlobalRoleRoute(esc: { targetType: string; fromRole: string }): boolean {
   return esc.targetType === "TARGET_ROLE" && esc.fromRole === "ADMIN";
 }
@@ -143,33 +135,60 @@ export function canReopen(me: MeLike, esc: EscalationLike): boolean {
   return canSeeEscalation(me, esc) && ["TEAM_LEAD", "SUPERVISOR"].includes(me.role);
 }
 
+/** One pickable person in the escalation composer — carries the centre
+ *  (country/state) so cross-centre leaders can be shown WITH their centre. */
+export interface EscalationPerson {
+  id: string;
+  fullName: string;
+  role: string;
+  team: string | null;
+  country: string | null;
+  state: string | null;
+}
+
 /**
  * Named escalation recipients for the composer, resolved LIVE from user
  * records (never hardcoded): the requester's team lead, every eligible
  * supervisor of their centre (multi-supervisor centres supported), and all
  * eligible administrators. Inactive / unauthorized users never appear.
+ *
+ * ADMIN authors are the exception: their escalation view lists the leaders
+ * of EVERY centre — all team leads (`teamLeads`) and every supervisor, each
+ * carrying their centre so cross-centre names are identifiable. Everyone
+ * else stays strictly within their own centre.
  */
 export async function namedRecipients(me: MeLike): Promise<{
-  teamLead: { id: string; fullName: string; role: string; team: string | null } | null;
-  supervisors: { id: string; fullName: string; role: string; team: string | null }[];
-  admins: { id: string; fullName: string; role: string; team: string | null }[];
+  teamLead: EscalationPerson | null;
+  teamLeads: EscalationPerson[];
+  supervisors: EscalationPerson[];
+  admins: EscalationPerson[];
 }> {
-  const select = { id: true, fullName: true, role: true, team: true } as const;
+  const select = { id: true, fullName: true, role: true, team: true, country: true, state: true } as const;
   const centreWhere = me.country && me.state ? { country: me.country, state: me.state } : {};
+  const isAdmin = me.role === "ADMIN";
 
-  let teamLead = me.team
-    ? await db.user.findFirst({ where: { role: "TEAM_LEAD", status: "APPROVED", ...centreWhere, team: me.team }, select })
-    : null;
-  if (!teamLead) {
-    // Fall back to any team lead of the requester's centre (agent without team match).
-    teamLead = await db.user.findFirst({ where: { role: "TEAM_LEAD", status: "APPROVED", ...centreWhere }, select });
-  }
-  if (!teamLead && me.country && me.state === null) {
-    teamLead = await db.user.findFirst({ where: { role: "TEAM_LEAD", status: "APPROVED", country: me.country }, select });
+  // Administrators reach the leadership of ALL centres; every other author
+  // is scoped to their own centre only.
+  const teamLeads = isAdmin
+    ? await db.user.findMany({ where: { role: "TEAM_LEAD", status: "APPROVED" }, select, orderBy: { fullName: "asc" } })
+    : [];
+
+  let teamLead: EscalationPerson | null = null;
+  if (!isAdmin) {
+    teamLead = me.team
+      ? await db.user.findFirst({ where: { role: "TEAM_LEAD", status: "APPROVED", ...centreWhere, team: me.team }, select })
+      : null;
+    if (!teamLead) {
+      // Fall back to any team lead of the requester's centre (agent without team match).
+      teamLead = await db.user.findFirst({ where: { role: "TEAM_LEAD", status: "APPROVED", ...centreWhere }, select });
+    }
+    if (!teamLead && me.country && me.state === null) {
+      teamLead = await db.user.findFirst({ where: { role: "TEAM_LEAD", status: "APPROVED", country: me.country }, select });
+    }
   }
 
   const supervisors = await db.user.findMany({
-    where: { role: "SUPERVISOR", status: "APPROVED", ...centreWhere },
+    where: { role: "SUPERVISOR", status: "APPROVED", ...(isAdmin ? {} : centreWhere) },
     select,
     orderBy: { fullName: "asc" },
   });
@@ -179,16 +198,15 @@ export async function namedRecipients(me: MeLike): Promise<{
     orderBy: { fullName: "asc" },
   });
 
-  return { teamLead, supervisors, admins };
+  return { teamLead, teamLeads, supervisors, admins };
 }
 
 /**
  * Everyone occupying `targetRole` (APPROVED accounts) within the author's
- * reach: administrators route across ALL centres (the whole point of role
- * escalation for admins); other management route within their own centre
- * (a centre-less author degrades to all centres, mirroring recipientsFor).
- * Returns [] when the role has no active occupants — callers turn that into
- * a clear error instead of creating an escalation nobody could act on.
+ * reach. LEGACY SUPPORT ONLY — role-routed escalations can no longer be
+ * created, but historical rows still resolve their participants through
+ * here so pre-existing threads keep notifying the right people.
+ * Returns [] when the role has no active occupants.
  */
 export async function roleRecipients(
   author: MeLike,
@@ -205,58 +223,12 @@ export async function roleRecipients(
   });
 }
 
-export interface RoleTargetOption {
-  role: string;
-  label: string;
-  scopeLabel: string;
-  count: number;
-}
-
-/**
- * Role-targeting options for the composer, resolved LIVE (never hardcoded):
- * every targetable role that currently has at least one active occupant,
- * with a human count. Admins see all-centre reach across management AND
- * agent roles; supervisors/team leads see their centre's management tiers.
- */
-export async function roleTargetOptions(me: MeLike): Promise<RoleTargetOption[]> {
-  const roles = targetableRoles(me.role);
-  if (roles.length === 0) return [];
-  const global = me.role === "ADMIN" || !(me.country && me.state);
-  const centreWhere = global ? {} : { country: me.country, state: me.state };
-  // Centre-scoped counting for the leadership tiers…
-  const groups = await db.user.groupBy({
-    by: ["role"],
-    where: { role: { in: roles.filter((r) => r !== "ADMIN") }, status: "APPROVED", ...centreWhere },
-    _count: { _all: true },
-  });
-  const counts = new Map(groups.map((g) => [g.role, g._count._all]));
-  // …while administrators are global regardless of the requester's centre.
-  if (roles.includes("ADMIN")) {
-    counts.set("ADMIN", await db.user.count({ where: { role: "ADMIN", status: "APPROVED" } }));
-  }
-  return roles
-    .filter((r) => (counts.get(r) ?? 0) > 0)
-    .map((r) => ({
-      role: r,
-      label: ROLE_LABELS[r] ?? r,
-      scopeLabel: r === "ADMIN" || global ? "all centres" : "your centre",
-      count: counts.get(r) ?? 0,
-    }));
-}
-
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: "Administrators",
-  SUPERVISOR: "Supervisors",
-  TEAM_LEAD: "Team Leads",
-  AGENT_BPO: "Call Centre Agents",
-  DEVELOPER: "Web & Technical Team",
-  SOCIAL_MEDIA: "Social Media Team",
-};
-
-/** Is `candidateId` an eligible named recipient for `me` (used to validate composer submissions server-side)? */
-export async function isEligibleRecipient(me: MeLike, candidateId: string): Promise<{ id: string; fullName: string; role: string } | null> {
+/** Is `candidateId` an eligible named recipient for `me` (used to validate composer submissions server-side)?
+ *  For administrators this spans every centre's leaders (teamLeads + all supervisors + admins);
+ *  for everyone else it is strictly their own centre's leadership. */
+export async function isEligibleRecipient(me: MeLike, candidateId: string): Promise<EscalationPerson | null> {
   const groups = await namedRecipients(me);
-  const all = [groups.teamLead, ...groups.supervisors, ...groups.admins].filter(Boolean) as { id: string; fullName: string; role: string }[];
+  const all = [groups.teamLead, ...groups.teamLeads, ...groups.supervisors, ...groups.admins].filter(Boolean) as EscalationPerson[];
   return all.find((u) => u.id === candidateId) || null;
 }
 

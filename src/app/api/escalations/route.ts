@@ -9,10 +9,7 @@ import {
   canSeeEscalation,
   addEvent,
   isEligibleRecipient,
-  namedRecipients,
   participantsToNotify,
-  roleRecipients,
-  targetableRoles,
 } from "@/lib/escalations";
 
 /**
@@ -23,9 +20,12 @@ import {
  *                                          centre/team for admins) + per-item unread badges
  * POST   /api/escalations                — raise an escalation to a NAMED team lead /
  *                                          supervisor / administrator (validated against
- *                                          the requester's scope) or legacy role-routes;
- *                                          creates the thread's first message + CREATED
- *                                          event and notifies the recipient
+ *                                          the requester's scope — admins may pick the
+ *                                          leaders of ANY centre) or notify a person
+ *                                          directly; creates the thread's first message
+ *                                          + CREATED event and notifies the recipient.
+ *                                          (Role-based routing is removed — legacy
+ *                                          TARGET_ROLE rows still render.)
  * PATCH  /api/escalations                — lifecycle transitions on one escalation:
  *                                          ack | in_progress | resolve (note REQUIRED) |
  *                                          close | reopen | assign (admin) | priority;
@@ -48,40 +48,6 @@ import {
 
 const MANAGEMENT_ROLES = ["TEAM_LEAD", "SUPERVISOR", "ADMIN"];
 const AGENT_ROLES = ["AGENT_BPO", "DEVELOPER", "SOCIAL_MEDIA"];
-
-/** Users allowed to see an escalation authored by `from` when routed to their role.
- *  Administrators route across ALL centres ("escalate to everyone occupying a
- *  role in all centres"); every other author stays within their own centre. */
-async function recipientsFor(from: { id: string; role: string; country: string | null; state: string | null }, targetType: string, targetRole: string | null): Promise<{ id: string; fullName: string }[]> {
-  const global = from.role === "ADMIN" || !(from.country && from.state);
-  const centreWhere = global ? {} : { country: from.country, state: from.state };
-  if (targetType === "TARGET_USER") return [];
-  if (targetType === "ALL_MANAGEMENT") {
-    const users = await db.user.findMany({
-      where: { status: "APPROVED", role: { in: MANAGEMENT_ROLES }, ...centreWhere },
-      select: { id: true, fullName: true },
-    });
-    // Always make sure admins hear it even if they sit outside the centre.
-    const admins = await db.user.findMany({ where: { status: "APPROVED", role: "ADMIN" }, select: { id: true, fullName: true } });
-    const map = new Map<string, { id: string; fullName: string }>();
-    for (const u of [...users, ...admins]) map.set(u.id, u);
-    return [...map.values()];
-  }
-  // TARGET_ROLE
-  const role = targetRole || "SUPERVISOR";
-  const users = await db.user.findMany({
-    where: { status: "APPROVED", role, ...centreWhere },
-    select: { id: true, fullName: true },
-  });
-  if (role !== "ADMIN") {
-    // The administrator sees every notice too.
-    const admins = await db.user.findMany({ where: { status: "APPROVED", role: "ADMIN" }, select: { id: true, fullName: true } });
-    const map = new Map<string, { id: string; fullName: string }>();
-    for (const u of [...users, ...admins]) map.set(u.id, u);
-    return [...map.values()];
-  }
-  return users;
-}
 
 export async function GET(req: NextRequest) {
   return handle(async () => {
@@ -176,56 +142,37 @@ export async function POST(req: NextRequest) {
   return handle(async () => {
     const me = await requireUser();
     const body = await req.json();
-    const { subject, message, severity, recipientId, targetType, targetRole, targetUserId } = body;
+    const { subject, message, severity, recipientId, targetType, targetUserId } = body;
     if (!subject || !message) return fail("Subject and message are required");
 
     let type: string;
     let targetUser: { id: string; fullName: string; role: string } | null = null;
-    let routedRole: string | null = null;
 
     if (recipientId) {
       // NAMED recipient — validated live against the requester's scope
-      // (their team lead, their centre's supervisors, or any administrator).
+      // (their team lead, their centre's supervisors, or any administrator;
+      // administrators may pick the leaders of EVERY centre).
       const eligible = await isEligibleRecipient(me, String(recipientId));
       if (!eligible) return fail("The selected recipient is not an eligible team lead, supervisor or administrator for you", 403);
       type = "TARGET_USER";
       targetUser = eligible;
     } else {
-      // Management paths: notify a person directly, or route to a ROLE.
-      type = targetType || (MANAGEMENT_ROLES.includes(me.role) ? "TARGET_USER" : "TARGET_ROLE");
-      if (!["TARGET_ROLE", "TARGET_USER", "ALL_MANAGEMENT"].includes(type)) return fail("Invalid targetType");
-
-      if (type === "TARGET_USER") {
-        // Management notifying an agent (or anyone) of their choice.
-        if (!MANAGEMENT_ROLES.includes(me.role)) return fail("Not authorized to send direct notices", 403);
-        if (!targetUserId) return fail("Choose the person to notify");
-        const target = await db.user.findUnique({ where: { id: targetUserId }, select: { id: true, fullName: true, role: true, country: true, state: true } });
-        if (!target) return fail("Target user not found", 404);
-        if (me.role === "TEAM_LEAD" || me.role === "SUPERVISOR") {
-          const sameCentre = me.country && me.state && target.country === me.country && target.state === me.state;
-          if (!sameCentre) return fail("You can only notify people in your own centre", 403);
-        }
-        targetUser = target;
+      // Management notifying a person of their choice directly.
+      type = targetType || (MANAGEMENT_ROLES.includes(me.role) ? "TARGET_USER" : "");
+      if (type === "TARGET_ROLE" || type === "ALL_MANAGEMENT" || !type) {
+        return fail("Role-based escalation routing has been removed — pick the person who should handle this", 400);
       }
-
-      if (type === "TARGET_ROLE") {
-        // Route to everyone occupying a role. Management-only; administrators
-        // reach every role across ALL centres, other management their centre's
-        // leadership tiers (validation mirrors targetableRoles).
-        if (!MANAGEMENT_ROLES.includes(me.role)) return fail("Only management can escalate to a role", 403);
-        const role = targetRole || "SUPERVISOR";
-        if (!targetableRoles(me.role).includes(role)) {
-          return fail("Invalid target role for your position", 400);
-        }
-        routedRole = role;
+      if (type !== "TARGET_USER") return fail("Invalid targetType");
+      // Management notifying an agent (or anyone) of their choice.
+      if (!MANAGEMENT_ROLES.includes(me.role)) return fail("Not authorized to send direct notices", 403);
+      if (!targetUserId) return fail("Choose the person to notify");
+      const target = await db.user.findUnique({ where: { id: targetUserId }, select: { id: true, fullName: true, role: true, country: true, state: true } });
+      if (!target) return fail("Target user not found", 404);
+      if (me.role === "TEAM_LEAD" || me.role === "SUPERVISOR") {
+        const sameCentre = me.country && me.state && target.country === me.country && target.state === me.state;
+        if (!sameCentre) return fail("You can only notify people in your own centre", 403);
       }
-    }
-
-    // Resolve role recipients BEFORE creating anything: a role with no active
-    // occupants must fail with a clear error, not orphan an unactionable ticket.
-    const roleRecipientsList = type === "TARGET_ROLE" ? await roleRecipients(me, routedRole as string) : [];
-    if (type === "TARGET_ROLE" && roleRecipientsList.length === 0) {
-      return fail(`No active ${routedRole === "ADMIN" ? "administrators" : routedRole === "SUPERVISOR" ? "supervisors" : routedRole === "TEAM_LEAD" ? "team leads" : "members of that role"} exist to receive this escalation`, 400);
+      targetUser = target;
     }
 
     const severityValue = severity === "URGENT" ? "URGENT" : "NORMAL";
@@ -239,7 +186,7 @@ export async function POST(req: NextRequest) {
           fromName: me.fullName,
           fromRole: me.role,
           targetType: type,
-          targetRole: type === "TARGET_USER" ? targetUser?.role ?? null : routedRole,
+          targetRole: targetUser?.role ?? null,
           targetUserId: targetUser?.id || null,
           targetName: targetUser?.fullName || null,
           subject: String(subject).trim(),
@@ -276,10 +223,9 @@ export async function POST(req: NextRequest) {
       return created;
     });
 
-    // Route notifications to the recipients (named, or role-routed — admins
-    // reach everyone occupying the role in ALL centres, others their centre).
-    const recipients = targetUser ? [targetUser] : type === "TARGET_ROLE" ? roleRecipientsList : await recipientsFor(me, type, routedRole);
-    const routeLabel = type === "TARGET_ROLE" ? `${me.role === "ADMIN" ? "all centres" : "your centre"}` : "";
+    // Notify the named recipient (the author is skipped implicitly — you
+    // cannot pick yourself from the composer).
+    const recipients = targetUser ? [targetUser] : [];
     for (const r of recipients) {
       if (r.id === me.id) continue;
       await notify({
@@ -293,7 +239,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    await audit({ userId: me.id, actorName: me.fullName, action: "CREATE_ESCALATION", entity: "Escalation", entityId: escalation.id, details: `${type}${targetUser ? `:${targetUser.fullName}` : routedRole ? `:${routedRole} (${routeLabel})` : ""} — ${escalation.subject}` });
+    await audit({ userId: me.id, actorName: me.fullName, action: "CREATE_ESCALATION", entity: "Escalation", entityId: escalation.id, details: `${type}${targetUser ? `:${targetUser.fullName}` : ""} — ${escalation.subject}` });
     return ok({ escalation: { ...escalation, unread: false, _count: { messages: 1, events: 1 } } }, 201);
   });
 }
