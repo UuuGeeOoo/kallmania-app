@@ -135,6 +135,15 @@ export function canReopen(me: MeLike, esc: EscalationLike): boolean {
   return canSeeEscalation(me, esc) && ["TEAM_LEAD", "SUPERVISOR"].includes(me.role);
 }
 
+/** Explicit centre+team a TEAM LEAD is being resolved for. ONLY honoured for
+ *  administrators — it is how an admin asks for one specific team's lead;
+ *  for everyone else it is ignored so a spoofed scope can never widen reach. */
+export interface TeamScope {
+  country: string;
+  state: string;
+  team: string;
+}
+
 /** One pickable person in the escalation composer — carries the centre
  *  (country/state) so cross-centre leaders can be shown WITH their centre. */
 export interface EscalationPerson {
@@ -153,13 +162,15 @@ export interface EscalationPerson {
  * eligible administrators. Inactive / unauthorized users never appear.
  *
  * TEAM-LEAD SCOPING RULE: a team lead is pickable ONLY by the members of the
- * team lead's own team (same centre + same team). No other team's view — not
- * even an administrator's — lists them; administrators reach individuals
- * through "Notify a person" instead. Requesters whose team has no lead (or
- * no team at all) simply get no team-lead option (supervisors + admins
- * remain), and nobody is offered themselves as a recipient.
+ * team lead's own team (same centre + same team), or by an ADMINISTRATOR who
+ * has explicitly scoped the composer to that one team (opts.teamScope — the
+ * admin first picks the team, then that team's lead and ONLY that lead
+ * appears; the scope is ignored for every other role, so a spoofed payload
+ * can never widen anyone's reach). No all-centres lead dump exists. A lead is
+ * never offered themselves. Requesters whose team has no lead (or no team at
+ * all) simply get no team-lead option (supervisors + admins remain).
  */
-export async function namedRecipients(me: MeLike): Promise<{
+export async function namedRecipients(me: MeLike, opts?: { teamScope?: TeamScope | null }): Promise<{
   teamLead: EscalationPerson | null;
   supervisors: EscalationPerson[];
   admins: EscalationPerson[];
@@ -169,14 +180,21 @@ export async function namedRecipients(me: MeLike): Promise<{
   const isAdmin = me.role === "ADMIN";
 
   // A team lead appears ONLY to their own team's members: exact centre + team
-  // match, never the requester themselves. No cross-team or cross-centre
-  // fallback — a lead of another team must not surface anywhere else.
-  const teamLead = !isAdmin && me.team
+  // match, never the requester themselves. Administrators opt in by naming the
+  // team (scope must carry all three parts); the scope resolves exactly ONE
+  // APPROVED lead of that centre+team — never a list, never a fallback.
+  const scope = isAdmin && opts?.teamScope?.country && opts.teamScope.state && opts.teamScope.team ? opts.teamScope : null;
+  const teamLead = scope
     ? await db.user.findFirst({
-        where: { role: "TEAM_LEAD", status: "APPROVED", ...centreWhere, team: me.team, id: { not: me.id } },
+        where: { role: "TEAM_LEAD", status: "APPROVED", country: scope.country, state: scope.state, team: scope.team, id: { not: me.id } },
         select,
       })
-    : null;
+    : !isAdmin && me.team
+      ? await db.user.findFirst({
+          where: { role: "TEAM_LEAD", status: "APPROVED", ...centreWhere, team: me.team, id: { not: me.id } },
+          select,
+        })
+      : null;
 
   const supervisors = await db.user.findMany({
     where: { role: "SUPERVISOR", status: "APPROVED", ...(isAdmin ? {} : centreWhere) },
@@ -215,11 +233,13 @@ export async function roleRecipients(
 }
 
 /** Is `candidateId` an eligible named recipient for `me` (used to validate composer submissions server-side)?
- *  Team leads are eligible only to their own team's members; supervisors are
- *  centre-scoped (all centres for administrators); administrators are
- *  eligible for everyone. */
-export async function isEligibleRecipient(me: MeLike, candidateId: string): Promise<EscalationPerson | null> {
-  const groups = await namedRecipients(me);
+ *  Team leads are eligible only to their own team's members — or, for
+ *  administrators, to the one team the admin explicitly scoped to;
+ *  supervisors are centre-scoped (all centres for administrators);
+ *  administrators are eligible for everyone. teamScope is IGNORED for
+ *  non-admins, so a spoofed scope cannot widen anyone's reach. */
+export async function isEligibleRecipient(me: MeLike, candidateId: string, teamScope?: TeamScope | null): Promise<EscalationPerson | null> {
+  const groups = await namedRecipients(me, { teamScope: me.role === "ADMIN" ? teamScope ?? null : null });
   const all = [groups.teamLead, ...groups.supervisors, ...groups.admins].filter(Boolean) as EscalationPerson[];
   return all.find((u) => u.id === candidateId) || null;
 }

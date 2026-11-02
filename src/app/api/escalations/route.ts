@@ -10,6 +10,7 @@ import {
   addEvent,
   isEligibleRecipient,
   participantsToNotify,
+  type TeamScope,
 } from "@/lib/escalations";
 
 /**
@@ -20,12 +21,13 @@ import {
  *                                          centre/team for admins) + per-item unread badges
  * POST   /api/escalations                — raise an escalation to a NAMED team lead /
  *                                          supervisor / administrator (validated against
- *                                          the requester's scope — admins may pick the
- *                                          leaders of ANY centre) or notify a person
- *                                          directly; creates the thread's first message
- *                                          + CREATED event and notifies the recipient.
- *                                          (Role-based routing is removed — legacy
- *                                          TARGET_ROLE rows still render.)
+ *                                          the requester's scope — admins may pick any
+ *                                          centre's supervisors, or ONE team's lead after
+ *                                          naming that team via recipientTeamScope) or
+ *                                          notify a person directly; creates the thread's
+ *                                          first message + CREATED event and notifies the
+ *                                          recipient. (Role-based routing is removed —
+ *                                          legacy TARGET_ROLE rows still render.)
  * PATCH  /api/escalations                — lifecycle transitions on one escalation:
  *                                          ack | in_progress | resolve (note REQUIRED) |
  *                                          close | reopen | assign (admin) | priority;
@@ -142,8 +144,20 @@ export async function POST(req: NextRequest) {
   return handle(async () => {
     const me = await requireUser();
     const body = await req.json();
-    const { subject, message, severity, recipientId, targetType, targetUserId } = body;
+    const { subject, message, severity, recipientId, targetType, targetUserId, recipientTeamScope } = body;
     if (!subject || !message) return fail("Subject and message are required");
+
+    // Admin-only: "escalate to this team's lead". Shape-validated here, and
+    // isEligibleRecipient ignores it for non-admins — a spoofed scope cannot
+    // widen anyone's reach; for an admin it can only ever resolve the ONE
+    // APPROVED team lead whose centre+team exactly match.
+    const teamScope: TeamScope | null =
+      recipientTeamScope && typeof recipientTeamScope === "object" &&
+      typeof recipientTeamScope.country === "string" && recipientTeamScope.country.trim() &&
+      typeof recipientTeamScope.state === "string" && recipientTeamScope.state.trim() &&
+      typeof recipientTeamScope.team === "string" && recipientTeamScope.team.trim()
+        ? { country: recipientTeamScope.country.trim(), state: recipientTeamScope.state.trim(), team: recipientTeamScope.team.trim() }
+        : null;
 
     let type: string;
     let targetUser: { id: string; fullName: string; role: string } | null = null;
@@ -151,8 +165,8 @@ export async function POST(req: NextRequest) {
     if (recipientId) {
       // NAMED recipient — validated live against the requester's scope
       // (their team lead, their centre's supervisors, or any administrator;
-      // administrators may pick the leaders of EVERY centre).
-      const eligible = await isEligibleRecipient(me, String(recipientId));
+      // administrators may also pick ONE team's lead by naming that team).
+      const eligible = await isEligibleRecipient(me, String(recipientId), teamScope);
       if (!eligible) return fail("The selected recipient is not an eligible team lead, supervisor or administrator for you", 403);
       type = "TARGET_USER";
       targetUser = eligible;

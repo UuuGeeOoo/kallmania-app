@@ -1,15 +1,19 @@
 // API-level E2E for the escalation composer's NAMED recipients with the
 // TEAM-LEAD-ONLY-SEEN-BY-OWN-TEAM rule (role-based routing is removed):
-//  1. ADMIN composer lists every centre's SUPERVISORS (centre-labelled) but
-//     NO team leads — a team lead is visible only to their own team, and
-//     nobody (not even an admin) can escalate to another team's lead by name
+//  1. ADMIN composer lists every centre's SUPERVISORS (centre-labelled) but NO
+//     team leads by default; an ADMIN who explicitly scopes to ONE team
+//     (?country=&state=&team=) gets EXACTLY that team's lead — never a list;
+//     non-admin scope params are IGNORED entirely (no spoofing)
 //  2. Supervisors / team leads / agents stay scoped to their OWN centre;
 //     agents get a team lead ONLY when their own team has one (no fallback);
 //     a team lead is never offered themselves
 //  3. ADMIN can still escalate BY NAME to another centre's supervisor
-//     (201 → notified → sees it → acks → resolves), but a cross-team /
-//     cross-centre TEAM LEAD attempt is refused (403, nothing created)
-//  4. Non-admins are refused cross-centre AND cross-team named recipients (403)
+//     (201 → notified → sees it → acks → resolves); a cross-team /
+//     cross-centre TEAM LEAD attempt without a scope is refused (403),
+//     WITH the correct scope it succeeds (201 → notified → seen → acked),
+//     and a WRONG scope (recipient not that team's lead) is refused (403)
+//  4. Non-admins are refused cross-centre AND cross-team named recipients
+//     (403) — even with a spoofed recipientTeamScope
 //  5. Role-route creation (TARGET_ROLE / ALL_MANAGEMENT) is refused for
 //     EVERYONE and creates nothing
 //  6. The 3 legacy TARGET_ROLE rows keep rendering (read-compat only)
@@ -104,6 +108,18 @@ check("1e. admin recipients: admins listed by name", adminGroups.admins.some((a)
 check("1f. admin recipients: no teamLead (admin belongs to no team)", adminGroups.teamLead === null);
 check("1g. recipients response no longer offers role-targeting (no roles key)", !("roles" in adminRec.json));
 
+// Admin EXPLICIT team scope: ?country=&state=&team= resolves exactly ONE lead.
+const adminScoped = await call(admin, "/api/escalations/recipients?country=NG&state=Enugu&team=OUTBOUND");
+const adminScopedGroups = adminScoped.json as unknown as Groups;
+check("1h. admin + explicit team scope (Enugu OUTBOUND) → EXACTLY that team's lead", adminScopedGroups.teamLead?.id === tl1User!.id, `teamLead=${JSON.stringify(adminScopedGroups.teamLead)}`);
+check("1i. scoped admin response still lists every supervisor (scope only adds the lead)", adminScopedGroups.supervisors.some((s) => s.id === sup3User!.id) && adminScopedGroups.supervisors.some((s) => s.id === sup1User!.id));
+const adminScopedNone = await call(admin, "/api/escalations/recipients?country=NG&state=Enugu&team=WEB");
+check("1j. admin scope on a team with NO lead → teamLead null (no fallback)", (adminScopedNone.json as unknown as Groups).teamLead === null);
+const adminScopeHalf = await call(admin, "/api/escalations/recipients?country=NG&team=OUTBOUND");
+check("1k. admin scope missing state → ignored, teamLead null (all three parts required)", (adminScopeHalf.json as unknown as Groups).teamLead === null);
+const agentScoped = await call(agent, "/api/escalations/recipients?country=NG&state=Enugu&team=INBOUND");
+check("1l. NON-admin scope params IGNORED — agent still gets ONLY their own team's lead", (agentScoped.json as unknown as Groups).teamLead?.id === tl1User!.id, `teamLead=${JSON.stringify((agentScoped.json as unknown as Groups).teamLead)}`);
+
 // ── §2: non-admins stay scoped to their OWN centre ──
 const supRec = await call(sup1, "/api/escalations/recipients");
 const supGroups = supRec.json as unknown as Groups;
@@ -150,6 +166,19 @@ check("3g. admin → cross-centre TEAM LEAD BY NAME → REFUSED (403)", crossTL.
 const crossTLRow = await db.escalation.count({ where: { subject: "Abuja queue staffing" } });
 check("3h. refused cross-team lead escalation created NO row", crossTLRow === 0, `rows=${crossTLRow}`);
 
+// With an EXPLICIT team scope the admin CAN reach that one team's lead by name.
+const scopedTL = await call(admin, "/api/escalations", { subject: "Abuja inbound coaching", message: "Please coach the Abuja inbound agents on the new queue flow.", severity: "NORMAL", recipientId: tl2User!.id, recipientTeamScope: { country: "NG", state: "Abuja Federal Capital Territory", team: "INBOUND" } });
+const scopedTLEsc = scopedTL.json.escalation as { id: string; targetType: string; targetUserId: string };
+check("3i. admin → cross-centre TEAM LEAD WITH correct team scope → 201 TARGET_USER", scopedTL.status === 201 && scopedTLEsc.targetType === "TARGET_USER" && scopedTLEsc.targetUserId === tl2User!.id, `status=${scopedTL.status}`);
+const tl2Notif = await db.notification.findMany({ where: { userId: tl2User!.id, type: "ESCALATION" } });
+check("3j. the scoped team lead is notified with the thread link", tl2Notif.some((n) => (n.linkData || "").includes(scopedTLEsc.id)));
+const tl2Feed = await call(tl2, "/api/escalations");
+check("3k. the scoped team lead SEES the escalation in their feed", (tl2Feed.json.escalations as { id: string }[]).some((e) => e.id === scopedTLEsc.id));
+const tl2Ack = await call(tl2, "/api/escalations", { id: scopedTLEsc.id, action: "ack", note: "Coaching scheduled for Thursday." }, "PATCH");
+check("3l. the scoped team lead acknowledges the admin's escalation", tl2Ack.status === 200 && (tl2Ack.json.escalation as { status: string }).status === "ACKNOWLEDGED", `status=${tl2Ack.status}`);
+const wrongScope = await call(admin, "/api/escalations", { subject: "Wrong scope attempt", message: "Scope names OUTBOUND but the recipient is the INBOUND lead — must be refused.", severity: "NORMAL", recipientId: tl2User!.id, recipientTeamScope: { country: "NG", state: "Abuja Federal Capital Territory", team: "OUTBOUND" } });
+check("3m. admin + WRONG team scope (recipient is not that team's lead) → 403", wrongScope.status === 403, `status=${wrongScope.status}`);
+
 // ── §4: non-admins CANNOT cross centres OR teams (scope enforcement) ──
 const supCross = await call(sup1, "/api/escalations", { subject: "Out of scope", message: "A supervisor must not reach another centre's supervisor.", severity: "NORMAL", recipientId: sup3User!.id });
 check("4a. supervisor → cross-centre supervisor named escalation REFUSED (403)", supCross.status === 403);
@@ -159,6 +188,10 @@ const agentCrossTeam = await call(agent, "/api/escalations", { subject: "Cross t
 check("4c. agent → same-centre OTHER-team lead REFUSED (403)", agentCrossTeam.status === 403, `status=${agentCrossTeam.status}`);
 const agentWebCross = await call(agentWeb, "/api/escalations", { subject: "Cross team web", message: "A WEB agent (no lead of their own) must not reach ANOTHER team's lead.", severity: "NORMAL", recipientId: tl1User!.id });
 check("4d. WEB-team agent → OTHER team's lead REFUSED (403)", agentWebCross.status === 403, `status=${agentWebCross.status}`);
+const agentSpoof = await call(agent, "/api/escalations", { subject: "Spoofed scope", message: "An agent spoofing recipientTeamScope must not reach another team's lead.", severity: "NORMAL", recipientId: tl3User!.id, recipientTeamScope: { country: "NG", state: "Enugu", team: "INBOUND" } });
+check("4e. agent + SPOOFED recipientTeamScope → REFUSED (403, scope ignored)", agentSpoof.status === 403, `status=${agentSpoof.status}`);
+const supSpoof = await call(sup1, "/api/escalations", { subject: "Spoofed scope sup", message: "A supervisor spoofing recipientTeamScope must not reach another centre's supervisor.", severity: "NORMAL", recipientId: sup3User!.id, recipientTeamScope: { country: "NG", state: "Abuja Federal Capital Territory", team: "INBOUND" } });
+check("4f. supervisor + SPOOFED recipientTeamScope → REFUSED (403)", supSpoof.status === 403, `status=${supSpoof.status}`);
 
 // ── §5: role-route creation is GONE for everyone ──
 const adminRole = await call(admin, "/api/escalations", { subject: "Admin role attempt", message: "Should be refused.", severity: "NORMAL", targetType: "TARGET_ROLE", targetRole: "SUPERVISOR" });

@@ -3,7 +3,9 @@
 //       browser and disappears once push is enabled (one-click enable works)
 //   V2  Escalation composer picker scoping: an agent sees ONLY their own
 //       team's lead (no other team's lead, even same-centre); an ADMIN sees
-//       cross-centre supervisors but NO "Team Leads — all centres" group
+//       cross-centre supervisors, NO "Team Leads — all centres" group, and a
+//       team lead ONLY after picking that lead's team in the scope select —
+//       then exactly that one lead appears, never the other teams'
 import { chromium } from "playwright";
 import { readFileSync, mkdtempSync, rmSync } from "fs";
 import { PrismaClient } from "@prisma/client";
@@ -101,12 +103,22 @@ try {
       await roleTab.click();
       await pageC.waitForTimeout(800);
       const dlgC = pageC.locator("[role='dialog']");
-      await dlgC.locator("[role='combobox']").first().click().catch(() => {});
+      // First combobox = the admin-only TEAM picker (team-lead scope).
+      const teamTrigger = dlgC.locator("[role='combobox']").first();
+      await teamTrigger.click().catch(() => {});
+      await pageC.waitForTimeout(1000);
+      const teamText = await pageC.locator("[role='listbox']").textContent().catch(() => "");
+      check("V2c. admin team picker offers Outbound + Inbound (centre-labelled), no 'all centres' group", teamText.includes("Outbound — NG/Enugu") && teamText.includes("Inbound — NG/Enugu") && !teamText.includes("Team Leads — all centres"), teamText.slice(0, 120));
+      await pageC.locator("[role='option']", { hasText: "Outbound — NG/Enugu" }).first().click().catch(() => {});
+      await pageC.waitForTimeout(1500); // scoped recipients fetch resolves the ONE lead
+      // Second combobox = the recipient picker.
+      const recTrigger = dlgC.locator("[role='combobox']").nth(1);
+      await recTrigger.click().catch(() => {});
       await pageC.waitForTimeout(1000);
       const listText = await pageC.locator("[role='listbox']").textContent().catch(() => "");
-      check("V2c. admin picker has NO 'Team Leads — all centres' group", !listText.includes("Team Leads — all centres"));
-      check("V2d. admin picker still lists cross-centre supervisor (Abuja)", listText.includes("E2E UI Sup Inbound"), listText.slice(0, 90));
-      check("V2e. admin picker does NOT list either team lead", !listText.includes("E2E UI Lead Outbound") && !listText.includes("E2E UI Lead Inbound"));
+      check("V2d. admin recipient picker still lists cross-centre supervisor (Abuja)", listText.includes("E2E UI Sup Inbound"), listText.slice(0, 120));
+      check("V2e. admin picker now lists the SELECTED team's lead (Outbound)", listText.includes("E2E UI Lead Outbound"));
+      check("V2f. admin picker does NOT list the OTHER team's lead (Inbound)", !listText.includes("E2E UI Lead Inbound"));
     } else check("V2c. (skipped — no role tab)", false);
   } else check("V2c. (skipped — no admin composer button)", false);
   await ctxB.close();

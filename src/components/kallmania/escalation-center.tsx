@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { api, fmtDateTime, ROLE_LABELS, type EscalationDTO, type EscalationEventDTO, type EscalationMessageDTO, type EscalationRecipientGroups, type SessionUser } from "@/lib/client";
+import { api, fmtDateTime, ROLE_LABELS, type EscalationDTO, type EscalationEventDTO, type EscalationMessageDTO, type EscalationPerson, type EscalationRecipientGroups, type SessionUser } from "@/lib/client";
 import { EmptyState } from "@/components/kallmania/shared";
 import { Siren, Send, Loader2, CheckCheck, ShieldCheck, User2, Users2, Trash2, ArrowLeft, MessagesSquare, History, RotateCcw, PlayCircle, CheckCircle2, Search, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -50,9 +50,11 @@ function centrePersonLabel(u: { fullName: string; team: string | null; country: 
  *  - "Notify a person" targets one named person (management only).
  *  - "Escalate to a role" escalates to a NAMED team lead / supervisor /
  *    administrator, resolved live from user records. A team lead appears
- *    ONLY to the members of the lead's own team — other teams' views (incl.
- *    the administrator's) never list them. Administrators reach individuals
- *    via "Notify a person" instead.
+ *    ONLY to the members of the lead's own team — other teams' views never
+ *    list them. An ADMINISTRATOR opts in by picking the team first: the
+ *    composer then offers exactly that one team's lead (centre-labelled),
+ *    never an all-centres dump. Individuals stay reachable via
+ *    "Notify a person".
  *  - Staff (agents) escalate by picking a named, live-resolved recipient:
  *    their team's lead (when their team has one), every supervisor of their
  *    centre, or the admins.
@@ -63,6 +65,9 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
   const [mode, setMode] = useState<"ROLE" | "USER">(isManagement ? "USER" : "ROLE");
   const [groups, setGroups] = useState<EscalationRecipientGroups | null>(null);
   const [people, setPeople] = useState<{ id: string; fullName: string; role: string }[]>([]);
+  const [leadTeams, setLeadTeams] = useState<{ country: string; state: string; team: string }[]>([]);
+  const [tlScope, setTlScope] = useState<{ country: string; state: string; team: string } | null>(null);
+  const [scopedLead, setScopedLead] = useState<EscalationPerson | null>(null);
   const [recipientId, setRecipientId] = useState("");
   const [severity, setSeverity] = useState("NORMAL");
   const [subject, setSubject] = useState("");
@@ -78,17 +83,51 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
     setMessage("");
     setSeverity("NORMAL");
     setRecipientId("");
+    setTlScope(null);
+    setScopedLead(null);
+    setLeadTeams([]);
     // Named escalation targets — dynamic, scoped to the requester.
     api<EscalationRecipientGroups>("/api/escalations/recipients")
       .then(setGroups)
       .catch(() => setGroups(null));
     if (isManagement) {
       // Notify any agent of their choice — centre-scoped server side.
-      api<{ users: { id: string; fullName: string; role: string }[] }>("/api/users")
-        .then(({ users }) => setPeople(users.filter((u) => u.id !== user.id)))
+      api<{ users: { id: string; fullName: string; role: string; status?: string; country?: string | null; state?: string | null; team?: string | null }[] }>("/api/users")
+        .then(({ users }) => {
+          setPeople(users.filter((u) => u.id !== user.id));
+          if (isAdmin) {
+            // Admin team-lead scope options: one entry per centre+team that
+            // actually has an APPROVED lead (derived live, never hardcoded).
+            const seen = new Set<string>();
+            const teams: { country: string; state: string; team: string }[] = [];
+            for (const u of users) {
+              if (u.role !== "TEAM_LEAD" || u.status !== "APPROVED" || !u.country || !u.state || !u.team) continue;
+              const key = `${u.country}|${u.state}|${u.team}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              teams.push({ country: u.country, state: u.state, team: u.team });
+            }
+            teams.sort((a, b) => a.team.localeCompare(b.team) || a.state.localeCompare(b.state));
+            setLeadTeams(teams);
+          }
+        })
         .catch(() => setPeople([]));
     }
-  }, [open, isManagement, user.id]);
+  }, [open, isManagement, isAdmin, user.id]);
+
+  // Admin picked a team for the team-lead scope → resolve EXACTLY that team's
+  // lead from the server (live) and reset any chosen recipient.
+  const pickLeadTeam = (key: string) => {
+    const scope = leadTeams.find((t) => `${t.country}|${t.state}|${t.team}` === key) || null;
+    setTlScope(scope);
+    setScopedLead(null);
+    setRecipientId("");
+    if (!scope) return;
+    const qs = new URLSearchParams({ country: scope.country, state: scope.state, team: scope.team });
+    api<EscalationRecipientGroups>(`/api/escalations/recipients?${qs}`)
+      .then((g) => setScopedLead(g.teamLead))
+      .catch(() => setScopedLead(null));
+  };
 
   const send = async () => {
     setSending(true);
@@ -103,7 +142,7 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
         if (!recipientId) { setError("Choose who should handle this"); setSending(false); return; }
         await api("/api/escalations", {
           method: "POST",
-          body: JSON.stringify({ subject, message, severity, recipientId }),
+          body: JSON.stringify({ subject, message, severity, recipientId, ...(isAdmin && tlScope ? { recipientTeamScope: tlScope } : {}) }),
         });
       }
       setOpen(false);
@@ -115,7 +154,8 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
     }
   };
 
-  const hasNamed = !!(groups && (groups.teamLead || groups.supervisors.length > 0 || groups.admins.length > 0));
+  const lead = isAdmin ? scopedLead : groups?.teamLead ?? null;
+  const hasNamed = !!(groups && (groups.supervisors.length > 0 || groups.admins.length > 0)) || !!lead;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -150,15 +190,29 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
           ) : (
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-slate-300">Escalate to</label>
+              {isAdmin && (
+                <Select value={tlScope ? `${tlScope.country}|${tlScope.state}|${tlScope.team}` : undefined} onValueChange={pickLeadTeam}>
+                  <SelectTrigger className={inputCls}>
+                    <SelectValue placeholder={leadTeams.length ? "Add a team lead — pick their team" : "No teams have a lead yet"} />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-60">
+                    {leadTeams.map((t) => (
+                      <SelectItem key={`${t.country}|${t.state}|${t.team}`} value={`${t.country}|${t.state}|${t.team}`}>
+                        {TEAM_LABELS[t.team] ?? t.team} — {t.country}/{t.state}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Select value={recipientId || undefined} onValueChange={setRecipientId}>
                 <SelectTrigger className={inputCls}>
                   <SelectValue placeholder={hasNamed ? "Choose the person who should handle this" : "Loading eligible people…"} />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
-                  {groups?.teamLead && (
+                  {lead && (
                     <SelectGroup>
-                      <SelectLabel className="text-[10px] uppercase tracking-wide text-slate-500">Team Lead — your team</SelectLabel>
-                      <SelectItem value={groups.teamLead.id}>{personLabel(groups.teamLead)}</SelectItem>
+                      <SelectLabel className="text-[10px] uppercase tracking-wide text-slate-500">{isAdmin ? "Team Lead — selected team" : "Team Lead — your team"}</SelectLabel>
+                      <SelectItem value={lead.id}>{isAdmin ? centrePersonLabel(lead) : personLabel(lead)}</SelectItem>
                     </SelectGroup>
                   )}
                   {groups && groups.supervisors.length > 0 && (
@@ -177,7 +231,7 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
               </Select>
               <p className="text-[10px] text-slate-500">
                 {isAdmin
-                  ? "As an administrator you can escalate to every centre's supervisors and the administrators — each name shows its centre. Team leads are reachable via Notify a person."
+                  ? "As an administrator you can escalate to every centre's supervisors and the administrators — each name shows its centre. To add a team lead, pick their team above: only that team's lead appears."
                   : "Only active, eligible people appear here — your team's lead (if your team has one), every supervisor of your centre, and the administrators."}
               </p>
             </div>

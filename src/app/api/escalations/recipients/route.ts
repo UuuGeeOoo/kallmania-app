@@ -8,7 +8,10 @@ import { namedRecipients } from "@/lib/escalations";
  * offers, resolved LIVE from user records (never hardcoded):
  *   - teamLead:    the team lead of the requester's OWN team (same centre +
  *                  same team) — a team lead is visible to nobody outside
- *                  their own team, and never to themselves
+ *                  their own team, and never to themselves. ADMINISTRATORS
+ *                  may instead name a team via ?country=&state=&team= (all
+ *                  three required) and receive exactly that team's lead;
+ *                  the scope is ignored for every other role.
  *   - supervisors: every eligible supervisor of the requester's centre
  *                  (centres with multiple supervisors all appear); for ADMIN
  *                  authors, every supervisor of EVERY centre
@@ -16,10 +19,15 @@ import { namedRecipients } from "@/lib/escalations";
  * Each person carries country/state so cross-centre names can be labelled
  * with their centre. Inactive / unauthorized users are never returned.
  */
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
   return handle(async () => {
     const me = await requireUser();
-    const groups = await namedRecipients(me);
+    const { searchParams } = new URL(req.url);
+    const country = (searchParams.get("country") || "").trim();
+    const state = (searchParams.get("state") || "").trim();
+    const team = (searchParams.get("team") || "").trim();
+    const teamScope = country && state && team ? { country, state, team } : null;
+    const groups = await namedRecipients(me, { teamScope });
     return ok(groups);
   });
 }
