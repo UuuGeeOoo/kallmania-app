@@ -1,11 +1,12 @@
 "use client";
 
 /**
- * Browser push notification settings (Profile → "Browser notifications").
- * Implements the full enable/disable/test flow with explicit states:
- * unsupported · not configured (admins) · permission pending/denied ·
- * unsubscribed · subscribed · registration failed — plus per-device list and
- * category preferences (administrator-defined mandatory categories locked).
+ * Browser push notification settings (Profile → "Browser notifications")
+ * plus the compact PushEnableBanner for the Notifications page. Implements
+ * the full enable/disable/test flow with explicit states: unsupported ·
+ * not configured (admins) · permission pending/denied · unsubscribed ·
+ * subscribed · registration failed — plus per-device list and category
+ * preferences (administrator-defined mandatory categories locked).
  */
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,65 @@ import { api } from "@/lib/client";
 import { Bell, BellOff, Loader2, MonitorSmartphone, RefreshCw, Send, ShieldCheck } from "lucide-react";
 
 interface CategoriesDTO { categories: { type: string; label: string }[]; mandatory: string[]; prefs: { pushEnabled: boolean; categories: Record<string, boolean> } }
+
+/**
+ * Compact enable prompt shown on the Notifications page: the natural place a
+ * user looks for notifications is also where they learn real push exists.
+ * Renders ONLY while the browser can still be enabled here (permission
+ * pending / unsubscribed) — subscribed, denied, unsupported and unconfigured
+ * states are handled in the full Profile card.
+ */
+export function PushEnableBanner({ onManage }: { onManage?: () => void }) {
+  const { toast } = useToast();
+  const [state, setState] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void getPushStatus().then(setState).catch(() => setState(null));
+  }, []);
+
+  if (!state || (state.kind !== "permission-pending" && state.kind !== "unsubscribed")) return null;
+
+  const enable = async () => {
+    setBusy(true);
+    try {
+      const next = await enableBrowserNotifications();
+      setState(next);
+      if (next.kind === "subscribed") {
+        toast({ title: "Browser notifications enabled", description: "This device will now receive push notifications." });
+      } else if (next.kind === "permission-denied") {
+        toast({ title: "Permission denied", description: "Allow notifications in the browser site settings, then reload.", variant: "destructive" });
+      } else if (next.kind === "registration-failed") {
+        toast({ title: "Could not enable notifications", description: next.reason, variant: "destructive" });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="k-card mb-3 flex flex-wrap items-center gap-3 border-[#6c5ce7]/40 p-3.5">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#6c5ce7]/20 text-[#b3a5ff]">
+        <Bell className="h-4.5 w-4.5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-bold text-white">Get notified even when Kallmania is closed</p>
+        <p className="text-[11px] leading-relaxed text-slate-400">
+          Turn on real browser push notifications — escalations, report decisions, tasks and notices reach this device instantly, even in the background.
+        </p>
+      </div>
+      <Button onClick={enable} disabled={busy} className="bg-[#6c5ce7] hover:bg-[#5b4bd4]">
+        {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Bell className="mr-2 h-4 w-4" />}
+        Enable browser notifications
+      </Button>
+      {onManage && (
+        <Button variant="ghost" size="sm" onClick={onManage} className="text-slate-400 hover:text-slate-200">
+          Settings
+        </Button>
+      )}
+    </div>
+  );
+}
 
 const STATE_COPY: Record<string, { title: string; detail: string; tone: string }> = {
   unsupported: { title: "Browser not supported", detail: "This browser cannot receive web push notifications. Use a current version of Chrome, Edge, Firefox or Safari (iOS requires adding the site to the Home Screen on iOS 16.4+).", tone: "text-slate-300" },

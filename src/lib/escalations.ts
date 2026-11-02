@@ -152,14 +152,15 @@ export interface EscalationPerson {
  * supervisor of their centre (multi-supervisor centres supported), and all
  * eligible administrators. Inactive / unauthorized users never appear.
  *
- * ADMIN authors are the exception: their escalation view lists the leaders
- * of EVERY centre — all team leads (`teamLeads`) and every supervisor, each
- * carrying their centre so cross-centre names are identifiable. Everyone
- * else stays strictly within their own centre.
+ * TEAM-LEAD SCOPING RULE: a team lead is pickable ONLY by the members of the
+ * team lead's own team (same centre + same team). No other team's view — not
+ * even an administrator's — lists them; administrators reach individuals
+ * through "Notify a person" instead. Requesters whose team has no lead (or
+ * no team at all) simply get no team-lead option (supervisors + admins
+ * remain), and nobody is offered themselves as a recipient.
  */
 export async function namedRecipients(me: MeLike): Promise<{
   teamLead: EscalationPerson | null;
-  teamLeads: EscalationPerson[];
   supervisors: EscalationPerson[];
   admins: EscalationPerson[];
 }> {
@@ -167,25 +168,15 @@ export async function namedRecipients(me: MeLike): Promise<{
   const centreWhere = me.country && me.state ? { country: me.country, state: me.state } : {};
   const isAdmin = me.role === "ADMIN";
 
-  // Administrators reach the leadership of ALL centres; every other author
-  // is scoped to their own centre only.
-  const teamLeads = isAdmin
-    ? await db.user.findMany({ where: { role: "TEAM_LEAD", status: "APPROVED" }, select, orderBy: { fullName: "asc" } })
-    : [];
-
-  let teamLead: EscalationPerson | null = null;
-  if (!isAdmin) {
-    teamLead = me.team
-      ? await db.user.findFirst({ where: { role: "TEAM_LEAD", status: "APPROVED", ...centreWhere, team: me.team }, select })
-      : null;
-    if (!teamLead) {
-      // Fall back to any team lead of the requester's centre (agent without team match).
-      teamLead = await db.user.findFirst({ where: { role: "TEAM_LEAD", status: "APPROVED", ...centreWhere }, select });
-    }
-    if (!teamLead && me.country && me.state === null) {
-      teamLead = await db.user.findFirst({ where: { role: "TEAM_LEAD", status: "APPROVED", country: me.country }, select });
-    }
-  }
+  // A team lead appears ONLY to their own team's members: exact centre + team
+  // match, never the requester themselves. No cross-team or cross-centre
+  // fallback — a lead of another team must not surface anywhere else.
+  const teamLead = !isAdmin && me.team
+    ? await db.user.findFirst({
+        where: { role: "TEAM_LEAD", status: "APPROVED", ...centreWhere, team: me.team, id: { not: me.id } },
+        select,
+      })
+    : null;
 
   const supervisors = await db.user.findMany({
     where: { role: "SUPERVISOR", status: "APPROVED", ...(isAdmin ? {} : centreWhere) },
@@ -198,7 +189,7 @@ export async function namedRecipients(me: MeLike): Promise<{
     orderBy: { fullName: "asc" },
   });
 
-  return { teamLead, teamLeads, supervisors, admins };
+  return { teamLead, supervisors, admins };
 }
 
 /**
@@ -224,11 +215,12 @@ export async function roleRecipients(
 }
 
 /** Is `candidateId` an eligible named recipient for `me` (used to validate composer submissions server-side)?
- *  For administrators this spans every centre's leaders (teamLeads + all supervisors + admins);
- *  for everyone else it is strictly their own centre's leadership. */
+ *  Team leads are eligible only to their own team's members; supervisors are
+ *  centre-scoped (all centres for administrators); administrators are
+ *  eligible for everyone. */
 export async function isEligibleRecipient(me: MeLike, candidateId: string): Promise<EscalationPerson | null> {
   const groups = await namedRecipients(me);
-  const all = [groups.teamLead, ...groups.teamLeads, ...groups.supervisors, ...groups.admins].filter(Boolean) as EscalationPerson[];
+  const all = [groups.teamLead, ...groups.supervisors, ...groups.admins].filter(Boolean) as EscalationPerson[];
   return all.find((u) => u.id === candidateId) || null;
 }
 

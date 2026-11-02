@@ -1,11 +1,15 @@
 // API-level E2E for the escalation composer's NAMED recipients with the
-// ADMIN all-centre leadership view (role-based routing is removed):
-//  1. ADMIN composer lists the leaders of EVERY centre — all team leads
-//     (teamLeads) and every supervisor — each carrying centre info
-//  2. Supervisors / team leads / agents stay scoped to their OWN centre
-//  3. ADMIN can escalate BY NAME to another centre's supervisor or team lead
-//     (201 → notified → sees it → acks → resolves)
-//  4. Non-admins are refused cross-centre named recipients (403)
+// TEAM-LEAD-ONLY-SEEN-BY-OWN-TEAM rule (role-based routing is removed):
+//  1. ADMIN composer lists every centre's SUPERVISORS (centre-labelled) but
+//     NO team leads — a team lead is visible only to their own team, and
+//     nobody (not even an admin) can escalate to another team's lead by name
+//  2. Supervisors / team leads / agents stay scoped to their OWN centre;
+//     agents get a team lead ONLY when their own team has one (no fallback);
+//     a team lead is never offered themselves
+//  3. ADMIN can still escalate BY NAME to another centre's supervisor
+//     (201 → notified → sees it → acks → resolves), but a cross-team /
+//     cross-centre TEAM LEAD attempt is refused (403, nothing created)
+//  4. Non-admins are refused cross-centre AND cross-team named recipients (403)
 //  5. Role-route creation (TARGET_ROLE / ALL_MANAGEMENT) is refused for
 //     EVERYONE and creates nothing
 //  6. The 3 legacy TARGET_ROLE rows keep rendering (read-compat only)
@@ -26,12 +30,14 @@ const PASSWORD = "e2e-test-2026";
 const CENTRE = { country: "NG", state: "Enugu" };
 const OTHER_CENTRE = { country: "NG", state: "Abuja Federal Capital Territory" };
 const AGENT = { email: "esc-people-agent@kallmania.test", fullName: "E2E People Agent", role: "AGENT_BPO", department: "BPO", team: "OUTBOUND", employeeId: "E2E-PPL-1", ...CENTRE };
+const AGENT_WEB = { email: "esc-people-agent-web@kallmania.test", fullName: "E2E People Web Agent", role: "AGENT_BPO", department: "BPO", team: "WEB", employeeId: "E2E-PPL-2", ...CENTRE };
 const TL1 = { email: "esc-people-tl1@kallmania.test", fullName: "E2E People Lead Enugu", role: "TEAM_LEAD", department: "BPO", team: "OUTBOUND", employeeId: "E2E-PPL-T1", ...CENTRE };
 const TL2 = { email: "esc-people-tl2@kallmania.test", fullName: "E2E People Lead Abuja", role: "TEAM_LEAD", department: "BPO", team: "INBOUND", employeeId: "E2E-PPL-T2", ...OTHER_CENTRE };
+const TL3 = { email: "esc-people-tl3@kallmania.test", fullName: "E2E People Lead Enugu Inbound", role: "TEAM_LEAD", department: "BPO", team: "INBOUND", employeeId: "E2E-PPL-T3", ...CENTRE };
 const SUP1 = { email: "esc-people-sup1@kallmania.test", fullName: "E2E People Sup Enugu", role: "SUPERVISOR", department: "MANAGEMENT", team: null, employeeId: "E2E-PPL-S1", ...CENTRE };
 const SUP3 = { email: "esc-people-sup3@kallmania.test", fullName: "E2E People Sup Abuja", role: "SUPERVISOR", department: "MANAGEMENT", team: null, employeeId: "E2E-PPL-S3", ...OTHER_CENTRE };
 const ADMIN = { email: "esc-people-admin@kallmania.test", fullName: "E2E People Admin", role: "ADMIN", department: "MANAGEMENT", team: null, employeeId: "E2E-PPL-AD", ...CENTRE };
-const ALL_USERS = [AGENT, TL1, TL2, SUP1, SUP3, ADMIN];
+const ALL_USERS = [AGENT, AGENT_WEB, TL1, TL2, TL3, SUP1, SUP3, ADMIN];
 
 let failures = 0;
 function check(name: string, cond: unknown, extra = "") {
@@ -73,26 +79,29 @@ await db.notification.deleteMany({ where: { userId: { in: oldIds } } });
 await db.auditLog.deleteMany({ where: { userId: { in: oldIds } } });
 
 const agent = await login({ email: AGENT.email, password: PASSWORD });
+const agentWeb = await login({ email: AGENT_WEB.email, password: PASSWORD });
 const tl1 = await login({ email: TL1.email, password: PASSWORD });
+const tl2 = await login({ email: TL2.email, password: PASSWORD });
 const sup1 = await login({ email: SUP1.email, password: PASSWORD });
 const admin = await login({ email: ADMIN.email, password: PASSWORD });
-console.log("setup ok — 6 test users approved (4 logged in)");
+console.log("setup ok — 8 test users approved (6 logged in)");
 
 const adminUser = await db.user.findUnique({ where: { email: ADMIN.email } });
 const sup3User = await db.user.findUnique({ where: { email: SUP3.email } });
 const tl2User = await db.user.findUnique({ where: { email: TL2.email } });
+const tl3User = await db.user.findUnique({ where: { email: TL3.email } });
 const sup1User = await db.user.findUnique({ where: { email: SUP1.email } });
 const tl1User = await db.user.findUnique({ where: { email: TL1.email } });
 
-// ── §1: ADMIN composer lists the leaders of EVERY centre ──
+// ── §1: ADMIN composer — every centre's supervisors, but NO team leads ──
 const adminRec = await call(admin, "/api/escalations/recipients");
 const adminGroups = adminRec.json as unknown as Groups;
 check("1a. admin recipients: cross-centre supervisor (Abuja) IS listed", adminGroups.supervisors.some((s) => s.id === sup3User!.id), `count=${adminGroups.supervisors.length}`);
 check("1b. admin recipients: own-centre supervisor ALSO listed", adminGroups.supervisors.some((s) => s.id === sup1User!.id));
-check("1c. admin recipients: teamLeads includes BOTH centres' leads", (adminGroups.teamLeads ?? []).some((t) => t.id === tl1User!.id) && (adminGroups.teamLeads ?? []).some((t) => t.id === tl2User!.id), `teamLeads=${(adminGroups.teamLeads ?? []).length}`);
+check("1c. admin recipients: NO team leads of ANY centre (leads are own-team only)", !("teamLeads" in adminRec.json), `teamLeads=${(adminGroups as { teamLeads?: unknown }).teamLeads}`);
 check("1d. admin recipients: every supervisor carries centre info (country+state)", adminGroups.supervisors.every((s) => !!s.country && !!s.state));
-check("1e. admin recipients: every team lead carries centre info", (adminGroups.teamLeads ?? []).every((t) => !!t.country && !!t.state));
-check("1f. admin recipients: admins listed by name", adminGroups.admins.some((a) => a.id === adminUser!.id));
+check("1e. admin recipients: admins listed by name", adminGroups.admins.some((a) => a.id === adminUser!.id));
+check("1f. admin recipients: no teamLead (admin belongs to no team)", adminGroups.teamLead === null);
 check("1g. recipients response no longer offers role-targeting (no roles key)", !("roles" in adminRec.json));
 
 // ── §2: non-admins stay scoped to their OWN centre ──
@@ -100,13 +109,23 @@ const supRec = await call(sup1, "/api/escalations/recipients");
 const supGroups = supRec.json as unknown as Groups;
 check("2a. supervisor recipients: cross-centre supervisor NOT listed", !supGroups.supervisors.some((s) => s.id === sup3User!.id));
 check("2b. supervisor recipients: own-centre supervisor IS listed", supGroups.supervisors.some((s) => s.id === sup1User!.id));
-check("2c. supervisor recipients: NO all-centre teamLeads array", (supGroups.teamLeads ?? []).length === 0);
+check("2c. supervisor recipients: NO all-centre teamLeads array", !("teamLeads" in supRec.json));
 check("2d. supervisor recipients: teamLead (if any) is their own centre's", !supGroups.teamLead || (supGroups.teamLead.country === "NG" && supGroups.teamLead.state === "Enugu"));
 const agentRec = await call(agent, "/api/escalations/recipients");
 const agentGroups = agentRec.json as unknown as Groups;
 check("2e. agent recipients: team lead is their OWN team's lead (Enugu OUTBOUND)", agentGroups.teamLead?.id === tl1User!.id);
 check("2f. agent recipients: cross-centre supervisor NOT listed", !agentGroups.supervisors.some((s) => s.id === sup3User!.id));
-check("2g. agent recipients: NO all-centre teamLeads array", (agentGroups.teamLeads ?? []).length === 0);
+check("2g. agent recipients: NO all-centre teamLeads array", !("teamLeads" in agentRec.json));
+check("2h. agent recipients: SAME-centre OTHER-team lead (Enugu INBOUND) NOT listed anywhere", agentGroups.teamLead?.id !== tl3User!.id && !agentGroups.supervisors.some((s) => s.id === tl3User!.id) && !agentGroups.admins.some((a) => a.id === tl3User!.id));
+const agentWebRec = await call(agentWeb, "/api/escalations/recipients");
+const agentWebGroups = agentWebRec.json as unknown as Groups;
+check("2i. WEB-team agent (team has NO lead): teamLead is null — no cross-team fallback", agentWebGroups.teamLead === null, `teamLead=${JSON.stringify(agentWebGroups.teamLead)}`);
+const tl1Rec = await call(tl1, "/api/escalations/recipients");
+const tl1Groups = tl1Rec.json as unknown as Groups;
+check("2j. team lead is never offered THEMSELVES as recipient", tl1Groups.teamLead === null, `teamLead=${JSON.stringify(tl1Groups.teamLead)}`);
+const tl2Rec = await call(tl2, "/api/escalations/recipients");
+const tl2Groups = tl2Rec.json as unknown as Groups;
+check("2k. cross-centre TL (Abuja INBOUND): no teamLead, own-centre supervisors only", tl2Groups.teamLead === null && !tl2Groups.supervisors.some((s) => s.id === sup1User!.id) && tl2Groups.supervisors.some((s) => s.id === sup3User!.id));
 
 // ── §3: ADMIN escalates BY NAME across centres (the whole point) ──
 const crossRes = await call(admin, "/api/escalations", { subject: "Abuja printer audit", message: "Please audit the Abuja floor printers this week — the Enugu fix should be replicated there.", severity: "NORMAL", recipientId: sup3User!.id });
@@ -124,15 +143,22 @@ check("3e. admin can post into the cross-centre thread", adminPost.status === 20
 const sup3Resolve = await call(sup3Login, "/api/escalations", { id: crossEsc.id, action: "resolve", resolutionNote: "Audit done — all Abuja printers patched like Enugu." }, "PATCH");
 check("3f. cross-centre recipient resolves with a note", sup3Resolve.status === 200 && (sup3Resolve.json.escalation as { status: string }).status === "RESOLVED");
 
-// Admin can also escalate to another centre's TEAM LEAD by name.
+// Admin can NO LONGER escalate to another centre's (or team's) TEAM LEAD by
+// name — team leads are visible/reachable only through their own team.
 const crossTL = await call(admin, "/api/escalations", { subject: "Abuja queue staffing", message: "Please rebalance the Abuja inbound queue for Friday.", severity: "NORMAL", recipientId: tl2User!.id });
-check("3g. admin → cross-centre TEAM LEAD BY NAME → 201", crossTL.status === 201 && ((crossTL.json.escalation as { targetUserId: string }).targetUserId === tl2User!.id));
+check("3g. admin → cross-centre TEAM LEAD BY NAME → REFUSED (403)", crossTL.status === 403, `status=${crossTL.status}`);
+const crossTLRow = await db.escalation.count({ where: { subject: "Abuja queue staffing" } });
+check("3h. refused cross-team lead escalation created NO row", crossTLRow === 0, `rows=${crossTLRow}`);
 
-// ── §4: non-admins CANNOT cross centres (scope enforcement) ──
+// ── §4: non-admins CANNOT cross centres OR teams (scope enforcement) ──
 const supCross = await call(sup1, "/api/escalations", { subject: "Out of scope", message: "A supervisor must not reach another centre's supervisor.", severity: "NORMAL", recipientId: sup3User!.id });
 check("4a. supervisor → cross-centre supervisor named escalation REFUSED (403)", supCross.status === 403);
 const agentCross = await call(agent, "/api/escalations", { subject: "Out of scope", message: "An agent must not reach another centre's supervisor.", severity: "NORMAL", recipientId: sup3User!.id });
 check("4b. agent → cross-centre supervisor named escalation REFUSED (403)", agentCross.status === 403);
+const agentCrossTeam = await call(agent, "/api/escalations", { subject: "Cross team", message: "An OUTBOUND agent must not reach the INBOUND team lead of the same centre.", severity: "NORMAL", recipientId: tl3User!.id });
+check("4c. agent → same-centre OTHER-team lead REFUSED (403)", agentCrossTeam.status === 403, `status=${agentCrossTeam.status}`);
+const agentWebCross = await call(agentWeb, "/api/escalations", { subject: "Cross team web", message: "A WEB agent (no lead of their own) must not reach ANOTHER team's lead.", severity: "NORMAL", recipientId: tl1User!.id });
+check("4d. WEB-team agent → OTHER team's lead REFUSED (403)", agentWebCross.status === 403, `status=${agentWebCross.status}`);
 
 // ── §5: role-route creation is GONE for everyone ──
 const adminRole = await call(admin, "/api/escalations", { subject: "Admin role attempt", message: "Should be refused.", severity: "NORMAL", targetType: "TARGET_ROLE", targetRole: "SUPERVISOR" });

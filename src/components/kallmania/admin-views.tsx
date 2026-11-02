@@ -12,6 +12,7 @@ import { EMPLOYMENT_LABELS, WORKDAY_SHORT, FULL_TIME_DEFAULT, formatWorkDays, sh
 import { UserKpiDialog } from "@/components/kallmania/user-kpi-dialog";
 import { MemberKpiConfigCard } from "@/components/kallmania/member-kpi-editor";
 import { EscalationsPanel } from "@/components/kallmania/escalation-center";
+import { PushEnableBanner } from "@/components/kallmania/push-settings";
 import { TeamLeadTemplateEditor } from "@/components/kallmania/team-lead-form";
 import { DocumentViewerModal } from "@/components/kallmania/document-viewer";
 import { TextDraftModal } from "@/components/kallmania/text-draft";
@@ -839,6 +840,8 @@ export function NotificationsView({ user, onNavigate }: { user: { id: string; ro
 
   return (
     <div>
+      {/* Real browser push: prompt while this browser can still be enabled (hides itself once subscribed) */}
+      <PushEnableBanner onManage={() => onNavigate("profile")} />
       <PageHeader
         title="Notifications"
         subtitle="Alerts for submissions, KPI shortfalls, escalations, overdue reports and failed uploads"

@@ -49,11 +49,13 @@ function centrePersonLabel(u: { fullName: string; team: string | null; country: 
  * Notify / escalate composer.
  *  - "Notify a person" targets one named person (management only).
  *  - "Escalate to a role" escalates to a NAMED team lead / supervisor /
- *    administrator, resolved live from user records. Administrators see the
- *    leaders of EVERY centre in this picker (each name labelled with its
- *    centre); other management see their own centre's leaders only.
+ *    administrator, resolved live from user records. A team lead appears
+ *    ONLY to the members of the lead's own team — other teams' views (incl.
+ *    the administrator's) never list them. Administrators reach individuals
+ *    via "Notify a person" instead.
  *  - Staff (agents) escalate by picking a named, live-resolved recipient:
- *    their team's lead, every supervisor of their centre, or the admins.
+ *    their team's lead (when their team has one), every supervisor of their
+ *    centre, or the admins.
  */
 export function EscalationComposer({ user, open, setOpen, onSent }: { user: SessionUser; open: boolean; setOpen: (v: boolean) => void; onSent?: () => void }) {
   const isManagement = ["TEAM_LEAD", "SUPERVISOR", "ADMIN"].includes(user.role);
@@ -113,7 +115,7 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
     }
   };
 
-  const hasNamed = !!(groups && ((groups.teamLeads?.length ?? 0) > 0 || groups.teamLead || groups.supervisors.length > 0 || groups.admins.length > 0));
+  const hasNamed = !!(groups && (groups.teamLead || groups.supervisors.length > 0 || groups.admins.length > 0));
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -153,12 +155,7 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
                   <SelectValue placeholder={hasNamed ? "Choose the person who should handle this" : "Loading eligible people…"} />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
-                  {isAdmin && groups?.teamLeads?.length ? (
-                    <SelectGroup>
-                      <SelectLabel className="text-[10px] uppercase tracking-wide text-slate-500">Team Leads — all centres</SelectLabel>
-                      {groups.teamLeads.map((t) => <SelectItem key={t.id} value={t.id}>{centrePersonLabel(t)}</SelectItem>)}
-                    </SelectGroup>
-                  ) : groups?.teamLead && (
+                  {groups?.teamLead && (
                     <SelectGroup>
                       <SelectLabel className="text-[10px] uppercase tracking-wide text-slate-500">Team Lead — your team</SelectLabel>
                       <SelectItem value={groups.teamLead.id}>{personLabel(groups.teamLead)}</SelectItem>
@@ -180,8 +177,8 @@ export function EscalationComposer({ user, open, setOpen, onSent }: { user: Sess
               </Select>
               <p className="text-[10px] text-slate-500">
                 {isAdmin
-                  ? "As an administrator you can escalate to the team leads, supervisors and administrators of every centre — each name shows its centre."
-                  : "Only active, eligible people appear here — your team's lead, every supervisor of your centre, and the administrators."}
+                  ? "As an administrator you can escalate to every centre's supervisors and the administrators — each name shows its centre. Team leads are reachable via Notify a person."
+                  : "Only active, eligible people appear here — your team's lead (if your team has one), every supervisor of your centre, and the administrators."}
               </p>
             </div>
           )}

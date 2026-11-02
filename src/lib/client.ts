@@ -344,10 +344,8 @@ export interface EscalationPerson {
 }
 
 export interface EscalationRecipientGroups {
-  /** The requester's own team lead (non-admin authors; admins get teamLeads). */
+  /** The requester's own team lead — only members of that lead's team get one. */
   teamLead: EscalationPerson | null;
-  /** ALL active team leads across EVERY centre — ADMIN authors only. */
-  teamLeads?: EscalationPerson[];
   /** Own centre's supervisors; for ADMIN authors, every centre's supervisors. */
   supervisors: EscalationPerson[];
   admins: EscalationPerson[];
