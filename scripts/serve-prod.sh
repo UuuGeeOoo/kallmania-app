@@ -27,9 +27,19 @@ LOG=/home/z/my-project/server.log
 log() { echo "[serve-prod] $*"; }
 
 # ── 1. Heal .env (CLI tools read it directly; the app has an in-code guard) ──
+# Non-destructive: when .env exists but lost DATABASE_URL, keep every other
+# line (e.g. GEMINI_API_KEY) and repair only the database URL.
 if [ ! -s .env ] || ! grep -q '^DATABASE_URL=postgresql://' .env 2>/dev/null; then
-  log ".env missing or not a postgres URL — restoring Supabase URL"
-  echo "DATABASE_URL=$FALLBACK_URL" > .env
+  if [ -s .env ]; then
+    cp .env ".env.bak.$(date +%Y%m%d%H%M%S)"
+    grep -v '^DATABASE_URL=' .env > .env.heal
+    echo "DATABASE_URL=$FALLBACK_URL" >> .env.heal
+    mv .env.heal .env
+    log ".env repaired — DATABASE_URL restored, other variables preserved"
+  else
+    log ".env missing — restoring Supabase URL (other secrets must be re-added manually)"
+    echo "DATABASE_URL=$FALLBACK_URL" > .env
+  fi
 fi
 
 # ── 2. Stop whatever occupies :3000 (dev server, old prod server) ──
@@ -60,13 +70,13 @@ if [ "$need_build" = "1" ]; then
     node scripts/dev-daemon.js
     exit 2
   fi
-  # The standalone server loads .env from its own directory (platform build
-  # convention) — keep the healed URL next to it.
-  cp .env .next/standalone/.env 2>/dev/null
   log "build complete"
 fi
 
 # ── 4. Start the standalone server ──
+# The standalone server loads .env from its own directory — refresh it on
+# every boot so runtime env (GEMINI_API_KEY…) is current without a rebuild.
+cp .env .next/standalone/.env 2>/dev/null
 export NODE_ENV=production
 export PORT=3000
 export HOSTNAME=0.0.0.0

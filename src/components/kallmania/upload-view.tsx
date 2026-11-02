@@ -593,6 +593,11 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
                 {full?.meta.agentName && <span>Owner: <span className="text-slate-100">{full.meta.agentName}</span></span>}
                 <span className="ml-auto text-slate-500">{full?.coverage.aiStagesCompleted ? `AI read the full document in ${full.coverage.chunksRead} pass${full.coverage.chunksRead > 1 ? "es" : ""}` : "AI read unavailable — deterministic pass only"}</span>
               </div>
+              {extraction.stats.aiNote && (
+                <div className={`mt-2 flex items-start gap-2 rounded-lg border px-3 py-2 ${extraction.stats.aiNote.includes("Gemini unavailable") || extraction.stats.aiNote.includes("unavailable") ? "border-amber-500/30 bg-amber-500/10 text-amber-200" : "border-sky-500/30 bg-sky-500/10 text-sky-200"}`}>
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{extraction.stats.aiNote}</span>
+                </div>
+              )}
               {full?.meta.departmentMismatch && (
                 <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-200">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {full.meta.departmentMismatch}

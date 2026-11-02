@@ -158,6 +158,8 @@ export interface FullExtraction {
     aiStagesCompleted: number;
   };
   warnings: string[];
+  /** Active AI engine — "Gemini (<model>)" or a flagged fallback note shown to the reviewer. */
+  engineNote?: string;
 }
 
 export type DocIntelDepartment = "BPO" | "WEB_DEV" | "SOCIAL_MEDIA" | "MANAGEMENT";

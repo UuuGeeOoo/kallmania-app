@@ -67,3 +67,6 @@ vendor/
 
 # local test evidence artifacts
 downloads/
+upload/
+.env.bak.*
+.env.heal

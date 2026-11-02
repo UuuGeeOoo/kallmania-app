@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
+import { geminiVisionText } from "@/lib/gemini";
 import type { DocBlock, DocumentIR } from "./types";
 
 const ref = (prefix: string, n: number) => `${prefix} ${n}`;
@@ -304,36 +305,49 @@ export async function parsePdf(buffer: Buffer): Promise<DocumentIR> {
   };
 }
 
-// ── Images: vision OCR instructed to emit markdown tables (existing SDK) ──
+// ── Images: vision OCR instructed to emit markdown tables (Gemini primary) ──
+
+const OCR_PROMPT = [
+  "Transcribe this document image into markdown, preserving the reading order and structure.",
+  "Rules:",
+  "1. Headings become '## Heading'.",
+  "2. Tables become markdown pipe tables — every row stays a row, keep column alignment.",
+  "3. Keep each label and its value on the same table row or same line (e.g. 'Total Calls Made | 30').",
+  "4. Copy numbers EXACTLY as printed — do not compute, round or infer anything.",
+  "5. Include ALL text from the top of the page to the bottom; do not skip sections.",
+  "Output only the markdown transcription, no commentary.",
+].join("\n");
 
 export async function parseImage(buffer: Buffer, mimeType: string): Promise<DocumentIR> {
-  const ZAI = (await import("z-ai-web-dev-sdk")).default;
-  const zai = await ZAI.create();
   const b64 = buffer.toString("base64");
-  const completion = await zai.chat.completions.create({
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: [
-              "Transcribe this document image into markdown, preserving the reading order and structure.",
-              "Rules:",
-              "1. Headings become '## Heading'.",
-              "2. Tables become markdown pipe tables — every row stays a row, keep column alignment.",
-              "3. Keep each label and its value on the same table row or same line (e.g. 'Total Calls Made | 30').",
-              "4. Copy numbers EXACTLY as printed — do not compute, round or infer anything.",
-              "5. Include ALL text from the top of the page to the bottom; do not skip sections.",
-              "Output only the markdown transcription, no commentary.",
-            ].join("\n"),
-          },
-          { type: "image_url", image_url: { url: `data:${mimeType};base64,${b64}` } },
-        ],
-      },
-    ] as never,
-  });
-  const content = (completion as { choices?: { message?: { content?: string } }[] })?.choices?.[0]?.message?.content || "";
+  // PRIMARY: Gemini vision OCR. FALLBACK (flagged in the route note): previous
+  // vision engine — keeps image reports readable when Gemini is unavailable.
+  let content = "";
+  let engineNote = "Image OCR (Gemini vision)";
+  const g = await geminiVisionText(OCR_PROMPT, b64, mimeType, { timeoutMs: 120_000 });
+  if (g.ok && g.text) {
+    content = g.text;
+  } else {
+    const ZAI = (await import("z-ai-web-dev-sdk")).default;
+    const zai = await ZAI.create();
+    // Vision content requires the SDK's VISION endpoint — create() is
+    // text-only and rejects image parts (HTTP 400 code 1210). The server
+    // supplies its own default vision model (the SDK CLI sends none).
+    const completion = await zai.chat.completions.createVision({
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: OCR_PROMPT },
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${b64}` } },
+          ],
+        },
+      ],
+      thinking: { type: "disabled" },
+    } as Parameters<typeof zai.chat.completions.createVision>[0]);
+    content = (completion as { choices?: { message?: { content?: string } }[] })?.choices?.[0]?.message?.content || "";
+    engineNote = `Image OCR (fallback vision engine — Gemini unavailable: ${g.error || "unknown"})`;
+  }
   // Minimal IR from markdown OCR output
   const blocks: DocBlock[] = [];
   let tableIdx = 0;
@@ -364,7 +378,7 @@ export async function parseImage(buffer: Buffer, mimeType: string): Promise<Docu
   }
   return {
     format: "image",
-    routeNote: "Image OCR (vision model) — tables transcribed as markdown structure",
+    routeNote: `${engineNote} — tables transcribed as markdown structure`,
     blocks,
     markdown: content.trim(),
     stats: { headings: blocks.filter((b) => b.kind === "heading").length, tables: tableIdx, paragraphs: paraIdx, chars: content.length },

@@ -491,9 +491,17 @@ export async function extractReport(
   }
 
   const aiChecked = full.coverage.aiStagesCompleted > 0;
-  const aiNote = !aiChecked && full.warnings.length
-    ? `AI stages unavailable (${full.warnings[0].slice(0, 120)}) — values above come from the deterministic pass`
-    : full.meta.departmentMismatch || undefined;
+  // Engine transparency: a flagged fallback (e.g. Gemini geo-restricted →
+  // previous engine) is always shown; never a silent engine swap.
+  const engineFlag = full.engineNote && !full.engineNote.startsWith("Gemini (") ? full.engineNote : undefined;
+  const aiNote =
+    [
+      engineFlag,
+      !aiChecked && full.warnings.length
+        ? `AI stages unavailable (${full.warnings[0].slice(0, 120)}) — values above come from the deterministic pass`
+        : null,
+      full.meta.departmentMismatch || null,
+    ].filter(Boolean).join(" · ") || undefined;
 
   return {
     ok: true,

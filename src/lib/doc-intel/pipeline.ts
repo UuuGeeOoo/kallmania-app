@@ -124,6 +124,7 @@ export async function runDocumentIntelligence(
       aiStagesCompleted: understood.aiStageFailures.length === 0 ? 1 : 0,
     },
     warnings: understood.aiStageFailures,
+    engineNote: understood.engineNote,
   };
 
   // ── Stage E: code validation ──

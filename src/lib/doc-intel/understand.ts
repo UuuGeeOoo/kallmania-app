@@ -11,6 +11,7 @@
 // separate deterministic stage (routing.ts).
 // ─────────────────────────────────────────────────────────────────────────────
 import type { DocumentMeta, KpiFinding, NarrativeSection, UnmappedItem } from "./types";
+import { geminiGenerateJson, geminiModel } from "@/lib/gemini";
 
 const MAX_CHUNK = 11000;
 const OVERLAP = 700;
@@ -91,25 +92,35 @@ function userPrompt(chunkText: string, index: number, of: number, department: st
   ].join("\n\n");
 }
 
-async function callLlm(system: string, user: string): Promise<ChunkExtraction | null> {
-  const ZAI = (await import("z-ai-web-dev-sdk")).default;
-  const zai = await ZAI.create();
-  const completion = await zai.chat.completions.create({
-    messages: [
-      { role: "assistant", content: system },
-      { role: "user", content: user },
-    ] as never,
-    thinking: { type: "disabled" },
-  });
-  const content = (completion as { choices?: { message?: { content?: string } }[] })?.choices?.[0]?.message?.content || "";
-  const cleaned = content.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
+/**
+ * One AI call for one document chunk.
+ * PRIMARY ENGINE: Google Gemini (structured JSON output, server-side key).
+ * If Gemini is unavailable (geo-restriction, quota, timeout…), the previous
+ * engine serves as a LOUDLY-FLAGGED degraded mode — never a silent swap: the
+ * returned engineNote is surfaced in the extraction result and the review UI.
+ */
+async function callLlm(system: string, user: string): Promise<{ parsed: ChunkExtraction | null; engineNote: string | null }> {
+  const g = await geminiGenerateJson<ChunkExtraction>(system, user, { timeoutMs: 120_000 });
+  if (g.ok && g.data) return { parsed: g.data, engineNote: null };
+  const geminiReason = g.error || "unknown Gemini failure";
   try {
-    return JSON.parse(cleaned.slice(start, end + 1)) as ChunkExtraction;
+    const ZAI = (await import("z-ai-web-dev-sdk")).default;
+    const zai = await ZAI.create();
+    const completion = await zai.chat.completions.create({
+      messages: [
+        { role: "assistant", content: system },
+        { role: "user", content: user },
+      ] as never,
+      thinking: { type: "disabled" },
+    });
+    const content = (completion as { choices?: { message?: { content?: string } }[] })?.choices?.[0]?.message?.content || "";
+    const cleaned = content.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start < 0 || end <= start) return { parsed: null, engineNote: `Gemini unavailable (${geminiReason})` };
+    return { parsed: JSON.parse(cleaned.slice(start, end + 1)) as ChunkExtraction, engineNote: `Gemini unavailable (${geminiReason}) — extracted with the fallback AI engine` };
   } catch {
-    return null;
+    return { parsed: null, engineNote: `Gemini unavailable (${geminiReason})` };
   }
 }
 
@@ -143,6 +154,8 @@ export interface UnderstandResult {
   unmapped: UnmappedItem[];
   chunksRead: number;
   aiStageFailures: string[];
+  /** Active AI engine for this read — "Gemini (<model>)" or a flagged fallback note. */
+  engineNote: string;
 }
 
 /** Read the full document in overlapping chunks and merge a complete picture. */
@@ -157,12 +170,14 @@ export async function understandDocument(
   const findings: KpiFinding[] = [];
   const sections: NarrativeSection[] = [];
   const unmapped: UnmappedItem[] = [];
+  let engineNote = `Gemini (${geminiModel()})`;
 
-  if (opts?.skipAi) return { meta, findings, sections, unmapped, chunksRead: 0, aiStageFailures: ["AI unavailable — structural parse only"] };
+  if (opts?.skipAi) return { meta, findings, sections, unmapped, chunksRead: 0, aiStageFailures: ["AI unavailable — structural parse only"], engineNote: "AI skipped — structural parse only" };
 
   for (const chunk of chunks) {
     try {
-      const parsed = await callLlm(SYSTEM_PROMPT, userPrompt(chunk.text, chunk.index, chunk.of, department));
+      const { parsed, engineNote: note } = await callLlm(SYSTEM_PROMPT, userPrompt(chunk.text, chunk.index, chunk.of, department));
+      if (note) engineNote = note; // flagged fallback (or Gemini failure) — surfaced to the reviewer
       if (!parsed) {
         failures.push(`AI part ${chunk.index}/${chunk.of} returned unparseable output`);
         continue;
@@ -270,5 +285,6 @@ export async function understandDocument(
     unmapped: mergedUnmapped,
     chunksRead: chunks.length,
     aiStageFailures: failures,
+    engineNote: failures.length === chunks.length && engineNote.startsWith("Gemini (") ? `Gemini (${geminiModel()}) failed — no AI read` : engineNote,
   };
 }
