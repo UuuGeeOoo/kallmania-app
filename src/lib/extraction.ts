@@ -22,6 +22,7 @@ import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import { AGENT_KPI_DEFS, TECH_SUMMARY_METRICS, SOCIAL_SUMMARY_METRICS } from "@/lib/template-config";
 import { runDocumentIntelligence } from "./doc-intel/pipeline";
+import { metricTargets } from "./doc-intel/routing";
 import type { FullExtraction, DocumentIR } from "./doc-intel/types";
 
 export interface ExtractedField {
@@ -178,11 +179,18 @@ function findNumberAfter(text: string, idx: number): { value: number; end: numbe
  * Target/Actual/Variance headers (the master template's own KPI table).
  * Targets/actuals/variances are never confused with each other.
  */
-export function mapTextToFields(rawText: string, department: string): { fields: ExtractedField[]; sections: ExtractionResult["sections"] } {
+export function mapTextToFields(
+  rawText: string,
+  department: string,
+  overrideDefs?: { key: string; label: string }[]
+): { fields: ExtractedField[]; sections: ExtractionResult["sections"] } {
   const lines = rawText.split(/\r?\n/);
   const normLines = lines.map((l) => normalize(l));
-  const relevantDefs =
-    department === "WEB_DEV"
+  // Team-lead uploads pass their own lead-template rows — a lead's document is
+  // read against THEIR report format, never against an agent catalogue.
+  const relevantDefs = overrideDefs?.length
+    ? overrideDefs
+    : department === "WEB_DEV"
       ? TECH_SUMMARY_METRICS.map((m) => ({ key: m.key, label: m.label }))
       : department === "SOCIAL_MEDIA"
         ? SOCIAL_SUMMARY_METRICS.map((m) => ({ key: m.key, label: m.label }))
@@ -420,7 +428,8 @@ export async function extractReport(
   buffer: Buffer,
   mimeType: string,
   originalName: string,
-  department: string
+  department: string,
+  opts?: { metricCatalogue?: { key: string; label: string; unit?: string }[] }
 ): Promise<ExtractionResult> {
   const empty = (error?: string): ExtractionResult => ({
     ok: false,
@@ -432,7 +441,9 @@ export async function extractReport(
     doc: null,
   });
 
-  const { ok, error, ir, full } = await runDocumentIntelligence(buffer, mimeType, originalName, department);
+  const { ok, error, ir, full } = await runDocumentIntelligence(buffer, mimeType, originalName, department, {
+    routeTargets: opts?.metricCatalogue?.length ? metricTargets(opts.metricCatalogue) : undefined,
+  });
   if (!ok || !ir || !full) return empty(error);
 
   const markdown = ir.markdown.slice(0, 60000);
@@ -458,7 +469,11 @@ export async function extractReport(
     });
 
   // Deterministic fallback for keys the AI/routing pass did not cover
-  const det = mapTextToFields(markdown, department);
+  const det = mapTextToFields(
+    markdown,
+    department,
+    opts?.metricCatalogue?.length ? opts.metricCatalogue.map((m) => ({ key: m.key, label: m.label })) : undefined,
+  );
   const coveredKeys = new Set(routedFields.map((f) => f.key));
   const mergedFields = [...routedFields];
   for (const f of det.fields) {

@@ -3,7 +3,8 @@ import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { handle, ok, fail, toDateOrNull } from "@/lib/api-utils";
 import { recalcKpis, type KpiMetric } from "@/lib/kpi";
-import { audit } from "@/lib/notify";
+import { audit, notifySupervisors } from "@/lib/notify";
+import { defaultTemplateFor, tlTemplateKeyFor, type TlDefinition } from "@/lib/team-lead-template";
 import { safeParse } from "@/lib/api-utils";
 
 /** Supervisor template destinations for the confirmed metric grid. */
@@ -49,7 +50,12 @@ export async function POST(req: NextRequest) {
     const effectiveDepartment = isManager
       ? department || upload.department || me.department || "BPO"
       : me.department || upload.department || "BPO";
-    const reportType = reportTypeByDept[effectiveDepartment] || "AGENT_BPO";
+    const deptReportType = reportTypeByDept[effectiveDepartment] || "AGENT_BPO";
+    // A TEAM LEAD's upload is THEIR OWN report: filed as the TEAM LEAD daily
+    // report in the lead format of their team (TL_SOCIAL / TL_TECH / …). The
+    // department map — which would file it as their team's AGENT format — and
+    // a spoofed payload department cannot change that.
+    const reportType = !isManager && me.role === "TEAM_LEAD" ? "TEAM_LEAD" : deptReportType;
 
     const metrics = recalcKpis(safeParse<KpiMetric[]>(confirmedMetrics, []));
     const date = toDateOrNull(reportDate) || upload.reportDate || new Date();
@@ -71,7 +77,7 @@ export async function POST(req: NextRequest) {
     if (sameDayLive)
       return fail(`You already have a ${sameDayLive.status === "APPROVED" ? "finalized" : "submitted"} report for this day (${sameDayLive.ref}) — a report cannot be submitted twice for the same day.`, 409);
 
-    const refPrefix = reportType === "AGENT_BPO" ? "BPO" : reportType === "TECH" ? "TEC" : reportType === "SUPERVISOR" ? "SUP" : "SOC";
+    const refPrefix = reportType === "AGENT_BPO" ? "BPO" : reportType === "TECH" ? "TEC" : reportType === "SUPERVISOR" ? "SUP" : reportType === "TEAM_LEAD" ? "TL" : "SOC";
     const ref = `${refPrefix}-UP-${Date.now().toString(36).toUpperCase()}`;
     // ── SUPERVISOR: confirmed metrics split into attendance counts and team
     // KPI rows; narrative sections map onto the supervisor template columns.
@@ -139,6 +145,86 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── TEAM LEAD: the confirmed grid becomes the lead's own dynamic-template
+    // payload in the lead format of THEIR team (templateKey persisted, so
+    // read-back, correction and the Word export all render the same format the
+    // lead filled). Rows follow the lead template's KPI configuration; values
+    // the lead format has no row for stay visible as extra rows — nothing the
+    // document stated is silently dropped.
+    let leadData: Record<string, unknown> = {};
+    if (reportType === "TEAM_LEAD") {
+      const tlKey = tlTemplateKeyFor(me.department, me.team);
+      const row = await db.reportTemplate.findUnique({ where: { key: tlKey } });
+      let def: TlDefinition | null = null;
+      if (row) { try { def = JSON.parse(row.definition) as TlDefinition; } catch { def = null; } }
+      if (!def) def = defaultTemplateFor(tlKey);
+      const bodySections = (sections || {}) as Record<string, unknown>;
+      const str = (v: unknown) => (v === null || v === undefined ? "" : String(v)).trim();
+      const secs: Record<string, unknown> = {};
+      for (const s of def.sections) {
+        if (s.type === "fields") {
+          const src = (bodySections[s.id] && typeof bodySections[s.id] === "object" && !Array.isArray(bodySections[s.id]) ? bodySections[s.id] : {}) as Record<string, unknown>;
+          const info: Record<string, string> = {};
+          for (const f of s.fields || []) {
+            let v = str(src[f.key]);
+            if (!v && f.key === "teamName") v = str(bodySections.teamName) || me.team || "";
+            if (!v && ["shiftTime", "clockIn", "clockOut", "attendanceStatus", "latenessMins"].includes(f.key)) v = str(bodySections[f.key]);
+            if (v) info[f.key] = v;
+          }
+          if (Object.keys(info).length) secs[s.id] = info;
+        } else if (s.type === "metrics") {
+          const rows = (s.metrics || []).map((m) => {
+            const cm = metrics.find((x) => x.key === m.key);
+            const actual = cm && cm.actual !== null && cm.actual !== undefined ? cm.actual : null;
+            return { key: m.key, label: m.label, target: m.target, targetLabel: m.target === null ? "-" : String(m.target) + (m.unit === "percent" ? "%" : ""), unit: m.unit, actual, notes: cm?.notes || "" };
+          });
+          const known = new Set(rows.map((r) => r.key));
+          for (const m of metrics) {
+            if (known.has(m.key) || m.actual === null || m.actual === undefined) continue;
+            rows.push({ key: m.key, label: m.label, target: m.target ?? null, targetLabel: m.targetLabel || "-", unit: m.unit || "count", actual: m.actual, notes: m.notes || "" });
+          }
+          secs[s.id] = rows;
+        } else if (s.type === "table") {
+          const direct = bodySections[s.id];
+          let rows: Record<string, unknown>[] | null = null;
+          if (Array.isArray(direct)) rows = direct as Record<string, unknown>[];
+          else if (s.id === "tasks" && Array.isArray(body.workEntries) && body.workEntries.length) rows = body.workEntries;
+          else if (typeof direct === "string" && str(direct)) rows = [{ [s.columns?.[0]?.key || "entry"]: str(direct) }];
+          if (rows && rows.length) secs[s.id] = rows;
+        } else if (typeof bodySections[s.id] === "string" && str(bodySections[s.id])) {
+          secs[s.id] = str(bodySections[s.id]);
+        }
+      }
+      // Narrative sections extracted from the document land on the matching
+      // template sections (challenges / escalations / action plan / coaching),
+      // wrapped into the table shape when the team's format uses one.
+      const putText = (id: string, text: string) => {
+        if (!text || secs[id] !== undefined || !def) return;
+        const s = def.sections.find((x) => x.id === id);
+        if (!s) return;
+        if (s.type === "table") secs[id] = [{ [s.columns?.[0]?.key || "entry"]: text }];
+        else if (s.type === "textarea") secs[id] = text;
+      };
+      putText("challenges", str(bodySections.challenges));
+      putText("escalations", str(bodySections.escalations));
+      putText("action-plan", str(bodySections.actionPlan));
+      putText("coaching", str(bodySections.coaching));
+      // Anything else the document stated that the lead format has no slot for
+      // stays visible under ADDITIONAL COMMENTS — never silently dropped.
+      const extras = str(bodySections.additionalActivities);
+      if (extras && typeof secs.comments !== "string") secs.comments = `Additional activities: ${extras}`;
+      leadData = {
+        payload: JSON.stringify({ sections: secs, templateKey: tlKey }),
+        teamName: str(bodySections.teamName) || me.team || null,
+        kpiMetrics: null,
+        metricsSummary: null,
+        workEntries: null,
+        escalations: null,
+        additionalActivities: null,
+        emailContext: null,
+      };
+    }
+
     const report = await db.report.create({
       data: {
         ref,
@@ -151,17 +237,18 @@ export async function POST(req: NextRequest) {
         clockOut: sections?.clockOut || null,
         attendanceStatus: sections?.attendanceStatus || null,
         latenessMins: sections?.latenessMins ? parseInt(String(sections.latenessMins), 10) || 0 : null,
-        kpiMetrics: reportType === "SUPERVISOR" ? null : JSON.stringify(metrics),
+        kpiMetrics: ["SUPERVISOR", "TEAM_LEAD"].includes(reportType) ? null : JSON.stringify(metrics),
         challenges: sections?.challenges || null,
-        escalations: reportType === "SUPERVISOR" ? null : sections?.escalations || null,
-        additionalActivities: reportType === "SUPERVISOR" ? null : sections?.additionalActivities || null,
-        emailContext: reportType === "SUPERVISOR" ? null : emailContext ? JSON.stringify(emailContext) : null,
+        escalations: ["SUPERVISOR", "TEAM_LEAD"].includes(reportType) ? null : sections?.escalations || null,
+        additionalActivities: ["SUPERVISOR", "TEAM_LEAD"].includes(reportType) ? null : sections?.additionalActivities || null,
+        emailContext: ["SUPERVISOR", "TEAM_LEAD"].includes(reportType) ? null : emailContext ? JSON.stringify(emailContext) : null,
         status: submit ? "SUBMITTED" : "DRAFT",
         sourceType: "UPLOAD_EXTRACTED",
         sourceFileId: upload.id,
         verificationStatus: "CONFIRMED_BY_EMPLOYEE",
         ...supervisorData,
         ...deptTeamData,
+        ...leadData,
       },
     });
 
@@ -184,6 +271,26 @@ export async function POST(req: NextRequest) {
             linkData: { view: "review", id: report.id },
           })
         );
+      }
+      // TEAM LEAD payload: an escalations section (text or table rows) from the
+      // uploaded document alerts supervisors instantly — same rule as the
+      // manual team lead form.
+      if (reportType === "TEAM_LEAD" && report.payload) {
+        try {
+          const payload = JSON.parse(report.payload) as { sections?: Record<string, unknown> };
+          const esc = payload.sections?.escalations;
+          const hasEscalation = typeof esc === "string" ? esc.trim().length > 0 : Array.isArray(esc) ? esc.length > 0 : false;
+          if (hasEscalation) {
+            await notifySupervisors({
+              type: "ESCALATION",
+              severity: "CRITICAL",
+              title: `Escalation raised — ${me.fullName} (team lead)`,
+              message: `Team lead report ${ref} (from upload "${upload.originalName}") contains escalations requiring review.`,
+              linkData: { view: "review", id: report.id },
+              dedupeKey: `escalation:${report.id}`,
+            }, { includeAdmins: true });
+          }
+        } catch { /* malformed payload — skip */ }
       }
     }
 

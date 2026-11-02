@@ -34,7 +34,7 @@ export async function runDocumentIntelligence(
   mimeType: string,
   originalName: string,
   departmentRaw: string,
-  opts?: { skipAi?: boolean }
+  opts?: { skipAi?: boolean; routeTargets?: import("./routing").RouteTarget[] }
 ): Promise<PipelineOutput> {
   const ext = (originalName.split(".").pop() || "").toLowerCase();
   const department: DocIntelDepartment =
@@ -105,7 +105,7 @@ export async function runDocumentIntelligence(
   }
 
   // ── Stage D: deterministic KPI routing ──
-  const routing = routeKpis(department, understood.findings, understood.sections, understood.meta, mismatch);
+  const routing = routeKpis(department, understood.findings, understood.sections, understood.meta, mismatch, opts?.routeTargets);
 
   const full: FullExtraction = {
     meta: { ...understood.meta, departmentMismatch: mismatch },

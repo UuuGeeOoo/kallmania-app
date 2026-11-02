@@ -570,6 +570,22 @@ export function tlVariance(actual: number | null, target: number | null): number
   return Math.round((actual - target) * 100) / 100;
 }
 
+/**
+ * KPI catalogue of a team-lead template definition — every metric row of the
+ * definition's "metrics" sections, in template order. This is what document
+ * understanding routes a TEAM LEAD's uploaded report against (their own
+ * team's lead rows: calendar items, video edits, team calls, tickets…), and
+ * what the upload review grid is seeded with — never the AGENT catalogue of
+ * their department.
+ */
+export function tlMetricCatalogue(
+  def: TlDefinition,
+): { key: string; label: string; unit: "count" | "percent" | "minutes" }[] {
+  return def.sections
+    .filter((s) => s.type === "metrics")
+    .flatMap((s) => (s.metrics || []).map((m) => ({ key: m.key, label: m.label, unit: m.unit })));
+}
+
 export function isTlSectionFilled(section: TlSection, value: TlSectionValue): boolean {
   if (!section.required) return true;
   if (section.type === "textarea" || section.type === "fields") {

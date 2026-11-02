@@ -12,6 +12,7 @@ import { SectionCard, Field, inputCls, StatusBadge, EmptyState } from "@/compone
 import { DocumentViewerModal } from "@/components/kallmania/document-viewer";
 import { TextDraftModal } from "@/components/kallmania/text-draft";
 import { KpiTable } from "@/components/kallmania/report-forms";
+import { tlTemplateKeyFor, teamTemplateMeta, type TlDefinition } from "@/lib/team-lead-template";
 import { Upload as UploadIcon, FileUp, ScanSearch, CheckCircle2, AlertTriangle, XCircle, Loader2, FileText, ShieldAlert, Send, Save, Eye, ScrollText, ListChecks, Table2, FileSearch, PlusCircle, Info, Plus, Trash2, Users } from "lucide-react";
 
 const SUPPORTED = "PDF, DOCX, XLSX, CSV, TXT, PNG, JPEG up to 15 MB";
@@ -301,6 +302,9 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
   // Managers may file a document on behalf of any team; staff always file in
   // their own team's format.
   const isManager = user.role === "ADMIN" || user.role === "SUPERVISOR";
+  // Team leads upload THEIR OWN report: the Team Lead daily report in the lead
+  // format of their team (TL_SOCIAL / TL_TECH / TL_OUTBOUND / TL_INBOUND).
+  const leadTemplateMeta = user.role === "TEAM_LEAD" ? teamTemplateMeta(tlTemplateKeyFor(user.department, user.team)) : undefined;
 
   const reset = () => {
     setFile(null); setUploadId(null); setExtraction(null); setMetrics([]); setSections({}); setAdditional(""); setConfirmed(null); setError(null); setDiscarded(false); setShowRaw(false); setIncludedUnmapped([]); setTechEntries([]); setSocialTasks([]);
@@ -343,6 +347,7 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
       // outbound/inbound agents the call KPIs, supervisors the supervisor
       // grid. The outbound agent template is never forced onto another team.
       const isSupervisor = department === "MANAGEMENT";
+      const isTeamLead = user.role === "TEAM_LEAD" && !isManager;
       const routedByKey = new Map((ext.doc?.full.routed ?? []).map((r) => [r.key, r]));
       const extractedEntries: [string, number][] = ext.fields
         .filter((f) => typeof f.value === "number")
@@ -363,6 +368,34 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
           };
         });
         setMetrics(seeded as KpiMetric[]);
+      } else if (isTeamLead) {
+        // TEAM LEAD: the review grid is the lead's OWN report format — rows
+        // from the lead template of their team (the same definition the Daily
+        // Report page fills), values from the document. Never an agent grid.
+        const tlKey = tlTemplateKeyFor(user.department, user.team);
+        const tpl = await api<{ template: { definition: TlDefinition } }>(`/api/report-template?key=${tlKey}`);
+        const leadRows: KpiMetric[] = [];
+        for (const s of tpl.template.definition.sections) {
+          if (s.type !== "metrics") continue;
+          for (const m of s.metrics || []) {
+            const found = ext.fields.find((f) => f.key === m.key);
+            const reported = routedByKey.get(m.key);
+            leadRows.push({
+              key: m.key, label: m.label, target: m.target,
+              targetLabel: m.target === null ? "-" : String(m.target) + (m.unit === "percent" ? "%" : ""),
+              unit: m.unit,
+              actual: found && typeof found.value === "number" ? found.value : null,
+              variance: null, auto: false, category: "LEAD_TEMPLATE",
+              notes: found?.needsReview ? "Extracted — please verify" : typeof reported?.reportedTarget === "number" ? `Document target: ${reported.reportedTarget}` : "",
+            });
+          }
+        }
+        const known = new Set(leadRows.map((r) => r.key));
+        for (const [srcKey, value] of extractedEntries) {
+          if (known.has(srcKey)) continue;
+          leadRows.push({ key: srcKey, label: titleizeKey(srcKey), target: null, targetLabel: "-", actual: value, variance: null, unit: "count", category: "EXTRACTED", auto: false, notes: "Extracted — please verify" });
+        }
+        setMetrics(leadRows);
       } else {
         // Ordered so the right source wins when two summary keys map onto one
         // team template row (documented in SOCIAL_SOURCE_PRIORITY).
@@ -595,6 +628,12 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
                       ))}
                     </div>
                     <KpiTable metrics={metrics} onChange={setMetrics} />
+                    {leadTemplateMeta && (
+                      <div className="flex items-start gap-2 rounded-lg border border-[#6c5ce7]/30 bg-[#6c5ce7]/10 px-3 py-2 text-xs text-[#c9c0ff]">
+                        <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>Confirming files this as <span className="font-semibold text-white">your Team Lead daily report</span> in the <span className="font-semibold">{leadTemplateMeta.label}</span> lead format (ref TL-UP-…). The rows follow your team's lead template and KPI configuration — supervisors are alerted instantly if the document contains escalations.</span>
+                      </div>
+                    )}
                   </>
                 )}
 

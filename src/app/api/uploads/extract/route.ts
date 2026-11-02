@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { handle, ok, fail } from "@/lib/api-utils";
 import { extractReport } from "@/lib/extraction";
+import { defaultTemplateFor, tlMetricCatalogue, tlTemplateKeyFor, type TlDefinition } from "@/lib/team-lead-template";
 import { audit, notify, notifySupervisors } from "@/lib/notify";
 import { readFile } from "fs/promises";
 import path from "path";
@@ -35,12 +36,25 @@ export async function POST(req: NextRequest) {
     // always read their own department's template (a social-media agent's
     // upload can never be understood as an outbound report), managers may
     // process uploads on behalf of the department the file was filed under.
+    // TEAM LEADS read their TEAM LEAD report format — the lead template of
+    // their own team (TL_SOCIAL / TL_TECH / TL_OUTBOUND / TL_INBOUND), so a
+    // lead's document is routed onto calendar items, video edits, team calls,
+    // tickets… — never onto an agent's KPI catalogue.
     const isManager = ["SUPERVISOR", "ADMIN"].includes(me.role);
     const department =
       !isManager && upload.userId === me.id
         ? me.department || upload.department || "BPO"
         : upload.department || "BPO";
-    const result = await extractReport(buffer, upload.mimeType, upload.originalName, department);
+    let metricCatalogue: { key: string; label: string; unit?: string }[] | undefined;
+    if (!isManager && me.role === "TEAM_LEAD") {
+      const tlKey = tlTemplateKeyFor(me.department, me.team);
+      const row = await db.reportTemplate.findUnique({ where: { key: tlKey } });
+      let def: TlDefinition | null = null;
+      if (row) { try { def = JSON.parse(row.definition) as TlDefinition; } catch { def = null; } }
+      if (!def) def = defaultTemplateFor(tlKey);
+      metricCatalogue = tlMetricCatalogue(def);
+    }
+    const result = await extractReport(buffer, upload.mimeType, upload.originalName, department, { metricCatalogue });
 
     if (!result.ok) {
       await db.uploadedFile.update({

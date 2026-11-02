@@ -9,8 +9,11 @@
 //     (workEntries) and the owner's team stamped on the report — even when the
 //     confirm payload spoofs department=BPO
 //  4. The same holds for the web/technical team (TECH report: metricsSummary +
-//     work entries, no outbound KPI rows) and for a SOCIAL MEDIA TEAM LEAD
-//     (team leads upload social media reports)
+//     work entries, no outbound KPI rows). A TEAM LEAD's upload is filed as
+//     THEIR OWN report: type TEAM_LEAD, the lead template of their team
+//     (TL_SOCIAL payload with templateKey pinned), lead-template KPI rows,
+//     work entries in TASKS ASSIGNED & COMPLETED, escalation alerts on submit,
+//     same-day duplicate guard — a spoofed department cannot change any of it
 //  5. Reading back (GET /api/reports?mine=1) exposes every team-format field
 //     (kpiMetrics / metricsSummary / workEntries / teamName / department)
 //  6. Supervisors/administrators keep the department picker (they file on
@@ -101,6 +104,23 @@ Test Cases Passed: 18
 Milestones Delivered: 1
 Code Reviews Done: 4
 Challenges: Staging environment slow in the morning
+`;
+
+const TL_LEAD_DOC = `SOCIAL MEDIA MANAGEMENT & CONTENT CREATION TEAM — DAILY REPORT (${D2})
+Team: SOCIAL
+Staff: Lead E2E
+Shift: 09:00 - 17:00
+Role focus for today: launch review and next week's content calendar
+Calendar item prepared / published: 5
+Video edits / exports completed: 3
+Graphics / visual assets completed: 4
+Approval / quality checks completed: 2
+Content published or scheduled: 9
+Comments / escalations handled: 7
+Weekly or daily task completion (%): 88
+Next-day priorities prepared: 6
+Challenges: Designer out sick - graphics queue behind
+Escalations: Brand page access needs admin reset
 `;
 
 const metricRow = (key: string, label: string, actual: number | null, target: number | null = null, unit: "count" | "percent" | "minutes" = "count", category = "SOCIAL_TEMPLATE") => ({
@@ -217,17 +237,88 @@ check("4e TECH keeps metricsSummary (no outbound kpiMetrics)", JSON.parse((repDe
 check("4f tech work entries stored", (JSON.parse((repDev.workEntries as string) || "[]") as unknown[]).length === 1);
 check("4g developer's team stamped", repDev.teamName === "TECH", `teamName=${repDev.teamName}`);
 
-const upTl = await upload(tl, `tl-social-report-${D2}.txt`, SOCIAL_DOC.replace("Ama Social", "Lead E2E"), "text/plain", "BPO", D2);
+// ── 4b. TEAM LEAD — the lead's upload is THEIR OWN report in their team's
+// lead format (type TEAM_LEAD, TL_SOCIAL payload, lead-template KPI rows) ──
+console.log("\n── 4b. TEAM LEAD — upload files as THEIR team-lead report ──");
+const upTl = await upload(tl, `tl-social-report-${D2}.txt`, TL_LEAD_DOC, "text/plain", "BPO", D2);
+check("4h-1 lead upload accepted", upTl.status === 201, `status=${upTl.status}`);
 const upTlId = ((upTl.json as { upload?: { id?: string } }).upload?.id) || "";
+const exTl = await call(tl, "/api/uploads/extract", { id: upTlId });
+check("4h-2 lead extract ok", exTl.status === 200 && (exTl.json as { status?: string }).status !== "FAILED", `status=${exTl.status}`);
+const exTlFields = (exTl.json as { fields?: { key: string; value: unknown }[] }).fields || [];
+const tlVal = (k: string) => exTlFields.find((f) => f.key === k)?.value;
+check("4h-3 document read in the LEAD format (calendarItemsPrepared routed)", tlVal("calendarItemsPrepared") === 5, `calendarItemsPrepared=${tlVal("calendarItemsPrepared")}`);
+check("4h-4 videoEditsExports routed", tlVal("videoEditsExports") === 3, `videoEditsExports=${tlVal("videoEditsExports")}`);
+check("4h-5 graphicsVisualAssets routed", tlVal("graphicsVisualAssets") === 4, `graphicsVisualAssets=${tlVal("graphicsVisualAssets")}`);
+check("4h-6 contentPublishedScheduled routed", tlVal("contentPublishedScheduled") === 9, `contentPublishedScheduled=${tlVal("contentPublishedScheduled")}`);
+check("4h-7 commentsEscalationsHandled routed", tlVal("commentsEscalationsHandled") === 7, `commentsEscalationsHandled=${tlVal("commentsEscalationsHandled")}`);
+check("4h-8 taskCompletionRate routed", tlVal("taskCompletionRate") === 88, `taskCompletionRate=${tlVal("taskCompletionRate")}`);
+check("4h-9 NO agent social KPIs are the grid's own rows (agent keys only appear if the document itself mentions them)", tlVal("postsPublished") === undefined && tlVal("reach") === undefined, `postsPublished=${tlVal("postsPublished")} reach=${tlVal("reach")}`);
+
+const confirmedLead = [
+  metricRow("calendarItemsPrepared", "Calendar item prepared / published", 5, null, "count", "LEAD_TEMPLATE"),
+  metricRow("videoEditsExports", "Video edits / exports completed", 3, null, "count", "LEAD_TEMPLATE"),
+  metricRow("graphicsVisualAssets", "Graphics / visual assets completed", 4, null, "count", "LEAD_TEMPLATE"),
+  metricRow("approvalQualityChecks", "Approval / quality checks completed", 2, null, "count", "LEAD_TEMPLATE"),
+  metricRow("contentPublishedScheduled", "Content published or scheduled", 9, null, "count", "LEAD_TEMPLATE"),
+  metricRow("commentsEscalationsHandled", "Comments / escalations handled", 7, null, "count", "LEAD_TEMPLATE"),
+  metricRow("taskCompletionRate", "Weekly or daily task completion (%)", 88, null, "percent", "LEAD_TEMPLATE"),
+  metricRow("nextDayPriorities", "Next-day priorities prepared", 6, null, "count", "LEAD_TEMPLATE"),
+  // agent-catalogue values the lead format has no row for — must stay visible
+  metricRow("postsCreated", "Posts Created / Published", 6, 4),
+];
 const cfTl = await call(tl, "/api/uploads/confirm", {
-  uploadId: upTlId, confirmedMetrics: confirmedSocial, sections: { attendanceStatus: "Present", additionalActivities: "" },
-  reportDate: D2, department: "BPO", submit: true,
+  uploadId: upTlId, confirmedMetrics: confirmedLead,
+  sections: { shiftTime: "09:00 - 17:00", clockIn: "09:00", clockOut: "17:00", attendanceStatus: "Present", challenges: "Designer out sick - graphics queue behind", escalations: "Brand page access needs admin reset", additionalActivities: "Ran the weekly content review" },
+  reportDate: D2, department: "BPO", // ← spoof: a lead's report type follows THEIR role/team, not the payload
+  submit: true,
   workEntries: [{ task: "Content calendar review", platform: "LinkedIn", status: "Completed", deliverable: "Week 45 calendar" }],
 });
-check("4h team lead upload+confirm accepted", cfTl.status === 201, `status=${cfTl.status}`);
+check("4i-1 lead confirm accepted", cfTl.status === 201, `status=${cfTl.status} body=${JSON.stringify(cfTl.json).slice(0, 200)}`);
 const repTl = ((cfTl.json as { report?: Record<string, unknown> }).report) || {};
-check("4i SOCIAL MEDIA TEAM LEAD uploads a SOCIAL report", repTl.type === "SOCIAL" && repTl.department === "SOCIAL_MEDIA", `type=${repTl.type} dept=${repTl.department}`);
-check("4j lead's report carries the social KPI table + entries", (JSON.parse((repTl.kpiMetrics as string) || "[]") as unknown[]).length === 10 && (JSON.parse((repTl.workEntries as string) || "[]") as unknown[]).length === 1);
+check("4i-2 filed as THEIR team-lead report (type TEAM_LEAD, not the agent's SOCIAL)", repTl.type === "TEAM_LEAD", `type=${repTl.type}`);
+check("4i-3 department stays SOCIAL_MEDIA", repTl.department === "SOCIAL_MEDIA", `department=${repTl.department}`);
+check("4i-4 team-lead ref prefix (TL-UP-…)", typeof repTl.ref === "string" && (repTl.ref as string).startsWith("TL-UP-"), `ref=${repTl.ref}`);
+check("4i-5 agent columns stay empty (payload carries the report)", repTl.kpiMetrics === null && repTl.metricsSummary === null && repTl.workEntries === null);
+const tlPayload = JSON.parse((repTl.payload as string) || "{}") as { sections?: Record<string, Record<string, unknown>[]>; templateKey?: string };
+check("4i-6 payload pins THEIR team's lead template", tlPayload.templateKey === "TL_SOCIAL", `templateKey=${tlPayload.templateKey}`);
+const tlKpiRows = (tlPayload.sections?.["team-kpis"] || []) as { key: string; label: string; actual: number | null }[];
+check("4i-7 lead KPI rows follow the team's lead template (8 rows, template order)", tlKpiRows.length >= 9 && tlKpiRows[0].key === "calendarItemsPrepared" && tlKpiRows[1].key === "videoEditsExports" && tlKpiRows[7].key === "nextDayPriorities", `rows=${tlKpiRows.length} first=${tlKpiRows[0]?.key}`);
+check("4i-8 confirmed actuals sit on the lead rows", tlKpiRows.find((r) => r.key === "calendarItemsPrepared")?.actual === 5 && tlKpiRows.find((r) => r.key === "taskCompletionRate")?.actual === 88);
+check("4i-9 values without a lead row stay visible (postsCreated preserved)", tlKpiRows.some((r) => r.key === "postsCreated" && r.actual === 6));
+const tlStaff = tlPayload.sections?.["staff-info"] as Record<string, string> | undefined;
+check("4i-10 staff info carries attendance + the lead's team", !!tlStaff && tlStaff.attendanceStatus === "Present" && tlStaff.shiftTime === "09:00 - 17:00" && tlStaff.teamName === "SOCIAL", JSON.stringify(tlStaff));
+const tlTasks = (tlPayload.sections?.["tasks"] || []) as { task?: string; platform?: string }[];
+check("4i-11 work entries land in the lead's TASKS ASSIGNED & COMPLETED table", tlTasks.length === 1 && tlTasks[0].task === "Content calendar review" && tlTasks[0].platform === "LinkedIn");
+const tlEsc = tlPayload.sections?.["escalations"] as { item?: string }[] | string | undefined;
+const escHasText = Array.isArray(tlEsc) ? tlEsc.some((r) => (r?.item || "").includes("Brand page access")) : typeof tlEsc === "string" && tlEsc.includes("Brand page access");
+check("4i-12 escalations from the document reach the lead's ESCALATIONS AND APPROVALS section", !!escHasText, JSON.stringify(tlEsc).slice(0, 120));
+const tlChal = tlPayload.sections?.["challenges"] as { blocker?: string }[] | string | undefined;
+const chalHasText = Array.isArray(tlChal) ? tlChal.some((r) => Object.values(r).some((v) => String(v).includes("Designer out sick"))) : typeof tlChal === "string" && tlChal.includes("Designer out sick");
+check("4i-13 challenges mapped (table-shaped for the social lead format)", !!chalHasText);
+check("4i-14 additional activities stay visible under comments", typeof tlPayload.sections?.["comments"] === "string" && (tlPayload.sections["comments"] as string).includes("Ran the weekly content review"));
+check("4i-15 owner's team stamped on the report column too", repTl.teamName === "SOCIAL", `teamName=${repTl.teamName}`);
+check("4i-16 submitted for review", repTl.status === "SUBMITTED");
+
+// Escalation alert parity: the document's escalations must alert supervisors
+// (stored dedupeKey carries the per-recipient suffix "#<userId>")
+const tlReportId = repTl.id as string;
+const escNotif = await db.notification.findFirst({ where: { dedupeKey: { startsWith: `escalation:${tlReportId}` }, type: "ESCALATION" } });
+check("4i-17 document escalations alert supervisors instantly", !!escNotif, `notif=${!!escNotif}`);
+await db.notification.deleteMany({ where: { dedupeKey: { startsWith: `escalation:${tlReportId}` } } });
+
+// Same-day duplicate guard now applies to the LEAD report (it never did when
+// lead uploads were misfiled as agent reports — double reporting was possible)
+const cfTlDup = await call(tl, "/api/uploads/confirm", {
+  uploadId: upTlId, confirmedMetrics: confirmedLead, sections: {}, reportDate: D2, department: "BPO", submit: true,
+});
+check("4i-18 second confirm of the same upload rejected", cfTlDup.status === 409, `status=${cfTlDup.status}`);
+
+// Read-back: the lead sees their own format on My Reports / Archive
+const mineTl = await call(tl, "/api/reports?mine=1");
+const mineTlRows = ((mineTl.json as { reports?: Record<string, unknown>[] }).reports) || [];
+const mineTlRow = mineTlRows.find((r) => r.type === "TEAM_LEAD");
+check("4j-1 read-back exposes the lead payload (My Reports / archive source)", !!mineTlRow && typeof mineTlRow.payload === "string" && (mineTlRow.payload as string).includes("TL_SOCIAL") && mineTlRow.department === "SOCIAL_MEDIA" && mineTlRow.teamName === "SOCIAL", `rows=${mineTlRows.length}`);
 
 // ── 5. Reading back exposes every team-format field ──
 console.log("\n── 5. READING — team details visible on read-back ──");

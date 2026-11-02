@@ -199,6 +199,23 @@ function supervisorTargets(): RouteTarget[] {
   return [...teamKpis, ...attendance];
 }
 
+/**
+ * Build routing targets from an explicit KPI catalogue — used for TEAM LEAD
+ * uploads, which route against the lead template of THEIR team (TL_SOCIAL's
+ * calendar items, TL_TECH's tickets…) instead of any department's table.
+ */
+export function metricTargets(
+  catalogue: { key: string; label: string; unit?: string }[],
+): RouteTarget[] {
+  return catalogue.map((m) => ({
+    key: m.key,
+    label: m.label,
+    unit: (m.unit === "percent" || m.unit === "minutes" ? m.unit : "count") as RouteTarget["unit"],
+    aliases: [normalize(m.label)],
+    guards: [],
+  }));
+}
+
 function targetsForDepartment(department: DocIntelDepartment): RouteTarget[] {
   if (department === "WEB_DEV") {
     return [
@@ -370,9 +387,14 @@ export function routeKpis(
   findings: KpiFinding[],
   sections: NarrativeSection[],
   meta: { attendance?: { shiftTime?: string | null; clockIn?: string | null; clockOut?: string | null; attendanceStatus?: string | null; latenessMins?: number | null } | null; reportTypeGuess?: string; docType?: string } | null,
-  departmentMismatch?: string | null
+  departmentMismatch?: string | null,
+  overrideTargets?: RouteTarget[]
 ): RoutingOutput {
-  const targets = targetsForDepartment(department);
+  // Team-lead uploads route against THEIR OWN lead-template rows (passed in by
+  // the caller); every other document routes against its department's table.
+  const targets = overrideTargets?.length
+    ? [...overrideTargets, ...sectionTargetsForDepartment(department)]
+    : targetsForDepartment(department);
   const routed: RoutedKpi[] = [];
   const unmapped: UnmappedItem[] = [];
   const issues: ValidationIssue[] = [];
