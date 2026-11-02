@@ -142,8 +142,10 @@ check("3c. no duplicate rows from centre+global mixing", bpoSec ? new Set(bpoSec
 // ════ 6. Calculations use the updated values ════
 const sumA = await call(supA, `/api/kpi/summary?period=day&date=${TODAY}`);
 const sumRow = (sumA.json as { rows?: { key: string; dailyTarget: number | null; target: number | null; actual: number | null; pct: number | null }[] }).rows?.find((r) => r.key === "totalCallsMade");
-check("6a. cumulative summary target = centre override (555), not global (30)", sumRow?.dailyTarget === 555 && sumRow?.target === 555, `daily=${sumRow?.dailyTarget}`);
-check("6b. achievement computed against the centre target (actual/555)", sumRow?.pct !== null && sumRow?.actual !== null && Math.abs((sumRow?.pct ?? 0) - Math.round(((sumRow?.actual as number) / 555) * 10000) / 100) < 0.02, `pct=${sumRow?.pct} actual=${sumRow?.actual}`);
+check("6a. cumulative target = ROSTER method: 2 centre-A agents × centre override 555 = 1110 (not global 30)", sumRow?.dailyTarget === 555 && sumRow?.target === 1110, `daily=${sumRow?.dailyTarget} target=${sumRow?.target}`);
+check("6b. achievement computed against the ROSTER target (actual/1110)", sumRow?.pct !== null && sumRow?.actual !== null && Math.abs((sumRow?.pct ?? 0) - Math.round(((sumRow?.actual as number) / 1110) * 10000) / 100) < 0.02, `pct=${sumRow?.pct} actual=${sumRow?.actual}`);
+const sumATeams = (sumA.json as { teamCounts?: { team: string; count: number }[] }).teamCounts ?? [];
+check("6b2. roster transparency: teamCounts carries 2 OUTBOUND agents in centre A", sumATeams.find((t) => t.team === "OUTBOUND")?.count === 2, `teams=${JSON.stringify(sumATeams)}`);
 const perUserA = await call(admin, `/api/users/${agentAUser!.id}/kpi?period=day&date=${TODAY}`);
 const puRow = (perUserA.json as { rows?: { key: string; dailyTarget: number | null }[] }).rows?.find((r) => r.key === "wrapUpTime");
 check("6c. per-member drill-down honours centre config base + individual override", puRow?.dailyTarget === 9, `daily=${puRow?.dailyTarget}`);

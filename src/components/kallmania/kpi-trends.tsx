@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api, fmtDate, DEPT_LABELS, todayISO } from "@/lib/client";
 import { SectionCard, EmptyState } from "@/components/kallmania/shared";
 import { Country, State } from "country-state-city";
-import { CalendarRange, Globe2, Loader2, MapPin, TrendingUp } from "lucide-react";
+import { CalendarRange, Globe2, Loader2, MapPin, TrendingUp, Users } from "lucide-react";
 
 type Period = "day" | "week" | "month" | "year";
 
@@ -21,6 +21,8 @@ interface CumRow {
   targetLabel: string;
   actual: number | null;
   pct: number | null;
+  group?: string;
+  groupLabel?: string;
 }
 
 interface KpiSummary {
@@ -31,6 +33,7 @@ interface KpiSummary {
   periodDays: number;
   reportCount: number;
   distinctDates: number;
+  teamCounts?: { team: string; label: string; count: number }[];
   rows: CumRow[];
   techTotals: Record<string, number>;
   socialTotals: Record<string, number>;
@@ -117,8 +120,20 @@ export default function PeriodKpiPanel({ role, userRole }: { role: string; userR
     return () => { cancelled = true; };
   }, [period, date, effectiveRole, isAdmin, country, state]);
 
-  const coreRows = data?.rows.filter((r) => r.category !== "EMAIL_EXTENSION") ?? [];
-  const emailRows = data?.rows.filter((r) => r.category === "EMAIL_EXTENSION" && r.actual !== null) ?? [];
+  const rows = data?.rows ?? [];
+  const coreRows = rows.filter((r) => r.category !== "EMAIL_EXTENSION");
+  const emailRows = rows.filter((r) => r.category === "EMAIL_EXTENSION" && r.actual !== null);
+  // Division groups in API order: call centre → social media → web & technical.
+  const groups: { key: string; label: string; rows: CumRow[] }[] = [];
+  for (const r of coreRows) {
+    const gkey = r.group || "kpi";
+    let g = groups.find((x) => x.key === gkey);
+    if (!g) {
+      g = { key: gkey, label: r.groupLabel || "KPIs", rows: [] };
+      groups.push(g);
+    }
+    g.rows.push(r);
+  }
 
   const subtitle =
     period === "day"
@@ -172,13 +187,19 @@ export default function PeriodKpiPanel({ role, userRole }: { role: string; userR
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
             <span className="inline-flex items-center gap-1"><TrendingUp className="h-3.5 w-3.5 text-[#8b7ff5]" /> {data.label}</span>
             <span>{data.reportCount} report{data.reportCount === 1 ? "" : "s"} · {data.distinctDates} day{data.distinctDates === 1 ? "" : "s"} with data</span>
-            {data.distinctDates > 1 && <span>count targets scale by days with data</span>}
+            {isSupervisor && !!data.teamCounts?.length && (
+              <span className="inline-flex items-center gap-1 text-[#eda06a]"><Users className="h-3.5 w-3.5" /> Roster: {data.teamCounts.map((t) => `${t.label} ${t.count}`).join(" · ")}</span>
+            )}
+            {(data.distinctDates > 1 || (isSupervisor && !!data.teamCounts?.length)) && (
+              <span>count targets = per-agent daily target × agents working × days with data</span>
+            )}
           </div>
 
-          {/* BPO agent / team cumulative KPI rows */}
-          {coreRows.length > 0 && (
-            <div className="space-y-2.5">
-              {coreRows.map((k) => (
+          {/* Cumulative KPI rows grouped by division (call / social / tech) */}
+          {groups.map((g) => (
+            <div key={g.key} className="space-y-2.5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[#eda06a]">▸ {g.label}</p>
+              {g.rows.map((k) => (
                 <div key={k.key}>
                   <div className="mb-1 flex items-center justify-between gap-2 text-xs">
                     <span className="truncate text-slate-300">{k.label}</span>
@@ -196,7 +217,7 @@ export default function PeriodKpiPanel({ role, userRole }: { role: string; userR
                 </div>
               ))}
             </div>
-          )}
+          ))}
 
           {coreRows.length === 0 && !isTech && !isSocial && (
             <EmptyState title={`No submitted KPI reports ${period === "day" ? "on this day" : period === "week" ? "in this week" : "in this month"}`} hint="Cumulative KPIs build up from submitted/approved daily reports." />

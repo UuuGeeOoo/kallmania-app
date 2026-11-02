@@ -1,9 +1,12 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { requireUser, isSupervisorLike } from "@/lib/auth";
+import { requireUser, isSupervisorLike, TEAM_META } from "@/lib/auth";
 import { handle, ok, safeParse } from "@/lib/api-utils";
-import { periodRange, cumulativeKpiRows, type KpiPeriod } from "@/lib/kpi-summary";
-import { TECH_SUMMARY_METRICS, SOCIAL_SUMMARY_METRICS } from "@/lib/template-config";
+import {
+  periodRange, cumulativeKpiRows, teamPeriodTargets, teamDept,
+  type KpiPeriod, type KpiRowDef, type RosterMember, type CumRow,
+} from "@/lib/kpi-summary";
+import { SOCIAL_TEMPLATE_KPIS, TECH_SUMMARY_METRICS, SOCIAL_SUMMARY_METRICS } from "@/lib/template-config";
 import { resolveKpiCatalogue, kpiTargetMap, hasCentre } from "@/lib/kpi-resolve";
 import { type KpiMetric } from "@/lib/kpi";
 
@@ -22,6 +25,19 @@ import { type KpiMetric } from "@/lib/kpi";
  *  - SUPERVISOR is always scoped to their own centre (their country+state) —
  *    they can only ever see the agents of their state.
  *  - Everyone else sees their own cumulative numbers.
+ *
+ * TEAM CUMULATIVE METHOD — every team is measured the same way:
+ *  count target = Σ over the team's ACTIVE roster (APPROVED agents in scope) of
+ *  each agent's effective daily target, counted on the report days that agent
+ *  actually works (workDays mask). Example — Enugu outbound, 5 agents × 25/day
+ *  ⇒ daily team target 125; the actuals of every agent are summed and compared
+ *  against 125. Per-member overrides, centre overrides and global defaults feed
+ *  the per-agent effective target in that order. Percent/minutes metrics are
+ *  rates/averages and are never multiplied by headcount.
+ *
+ * Rows are grouped per division: call centre (outbound/inbound/email agents),
+ * social media and web/technical — each group carries its own roster-scaled
+ * targets, actuals summed across the group's reports.
  */
 export async function GET(req: NextRequest) {
   return handle(async () => {
@@ -61,14 +77,14 @@ export async function GET(req: NextRequest) {
 
     const reports = await db.report.findMany({
       where,
-      include: { user: { select: { id: true, fullName: true, role: true, department: true, employeeId: true, country: true, state: true } } },
+      include: { user: { select: { id: true, fullName: true, role: true, department: true, team: true, employeeId: true, country: true, state: true } } },
       orderBy: { reportDate: "asc" },
     });
 
     const distinctDates = new Set(reports.map((r) => new Date(r.reportDate).toISOString().slice(0, 10))).size;
-    const bpoReports = reports.filter((r) => r.type === "AGENT_BPO");
-    const techReports = reports.filter((r) => r.type === "TECH");
+    const callReports = reports.filter((r) => r.type === "AGENT_BPO");
     const socialReports = reports.filter((r) => r.type === "SOCIAL");
+    const techReports = reports.filter((r) => r.type === "TECH");
 
     const sumMetricsSummary = (list: typeof techReports) => {
       const out: Record<string, number> = {};
@@ -82,23 +98,144 @@ export async function GET(req: NextRequest) {
     const techTotals = sumMetricsSummary(techReports);
     const socialTotals = sumMetricsSummary(socialReports);
 
-    // KPI rows: BPO cumulative (own for agents, team for supervisors). Targets
-    // come from the saved KPI configuration of the centre the numbers belong
-    // to (supervisor's own centre / admin drill-down / agent's own centre).
-    let rows: ReturnType<typeof cumulativeKpiRows> = [];
-    if (bpoReports.length) {
-      const centre =
-        me.role === "SUPERVISOR" && hasCentre(me)
-          ? { country: me.country, state: me.state }
-          : me.role === "ADMIN" && searchParams.get("country") && searchParams.get("state")
-            ? { country: searchParams.get("country"), state: searchParams.get("state") }
-            : !isSupervisorLike(me) && hasCentre(me)
-              ? { country: me.country, state: me.state }
-              : null; // admins without drill-down see the global defaults
-      const catalogue = await resolveKpiCatalogue(centre);
-      const dominantDept = bpoReports[0]?.department === "INBOUND" ? "INBOUND" : "BPO";
-      const targets = kpiTargetMap(catalogue.filter((c) => c.active), [dominantDept, "BPO", "INBOUND"]);
-      rows = cumulativeKpiRows(bpoReports.map((r) => r.kpiMetrics), distinctDates, targets);
+    // ── KPI catalogue (centre-aware) grouped into per-department row defs ──
+    const centre =
+      me.role === "SUPERVISOR" && hasCentre(me)
+        ? { country: me.country, state: me.state }
+        : me.role === "ADMIN" && searchParams.get("country") && searchParams.get("state")
+          ? { country: searchParams.get("country"), state: searchParams.get("state") }
+          : !isSupervisorLike(me) && hasCentre(me)
+            ? { country: me.country, state: me.state }
+            : null; // admins without drill-down see the global defaults
+    const catalogue = await resolveKpiCatalogue(centre);
+    const activeCatalogue = catalogue.filter((c) => c.active);
+    const deptRows = new Map<string, KpiRowDef[]>();
+    for (const c of activeCatalogue) {
+      const arr = deptRows.get(c.department) ?? [];
+      arr.push({ key: c.key, label: c.label, unit: (c.unit === "percent" || c.unit === "minutes" ? c.unit : "count") as KpiRowDef["unit"], category: "DEPT_CATALOGUE", target: c.defaultTarget, sortOrder: c.sortOrder });
+      deptRows.set(c.department, arr);
+    }
+    for (const arr of deptRows.values()) arr.sort((a, b) => a.sortOrder - b.sortOrder);
+
+    // ── Roster: the ACTIVE agents behind the team targets ──
+    // Supervisors/admins: every approved agent in scope (centre / drill-down /
+    // global). Staff: just themselves (headcount 1 — their own target).
+    let roster: { id: string; team: string | null; workDays: string | null }[] = [];
+    if (supervisor) {
+      const rosterWhere: Record<string, unknown> = {
+        status: "APPROVED",
+        role: { in: ["AGENT_BPO", "SOCIAL_MEDIA", "DEVELOPER"] },
+      };
+      if (me.role === "SUPERVISOR" && me.country && me.state) {
+        rosterWhere.country = me.country;
+        rosterWhere.state = me.state;
+      } else if (me.role === "ADMIN") {
+        const country = searchParams.get("country");
+        const state = searchParams.get("state");
+        if (country) rosterWhere.country = country;
+        if (state) rosterWhere.state = state;
+      }
+      roster = await db.user.findMany({ where: rosterWhere, select: { id: true, team: true, workDays: true } });
+    } else {
+      const self = await db.user.findUnique({ where: { id: me.id }, select: { id: true, team: true, workDays: true } });
+      if (self) roster = [self];
+    }
+
+    // Approved per-member target overrides (they beat the department catalogue).
+    const overrideMap = new Map<string, Map<string, number>>();
+    if (roster.length) {
+      const memberCfg = await db.memberKpiConfig.findMany({
+        where: { userId: { in: roster.map((m) => m.id) }, status: "APPROVED", target: { not: null } },
+        select: { userId: true, department: true, key: true, target: true },
+      });
+      for (const cfg of memberCfg) {
+        const member = roster.find((m) => m.id === cfg.userId);
+        if (!member || cfg.department !== teamDept(member.team) || cfg.target === null) continue;
+        const m = overrideMap.get(cfg.userId) ?? new Map<string, number>();
+        m.set(cfg.key, cfg.target);
+        overrideMap.set(cfg.userId, m);
+      }
+    }
+    const members: RosterMember[] = roster.map((m) => ({ id: m.id, team: m.team, workDays: m.workDays, overrides: overrideMap.get(m.id) }));
+
+    // Roster transparency for the dashboard meta line.
+    const teamCounts = Object.values(
+      members.reduce<Record<string, { team: string; label: string; count: number }>>((acc, m) => {
+        const t = m.team ?? "UNASSIGNED";
+        acc[t] ??= { team: t, label: TEAM_META[t]?.label ?? (t === "UNASSIGNED" ? "Unassigned" : t), count: 0 };
+        acc[t].count += 1;
+        return acc;
+      }, {}),
+    ).sort((a, b) => a.label.localeCompare(b.label));
+
+    const datesOf = (rs: { reportDate: Date }[]) =>
+      [...new Set(rs.map((r) => new Date(r.reportDate).toISOString().slice(0, 10)))];
+
+    const tagRows = (rows: CumRow[], group: string, groupLabel: string) =>
+      rows.map((r) => ({ ...r, group, groupLabel }));
+
+    const rows: CumRow[] = [];
+
+    // ── Call centre group (outbound / inbound / email agents) ──
+    if (callReports.length) {
+      const callDates = datesOf(callReports);
+      const dominantDept = callReports[0]?.department === "INBOUND" ? "INBOUND" : "BPO";
+      const targets = kpiTargetMap(activeCatalogue, [dominantDept, "BPO", "INBOUND"]);
+      const callMembers = members.filter((m) => (m.team ?? "BPO") !== "SOCIAL" && (m.team ?? "WEB_DEV") !== "TECH");
+      const periodTargets = teamPeriodTargets(callMembers, deptRows, callDates);
+      rows.push(...tagRows(
+        cumulativeKpiRows(callReports.map((r) => r.kpiMetrics), callDates.length, targets, undefined, periodTargets),
+        "call",
+        "Call Centre — Outbound · Inbound · Email",
+      ));
+    }
+
+    // ── Social media group ──
+    if (socialReports.length) {
+      const socialDates = datesOf(socialReports);
+      const socialDefs =
+        deptRows.get("SOCIAL_MEDIA") ??
+        SOCIAL_TEMPLATE_KPIS.map((m, i) => ({ key: m.key, label: m.label, unit: "count" as const, category: "SOCIAL_TEMPLATE", target: null, sortOrder: i }));
+      const targets = kpiTargetMap(activeCatalogue, ["SOCIAL_MEDIA"]);
+      const socialMembers = members.filter((m) => m.team === "SOCIAL");
+      const periodTargets = teamPeriodTargets(socialMembers, deptRows, socialDates);
+      rows.push(...tagRows(
+        cumulativeKpiRows(socialReports.map((r) => r.kpiMetrics), socialDates.length, targets, socialDefs, periodTargets),
+        "social",
+        "Social Media & Campaign",
+      ));
+    }
+
+    // ── Web & technical group ──
+    if (techReports.length) {
+      const techDates = datesOf(techReports);
+      const techDefs =
+        deptRows.get("WEB_DEV") ??
+        TECH_SUMMARY_METRICS.map((m, i) => ({ key: m.key, label: m.label, unit: "count" as const, category: "TECH_TEMPLATE", target: null, sortOrder: i }));
+      const targets = kpiTargetMap(activeCatalogue, ["WEB_DEV"]);
+      const techMembers = members.filter((m) => m.team === "TECH");
+      const periodTargets = teamPeriodTargets(techMembers, deptRows, techDates);
+      // TECH reports carry template kpiMetrics and/or a metricsSummary roll-up —
+      // merge both into one blob per report (units from the department rows).
+      const blobs = techReports.map((r) => {
+        const metrics = safeParse<KpiMetric[]>(r.kpiMetrics, []).filter((m) => m?.key);
+        const seen = new Set(metrics.map((m) => m.key));
+        const ms = safeParse<Record<string, number | null>>(r.metricsSummary, {});
+        for (const [k, v] of Object.entries(ms)) {
+          if (typeof v !== "number" || Number.isNaN(v) || seen.has(k)) continue;
+          const def = techDefs.find((d) => d.key === k);
+          metrics.push({
+            key: k, label: def?.label ?? k, target: null, targetLabel: "-", actual: v, variance: null,
+            unit: (def?.unit as KpiMetric["unit"]) ?? "count", category: "TECH_SUMMARY", auto: false, notes: "",
+          });
+        }
+        return JSON.stringify(metrics);
+      });
+      rows.push(...tagRows(
+        cumulativeKpiRows(blobs, techDates.length, targets, techDefs, periodTargets).filter((r) => r.actual !== null || r.target !== null),
+        "tech",
+        "Web & Technical",
+      ));
     }
 
     // Supervisor per-employee breakdown
@@ -145,6 +282,7 @@ export async function GET(req: NextRequest) {
       periodDays,
       reportCount: reports.length,
       distinctDates,
+      teamCounts,
       rows,
       techTotals,
       socialTotals,
