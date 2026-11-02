@@ -1041,3 +1041,21 @@ Work Log:
 
 Stage Summary:
 - The Enable action is now impossible to miss (one click on the Notifications page, full flow verified in a real browser down to a genuine FCM subscription) and the "Send test notification" button actually works again. The escalation composer enforces the team-lead rule server-side and client-side: a team lead exists only in their own team's picker — other teams, other centres and even the administrator cannot see or target them by name, while admins keep every centre's supervisors and the direct Notify-a-person path. Supabase is confirmed in sync with zero drift, and everything is committed and pushed to GitHub.
+
+---
+Task ID: 51
+Agent: main (Z.ai)
+Task: Administrators can delete reports from the Reports Archive (user request)
+
+Work Log:
+- USER REQUEST: "for the report, make it so that admins can delete reports from the report archive".
+- SCOPE SURVEY: the archive view (archive-view.tsx) loads /api/reports (supervisor/admin GET returns all); /api/reports had GET/POST/PATCH but NO DELETE — the only deletion path was the user-account cascade. Report has NO FK children in the schema (relations point outward to User only), so a plain row delete is safe.
+- BACKEND: new `DELETE /api/reports` (reports/route.ts) — ADMINISTRATORS ONLY (`me.role !== "ADMIN"` → 403; supervisors review but never destroy). Single `?id=` or bulk `{ ids: [...] }` (mirrors the escalations house pattern; ids deduped, capped at 200; missing id → 400, unknown single id → 404, unknown ids inside a bulk are skipped). Only the Report row is removed — the original uploaded document behind sourceFileId is untouched (uploads keep their own lifecycle + discard flow). Every deletion: owner notified (REPORT_DELETED, WARNING, refs the report ref + date; skipped when the owner IS the admin) + audited (DELETE_REPORT with status/ref/owner).
+- FRONTEND: archive-view.tsx gains an admin-only trash action on every row (rose hover, title "Delete this report permanently (administrator)") opening a Radix AlertDialog confirm — names the report ref, owner and date, warns it cannot be undone and that the employee will be notified; "Delete permanently" runs the DELETE in place (spinner + disabled while in flight, server error surfaced inside the dialog) and the table updates in place on success. Supervisors/agents see no delete control at all.
+- TESTS: NEW scripts/e2e-archive-delete.ts (12/12) — agent 403, supervisor 403, no-id 400, refused attempts leave the row intact, admin single delete 200 → row gone from db AND the /api/reports feed, owner REPORT_DELETED notification refs the report, DELETE_REPORT audit row refs status/ref/owner, bulk [2 live + 1 unknown] → deleted:2 both gone, unknown single id 404. NEW scripts/e2e-archive-delete-browser.mjs (7/7 in real Chromium) — admin: delete action on EVERY row, dialog names the exact report, confirm → row leaves the table, dialog closes, row really gone server-side; supervisor: rows visible (read intact) but ZERO delete controls. Assertions are ratio/targeted-row based because the production archive holds real reports (45 rows) — the suite never touches production data.
+- LESSON (test infra): the first browser run used absolute row-count assumptions (==2) and clicked the FIRST row blindly — both wrong on a dirty production DB; the confirm was also asserted after a fixed 1800 ms which is too tight. Fixed with targeted-row locators (hasText ref), ratio assertions, and a poll loop (≤8 s) for the DELETE round-trip; a one-off debug probe (removed after use) confirmed DELETE 200 via network capture.
+- SCHEMA: no migration — deletion uses the existing Report table only (migrate diff unchanged from Task 50's zero-drift state).
+- Runtime: production standalone rebuilt (BUILD_ID=prod11021158 lineage) — healthy on :3000, GET / 200.
+
+Stage Summary:
+- Reports Archive deletion exists end to end: administrators get a confirm-guarded, audited, owner-notified permanent delete on every archive row (single or bulk via the API), while supervisors keep their full read/review access with zero destruction power — enforced server-side (403) and reflected in the UI. Verified by 12 API assertions and 7 real-browser assertions against the live production archive without touching real data, and pushed to GitHub.

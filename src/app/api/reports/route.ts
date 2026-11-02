@@ -312,6 +312,58 @@ export async function POST(req: NextRequest) {
   });
 }
 
+/** DELETE — administrator removes reports from the archive, permanently.
+ *  Single ?id= or bulk JSON { ids: [...] } (mirrors the escalations house
+ *  pattern). Administrators ONLY — supervisors can review/return reports but
+ *  never destroy them. Only the Report row is removed; the original uploaded
+ *  document backing it (if any) is untouched, since uploads have their own
+ *  lifecycle and discard flow under Uploads. The owner is notified and the
+ *  removal lands in the audit trail with ref + owner + status. */
+export async function DELETE(req: NextRequest) {
+  return handle(async () => {
+    const me = await requireUser();
+    if (me.role !== "ADMIN") return fail("Only administrators can delete reports from the archive", 403);
+    const { searchParams } = new URL(req.url);
+    let ids: string[] = [];
+    const idParam = searchParams.get("id");
+    if (idParam) ids = [idParam];
+    else {
+      try {
+        const body = await req.json();
+        if (Array.isArray(body?.ids)) ids = body.ids.map(String);
+      } catch { /* no body */ }
+    }
+    ids = [...new Set(ids.filter(Boolean))].slice(0, 200);
+    if (!ids.length) return fail("id (or ids) is required");
+
+    let deleted = 0;
+    for (const id of ids) {
+      const report = await db.report.findUnique({
+        where: { id },
+        include: { user: { select: { id: true, fullName: true } } },
+      });
+      if (!report) continue;
+      await db.report.delete({ where: { id } });
+      deleted++;
+      if (report.userId && report.userId !== me.id) {
+        await notify({
+          userId: report.userId,
+          type: "REPORT_DELETED",
+          severity: "WARNING",
+          title: `Report removed — ${report.ref}`,
+          message: `${me.fullName} permanently removed your report ${report.ref} (${new Date(report.reportDate).toISOString().slice(0, 10)}) from the archive.`,
+        });
+      }
+      await audit({
+        userId: me.id, actorName: me.fullName, action: "DELETE_REPORT", entity: "Report", entityId: id,
+        details: `${report.status} — ${report.ref} (by ${report.user.fullName})`,
+      });
+    }
+    if (!deleted) return fail("Report not found", 404);
+    return ok({ success: true, deleted });
+  });
+}
+
 /** PATCH — supervisor review: approve / reject / feedback */
 export async function PATCH(req: NextRequest) {
   return handle(async () => {

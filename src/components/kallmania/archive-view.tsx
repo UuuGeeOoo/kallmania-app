@@ -9,19 +9,35 @@ import { PageHeader, EmptyState, StatusBadge } from "@/components/kallmania/shar
 import { ReportDetailDialog } from "@/components/kallmania/reports-view";
 import { DocumentViewerModal } from "@/components/kallmania/document-viewer";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Eye, Loader2, FileDown, FileSpreadsheet, FileText, Archive, DatabaseZap, BookOpen } from "lucide-react";
+import { Eye, Loader2, FileDown, FileSpreadsheet, FileText, Archive, DatabaseZap, BookOpen, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 /**
  * Reports Archive — every submitted report is stored online (server database +
  * original uploads on disk). Administrators and supervisors can browse the full
  * history, read any report's complete contents, and download it as Word /
- * Excel / CSV at any time, from any device.
+ * Excel / CSV at any time, from any device. ADMINISTRATORS can also permanently
+ * remove reports from the archive (confirmed, audited, owner-notified) —
+ * supervisors keep read/review access but never destruction.
  */
 
 export default function ReportsArchiveView({ user }: { user: SessionUser }) {
+  const isAdmin = user.role === "ADMIN";
   const [reports, setReports] = useState<ReportDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ReportDTO | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ReportDTO | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [delError, setDelError] = useState<string | null>(null);
 
   // filters
   const [q, setQ] = useState("");
@@ -39,6 +55,23 @@ export default function ReportsArchiveView({ user }: { user: SessionUser }) {
   }, []);
 
   const download = (id: string, format: string) => window.open(`/api/export?format=${format}&id=${id}`, "_blank");
+
+  // Permanent removal — server-side admin-only; the row is gone forever and
+  // the owner is notified. The list updates in place on success.
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    setDelError(null);
+    try {
+      await api(`/api/reports?id=${pendingDelete.id}`, { method: "DELETE" });
+      setReports((prev) => prev.filter((r) => r.id !== pendingDelete.id));
+      setPendingDelete(null);
+    } catch (e) {
+      setDelError((e as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -163,6 +196,11 @@ export default function ReportsArchiveView({ user }: { user: SessionUser }) {
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-amber-300" onClick={() => download(r.id, "csv")} title="Download CSV">
                         <FileDown className="h-3.5 w-3.5" />
                       </Button>
+                      {isAdmin && (
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-400 hover:text-rose-400" onClick={() => { setDelError(null); setPendingDelete(r); }} title="Delete this report permanently (administrator)">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -173,6 +211,33 @@ export default function ReportsArchiveView({ user }: { user: SessionUser }) {
       )}
 
       <ReportDetailDialog report={selected} open={!!selected} onClose={() => setSelected(null)} />
+
+      {/* Admin-only: permanent deletion confirm — destructive, so it always asks twice. */}
+      <AlertDialog open={!!pendingDelete} onOpenChange={(v) => { if (!v) setPendingDelete(null); }}>
+        <AlertDialogContent className="border-white/10 bg-popover text-slate-100 sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-white">Delete this report permanently?</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400">
+              {pendingDelete && (
+                <>
+                  Report <span className="font-mono text-[#b3a5ff]">{pendingDelete.ref}</span> by {pendingDelete.user?.fullName} ({fmtDate(pendingDelete.reportDate)}) will be removed from the archive forever. This cannot be undone — the employee will be notified.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {delError && <p className="text-xs text-rose-400">{delError}</p>}
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-slate-600 bg-transparent text-slate-200 hover:bg-white/10 hover:text-white">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(e) => { e.preventDefault(); confirmDelete(); }}
+              className="bg-rose-600 font-semibold text-white hover:bg-rose-500"
+            >
+              {deleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />} Delete permanently
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {docPreview && (
         <DocumentViewerModal
           name={docPreview.name}
