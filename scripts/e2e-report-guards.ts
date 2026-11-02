@@ -5,6 +5,8 @@
 //  4. approved reports locked: no corrections, no resubmission
 //  5. other days are unaffected
 const BASE = "http://localhost:3000";
+import { PrismaClient } from "@prisma/client";
+const db = new PrismaClient();
 const AGENT = { email: "e2e-agent@kallmania.test", password: "e2e-test-2026" };
 const SUP = { email: "e2e-sup@kallmania.test", password: "e2e-test-2026" };
 
@@ -38,8 +40,22 @@ const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 const agent = await login(AGENT);
 const sup = await login(SUP);
 
+// Clean slate: remove this agent's earlier test reports so "first submit for
+// today" really is the first (previous runs may have left live reports).
+const agentId = (await db.user.findUnique({ where: { email: AGENT.email } }))?.id;
+if (agentId) await db.report.deleteMany({ where: { userId: agentId } });
+
 // ── 1. First submission for today: allowed ──
-const r1 = await post(agent, { type: "AGENT_BPO", reportDate: today, submit: true, shiftTime: "09:00-17:00", attendanceStatus: "Present", kpiMetrics: [{ key: "totalCallsMade", label: "Total Calls Made", target: 30, targetLabel: "30", actual: 32, variance: 2, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "" }] });
+// (the live KPI configuration marks Total Calls Made / Total Mails Sent / Calls
+//  Connected mandatory — fill every required row so the submit passes the gate)
+const r1 = await post(agent, {
+  type: "AGENT_BPO", reportDate: today, submit: true, shiftTime: "09:00-17:00", attendanceStatus: "Present",
+  kpiMetrics: [
+    { key: "totalCallsMade", label: "Total Calls Made", target: 30, targetLabel: "30", actual: 32, variance: 2, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "" },
+    { key: "totalMailsSent", label: "Total Mails Sent", target: 10, targetLabel: "10", actual: 12, variance: 2, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "" },
+    { key: "callsConnected", label: "Calls Connected", target: 25, targetLabel: "25", actual: 20, variance: -5, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "" },
+  ],
+});
 check("first submit for today succeeds", r1.status === 201 || r1.status === 200, `status=${r1.status}`);
 const report = r1.json?.report;
 check("report is SUBMITTED", report?.status === "SUBMITTED", `status=${report?.status} ref=${report?.ref}`);
@@ -63,7 +79,11 @@ check("correction keeps status SUBMITTED", r5.json?.report?.status === "SUBMITTE
 check("correction content saved", (r5.json?.report?.challenges || "").includes("corrected note"), "");
 
 // ── 6. Other day: fresh draft + submit is fine ──
-const r6 = await post(agent, { type: "AGENT_BPO", reportDate: yesterday, submit: false });
+const r6 = await post(agent, { type: "AGENT_BPO", reportDate: yesterday, submit: false, kpiMetrics: [
+  { key: "totalCallsMade", label: "Total Calls Made", target: 30, targetLabel: "30", actual: 28, variance: -2, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "" },
+  { key: "totalMailsSent", label: "Total Mails Sent", target: 10, targetLabel: "10", actual: 11, variance: 1, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "" },
+  { key: "callsConnected", label: "Calls Connected", target: 25, targetLabel: "25", actual: 19, variance: -6, unit: "count", category: "CORE_TEMPLATE", auto: false, notes: "" },
+] });
 check("draft for another day allowed", r6.status === 201, `status=${r6.status}`);
 const draftId = r6.json?.report?.id;
 const r7 = await post(agent, { id: draftId, type: "AGENT_BPO", reportDate: yesterday, submit: true });
@@ -86,4 +106,5 @@ const r10 = await post(agent, { id: report.id, type: "AGENT_BPO", reportDate: to
 check("resubmit on APPROVED report blocked", r10.status === 403 || r10.status === 409, `status=${r10.status}`);
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
+await db.$disconnect();
 process.exit(failures === 0 ? 0 : 1);

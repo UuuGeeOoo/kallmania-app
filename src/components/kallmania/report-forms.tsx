@@ -116,7 +116,11 @@ function useRecalc() {
 export function KpiTable({ metrics, onChange, showCategory }: { metrics: KpiMetric[]; onChange: (m: KpiMetric[]) => void; showCategory?: boolean }) {
   const recalc = useRecalc();
   const [emailOpen, setEmailOpen] = useState(false);
-  const core = metrics.filter((m) => m.category === "CORE_TEMPLATE" || m.category === "LEADS_EXTENSION" || m.category === "CUSTOM");
+  // Every team's rows render in the main table — the shared BPO grid
+  // (CORE_TEMPLATE/LEADS_EXTENSION), the social media & technical team rows and
+  // any admin-configured catalogue rows. Only the BPO email extension keeps its
+  // own collapsible block.
+  const core = metrics.filter((m) => m.category !== "EMAIL_EXTENSION");
   const email = metrics.filter((m) => m.category === "EMAIL_EXTENSION");
 
   const setActual = (key: string, raw: string) => {

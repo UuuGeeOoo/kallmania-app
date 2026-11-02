@@ -9,6 +9,15 @@ import { safeParse } from "@/lib/api-utils";
 /** Supervisor template destinations for the confirmed metric grid. */
 const SUP_ATTENDANCE_KEYS = new Set(["totalOnShift", "presentOnTime", "lateArrivals", "absentExcused", "absentUnexcused", "earlyDepartures"]);
 
+/** SOCIAL template → dashboard aggregation mapping (mirrors POST /api/reports). */
+const SOCIAL_SUMMARY_MAP: { from: string; to: string }[] = [
+  { from: "postsCreated", to: "postsPublished" },
+  { from: "storiesReels", to: "storiesPublished" },
+  { from: "reachImpressions", to: "reach" },
+  { from: "followerGrowth", to: "followerGrowth" },
+  { from: "commentsDMs", to: "commentsHandled" },
+];
+
 /**
  * POST /api/uploads/confirm
  * Body: { uploadId, confirmedMetrics: KpiMetric[], sections: {...}, emailContext, submit }
@@ -30,8 +39,17 @@ export async function POST(req: NextRequest) {
     if (upload.reportId) return fail("This upload was already confirmed as a report. Check your reports list — avoid submitting the same document twice.", 409);
     if (upload.extractStatus === "SUBMITTED") return fail("This upload has already been confirmed and submitted", 409);
 
-    const reportTypeByDept: Record<string, string> = { BPO: "AGENT_BPO", WEB_DEV: "TECH", SOCIAL_MEDIA: "SOCIAL", MANAGEMENT: "SUPERVISOR" };
-    const reportType = reportTypeByDept[department || upload.department || "BPO"] || "AGENT_BPO";
+    const reportTypeByDept: Record<string, string> = { BPO: "AGENT_BPO", INBOUND: "AGENT_BPO", WEB_DEV: "TECH", SOCIAL_MEDIA: "SOCIAL", MANAGEMENT: "SUPERVISOR" };
+    // Team association, enforced server-side: a staff member's report is ALWAYS
+    // created under their own team/department — a tampered payload cannot file
+    // a social-media report as an outbound (or any other team's) report.
+    // Supervisors and administrators keep their picker (they file on behalf of
+    // the teams they oversee).
+    const isManager = ["SUPERVISOR", "ADMIN"].includes(me.role);
+    const effectiveDepartment = isManager
+      ? department || upload.department || me.department || "BPO"
+      : me.department || upload.department || "BPO";
+    const reportType = reportTypeByDept[effectiveDepartment] || "AGENT_BPO";
 
     const metrics = recalcKpis(safeParse<KpiMetric[]>(confirmedMetrics, []));
     const date = toDateOrNull(reportDate) || upload.reportDate || new Date();
@@ -55,7 +73,6 @@ export async function POST(req: NextRequest) {
 
     const refPrefix = reportType === "AGENT_BPO" ? "BPO" : reportType === "TECH" ? "TEC" : reportType === "SUPERVISOR" ? "SUP" : "SOC";
     const ref = `${refPrefix}-UP-${Date.now().toString(36).toUpperCase()}`;
-
     // ── SUPERVISOR: confirmed metrics split into attendance counts and team
     // KPI rows; narrative sections map onto the supervisor template columns.
     // Unknown metric keys are preserved as extra team rows (template fill
@@ -86,13 +103,49 @@ export async function POST(req: NextRequest) {
       };
     }
 
+    // ── TECH / SOCIAL team formats: the metric grid becomes the structure that
+    // team's report (and its dashboards) read — technical reports keep a plain
+    // metricsSummary, social media reports keep the team's docx KPI table
+    // (kpiMetrics) plus the derived summary. Work/task entries from the
+    // team's format sections are stored verbatim; the owner's team is stamped
+    // on the report. Nothing is forced into the outbound agent shape.
+    let deptTeamData: Record<string, unknown> = {};
+    if (reportType === "TECH" || reportType === "SOCIAL") {
+      const entries = Array.isArray(body.workEntries) ? body.workEntries.filter((e: unknown) => e && typeof e === "object" && Object.values(e as Record<string, unknown>).some((v) => v && String(v).trim() !== "")) : [];
+      if (reportType === "TECH") {
+        const ms: Record<string, number> = {};
+        for (const m of metrics) {
+          if (m.actual !== null && m.actual !== undefined && Number.isFinite(Number(m.actual))) ms[m.key] = Number(m.actual);
+        }
+        deptTeamData = {
+          kpiMetrics: null,
+          metricsSummary: Object.keys(ms).length ? JSON.stringify(ms) : null,
+          workEntries: entries.length ? JSON.stringify(entries) : null,
+          teamName: me.team || null,
+        };
+      } else {
+        const val = (k: string) => metrics.find((m) => m.key === k)?.actual ?? null;
+        const msSummary: Record<string, number> = {};
+        for (const { from, to } of SOCIAL_SUMMARY_MAP) {
+          const v = val(from);
+          if (v !== null && v !== undefined && Number.isFinite(Number(v))) msSummary[to] = Number(v);
+        }
+        deptTeamData = {
+          kpiMetrics: JSON.stringify(metrics),
+          metricsSummary: Object.keys(msSummary).length ? JSON.stringify(msSummary) : null,
+          workEntries: entries.length ? JSON.stringify(entries) : null,
+          teamName: me.team || null,
+        };
+      }
+    }
+
     const report = await db.report.create({
       data: {
         ref,
         type: reportType,
         reportDate: date,
         userId: me.id,
-        department: department || upload.department || me.department,
+        department: effectiveDepartment,
         shiftTime: sections?.shiftTime || null,
         clockIn: sections?.clockIn || null,
         clockOut: sections?.clockOut || null,
@@ -108,6 +161,7 @@ export async function POST(req: NextRequest) {
         sourceFileId: upload.id,
         verificationStatus: "CONFIRMED_BY_EMPLOYEE",
         ...supervisorData,
+        ...deptTeamData,
       },
     });
 

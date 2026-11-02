@@ -47,7 +47,15 @@ export async function POST(req: NextRequest) {
     const me = await requireUser();
     const form = await req.formData();
     const file = form.get("file") as File | null;
-    const department = (form.get("department") as string) || me.department;
+    // Team association: a staff member's upload is ALWAYS filed under their own
+    // team — a client-sent department can never re-route a social-media report
+    // into the outbound (or any other) template. Supervisors and administrators
+    // keep the picker because they file documents on behalf of the teams they
+    // oversee.
+    const isManager = ["SUPERVISOR", "ADMIN"].includes(me.role);
+    const department = isManager
+      ? (form.get("department") as string) || me.department
+      : me.department;
     const reportDate = (form.get("reportDate") as string) || new Date().toISOString().slice(0, 10);
     const campaign = (form.get("campaign") as string) || null;
 

@@ -7,14 +7,248 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { api, fmtDateTime, type DocIntelPayload, type ExtractedField, type KpiMetric, type SessionUser, type UploadDTO } from "@/lib/client";
+import { api, fmtDateTime, DEPT_LABELS, TEAM_LABELS, type DocIntelPayload, type ExtractedField, type KpiMetric, type SessionUser, type UploadDTO } from "@/lib/client";
 import { SectionCard, Field, inputCls, StatusBadge, EmptyState } from "@/components/kallmania/shared";
 import { DocumentViewerModal } from "@/components/kallmania/document-viewer";
 import { TextDraftModal } from "@/components/kallmania/text-draft";
 import { KpiTable } from "@/components/kallmania/report-forms";
-import { Upload as UploadIcon, FileUp, ScanSearch, CheckCircle2, AlertTriangle, XCircle, Loader2, FileText, ShieldAlert, Send, Save, Eye, ScrollText, ListChecks, Table2, FileSearch, PlusCircle, Info } from "lucide-react";
+import { Upload as UploadIcon, FileUp, ScanSearch, CheckCircle2, AlertTriangle, XCircle, Loader2, FileText, ShieldAlert, Send, Save, Eye, ScrollText, ListChecks, Table2, FileSearch, PlusCircle, Info, Plus, Trash2, Users } from "lucide-react";
 
 const SUPPORTED = "PDF, DOCX, XLSX, CSV, TXT, PNG, JPEG up to 15 MB";
+
+const TECH_CATEGORIES = ["Website Development", "Frontend Development", "Backend Development", "Bug Fixing", "Website Maintenance", "API Integration", "Database Tasks", "Technical Support", "Testing & QA", "Deployment & Release", "Security & Performance", "Technical Research", "Documentation", "Other"];
+const TECH_STATUSES = ["Not Started", "In Progress", "Completed", "Under Review", "Blocked", "Pending Deployment", "Awaiting Approval", "Not Completed"];
+const SOCIAL_PLATFORMS = ["Facebook", "Instagram", "X (Twitter)", "LinkedIn", "TikTok", "YouTube", "WhatsApp", "Threads", "Pinterest", "Other"];
+const SOCIAL_TASK_STATUSES = ["Planned", "In Progress", "Completed", "Published", "Blocked", "Not Completed"];
+
+interface TechEntry { title: string; project: string; category: string; status: string; hours: string; deliverable: string; }
+interface SocialTask { task: string; platform: string; status: string; deliverable: string; }
+
+/** Fallback rows (master-template defaults) used when the KPI catalogue is unavailable. */
+const FALLBACK_SEEDS: Record<string, { key: string; label: string; target: number | null; unit: "count" | "percent" | "minutes"; category: string; mandatory?: boolean }[]> = {
+  BPO: [
+    { key: "totalCallsMade", label: "Total Calls Made", target: 30, unit: "count", category: "CORE_TEMPLATE", mandatory: true },
+    { key: "totalMailsSent", label: "Total Mails Sent", target: 10, unit: "count", category: "CORE_TEMPLATE", mandatory: true },
+    { key: "callsConnected", label: "Calls Connected", target: 25, unit: "count", category: "CORE_TEMPLATE", mandatory: true },
+    { key: "successfulMailsSent", label: "Successful Mails Sent", target: 8, unit: "count", category: "CORE_TEMPLATE" },
+    { key: "contactRate", label: "Contact Rate (%)", target: 100, unit: "percent", category: "CORE_TEMPLATE" },
+    { key: "conversionRate", label: "Conversion Rate (%)", target: 2, unit: "percent", category: "CORE_TEMPLATE" },
+    { key: "avgTalkTime", label: "Avg. Talk Time (mins)", target: null, unit: "minutes", category: "CORE_TEMPLATE" },
+    { key: "avgHoldTime", label: "Avg. Hold Time (mins)", target: null, unit: "minutes", category: "CORE_TEMPLATE" },
+    { key: "callbacksScheduled", label: "Callbacks Scheduled", target: null, unit: "count", category: "CORE_TEMPLATE" },
+    { key: "leadsGenerated", label: "Leads Generated (HOT / WARM)", target: null, unit: "count", category: "CORE_TEMPLATE" },
+    { key: "hotLeads", label: "— Hot Leads", target: null, unit: "count", category: "LEADS_EXTENSION" },
+    { key: "warmLeads", label: "— Warm Leads", target: null, unit: "count", category: "LEADS_EXTENSION" },
+    { key: "positiveDispositions", label: "Positive Dispositions", target: null, unit: "count", category: "CORE_TEMPLATE" },
+    { key: "notInterested", label: "Not Interested / Declined", target: null, unit: "count", category: "CORE_TEMPLATE" },
+    { key: "wrapUpTime", label: "Wrap-Up / After-Call Work (mins)", target: 20, unit: "minutes", category: "CORE_TEMPLATE" },
+    { key: "bouncedEmails", label: "Bounced Emails", target: null, unit: "count", category: "EMAIL_EXTENSION" },
+    { key: "failedSends", label: "Failed Sending Attempts", target: null, unit: "count", category: "EMAIL_EXTENSION" },
+    { key: "followUpEmails", label: "Follow-up Emails Sent", target: null, unit: "count", category: "EMAIL_EXTENSION" },
+    { key: "personalizedOutreach", label: "Personalized Outreach Emails", target: null, unit: "count", category: "EMAIL_EXTENSION" },
+    { key: "campaignEmails", label: "Campaign Emails Sent", target: null, unit: "count", category: "EMAIL_EXTENSION" },
+    { key: "repliesReceived", label: "Replies Received", target: null, unit: "count", category: "EMAIL_EXTENSION" },
+    { key: "positiveReplies", label: "Positive Replies", target: null, unit: "count", category: "EMAIL_EXTENSION" },
+    { key: "negativeReplies", label: "Negative Replies", target: null, unit: "count", category: "EMAIL_EXTENSION" },
+    { key: "interestedProspects", label: "Interested Prospects", target: null, unit: "count", category: "EMAIL_EXTENSION" },
+    { key: "emailHotLeads", label: "Hot Leads via Email", target: null, unit: "count", category: "EMAIL_EXTENSION" },
+    { key: "emailWarmLeads", label: "Warm Leads via Email", target: null, unit: "count", category: "EMAIL_EXTENSION" },
+    { key: "meetingsBookedEmail", label: "Meetings Booked via Email", target: null, unit: "count", category: "EMAIL_EXTENSION" },
+    { key: "emailTasksCompleted", label: "Email-related Tasks Completed", target: null, unit: "count", category: "EMAIL_EXTENSION" },
+    { key: "outstandingFollowUps", label: "Outstanding Email Follow-ups", target: null, unit: "count", category: "EMAIL_EXTENSION" },
+  ],
+  WEB_DEV: [
+    { key: "tasksCompleted", label: "Tasks Completed", target: null, unit: "count", category: "TECH" },
+    { key: "bugsResolved", label: "Bugs Resolved", target: null, unit: "count", category: "TECH" },
+    { key: "supportTicketsResolved", label: "Support Tickets Resolved", target: null, unit: "count", category: "TECH" },
+    { key: "deploymentsCompleted", label: "Deployments Completed", target: null, unit: "count", category: "TECH" },
+    { key: "testCasesPassed", label: "Test Cases Passed", target: null, unit: "count", category: "TECH" },
+    { key: "milestonesDelivered", label: "Milestones Delivered", target: null, unit: "count", category: "TECH" },
+    { key: "codeReviewsDone", label: "Code Reviews Done", target: null, unit: "count", category: "TECH" },
+  ],
+  SOCIAL_MEDIA: [
+    { key: "postsCreated", label: "Posts Created / Published", target: 4, unit: "count", category: "SOCIAL_TEMPLATE" },
+    { key: "storiesReels", label: "Stories / Reels Created", target: 4, unit: "count", category: "SOCIAL_TEMPLATE" },
+    { key: "engagementRate", label: "Content Engagement Rate (%)", target: 5, unit: "percent", category: "SOCIAL_TEMPLATE" },
+    { key: "reachImpressions", label: "Reach / Impressions", target: 10000, unit: "count", category: "SOCIAL_TEMPLATE" },
+    { key: "followerGrowth", label: "Follower Growth (Net)", target: 50, unit: "count", category: "SOCIAL_TEMPLATE" },
+    { key: "commentsDMs", label: "Comments / DMs Responded To", target: 30, unit: "count", category: "SOCIAL_TEMPLATE" },
+    { key: "calendarAdherence", label: "Content Calendar Adherence (%)", target: 90, unit: "percent", category: "SOCIAL_TEMPLATE" },
+    { key: "graphicsDesigned", label: "Graphics / Visuals Designed", target: 4, unit: "count", category: "SOCIAL_TEMPLATE" },
+  ],
+};
+
+// Extracted (dashboard-summary) keys → the Social Media team's 8-row docx KPI table.
+const SOCIAL_KEY_MAP: Record<string, string> = {
+  postsPublished: "postsCreated",
+  postsPlanned: "postsCreated",
+  reelsPublished: "storiesReels",
+  storiesPublished: "storiesReels",
+  reach: "reachImpressions",
+  impressions: "reachImpressions",
+  commentsHandled: "commentsDMs",
+  messagesHandled: "commentsDMs",
+  followerGrowth: "followerGrowth",
+};
+
+// Which extracted key wins when two map onto the same team template row
+// ("posts published" beats "posts planned" for the Posts row, reach beats
+// impressions for Reach / Impressions, …).
+const SOCIAL_SOURCE_PRIORITY = ["postsPublished", "postsPlanned", "reelsPublished", "storiesPublished", "reach", "impressions", "commentsHandled", "messagesHandled", "followerGrowth"];
+
+const targetLabelFor = (t: number | null | undefined, unit: string): string =>
+  t === null || t === undefined ? "-" : unit === "percent" ? `${t}%` : unit === "minutes" ? `${t}mins` : `${t}`;
+
+const titleizeKey = (k: string) => k.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+
+interface CatalogueRow { department: string; key: string; label: string; unit: string; defaultTarget: number | null; mandatory: boolean; active: boolean; category?: string }
+interface MemberOverride { key: string; label?: string; target: number | null; unit?: string; status: string; department: string }
+
+/**
+ * The uploader's effective KPI configuration for their own team: the
+ * centre-resolved catalogue (centre overrides over global defaults, served by
+ * /api/kpi-config) plus the member's approved individual target overrides —
+ * the same configuration the manual report forms use. BPO agents on the
+ * INBOUND team read the INBOUND catalogue.
+ */
+async function loadTeamKpiConfig(user: SessionUser, department: string): Promise<{ rows: CatalogueRow[] | null; overrides: Map<string, MemberOverride> }> {
+  const dept = department === "BPO" && user.team === "INBOUND" ? "INBOUND" : department;
+  const centreQs = user.country && user.state ? `?centreCountry=${encodeURIComponent(user.country)}&centreState=${encodeURIComponent(user.state)}` : "";
+  const [cfg, member] = await Promise.all([
+    api<{ configs: CatalogueRow[] }>(`/api/kpi-config${centreQs}`)
+      .then((r) => r.configs.filter((c) => c.department === dept && c.active !== false))
+      .catch(() => null),
+    api<{ configs: MemberOverride[] }>(`/api/users/${user.id}/member-kpi`)
+      .then((r) => r.configs.filter((c) => c.status === "APPROVED" && c.department === dept))
+      .catch(() => [] as MemberOverride[]),
+  ]);
+  return { rows: cfg, overrides: new Map(member.map((m) => [m.key, m])) };
+}
+
+/**
+ * Build the review grid in the TEAM'S OWN report format: rows come from the
+ * team's KPI configuration (labels, targets, mandatory flags), values come
+ * from the document. Summary keys are mapped onto the team's template rows
+ * where the wording differs (social media), and every extracted value the
+ * template has no row for is kept visible instead of being dropped.
+ */
+function buildTeamKpiRows(
+  department: string,
+  catalogue: CatalogueRow[] | null,
+  overrides: Map<string, MemberOverride>,
+  extractedEntries: [string, number][],
+): KpiMetric[] {
+  const fallback = FALLBACK_SEEDS[department] ?? [];
+  const fallbackByKey = new Map(fallback.map((d) => [d.key, d]));
+  const base = (catalogue?.length ? catalogue : fallback.map((d) => ({ ...d, department, active: true, category: d.category }))).map((c) => {
+    const fb = fallbackByKey.get(c.key);
+    const unit = (fb?.unit ?? (c.unit === "percent" || c.unit === "minutes" ? c.unit : "count")) as KpiMetric["unit"];
+    return { key: c.key, label: c.label, target: c.defaultTarget, unit, category: fb?.category ?? c.category ?? "CUSTOM", mandatory: !!c.mandatory };
+  });
+  const rows: KpiMetric[] = base.map((r) => {
+    const o = overrides.get(r.key);
+    if (o && o.target !== null && o.target !== undefined) { r.label = o.label || r.label; r.target = o.target; }
+    return { ...r, targetLabel: targetLabelFor(r.target, r.unit), actual: null, variance: null, auto: false, notes: "" };
+  });
+  const claimedSources = new Set<string>();
+  for (const [srcKey, value] of extractedEntries) {
+    const targetKey = department === "SOCIAL_MEDIA" ? SOCIAL_KEY_MAP[srcKey] ?? null : srcKey;
+    if (!targetKey) continue;
+    const row = rows.find((r) => r.key === targetKey);
+    claimedSources.add(srcKey);
+    if (row && row.actual === null) {
+      row.actual = value;
+      row.notes = "Extracted — please verify";
+    }
+  }
+  // Values the team template has no row for stay visible — nothing the
+  // document stated is silently dropped.
+  for (const [srcKey, value] of extractedEntries) {
+    if (claimedSources.has(srcKey) || rows.some((r) => r.key === srcKey)) continue;
+    rows.push({ key: srcKey, label: titleizeKey(srcKey), target: null, targetLabel: "-", actual: value, variance: null, unit: "count", category: "EXTRACTED", auto: false, notes: "Extracted — please verify" });
+  }
+  return rows;
+}
+
+/** Technical team format — Work & Task Entries (mirror of the manual form). */
+function TechEntriesEditor({ entries, onChange }: { entries: TechEntry[]; onChange: (e: TechEntry[]) => void }) {
+  const blank = (): TechEntry => ({ title: "", project: "", category: "", status: "In Progress", hours: "", deliverable: "" });
+  const patch = (i: number, p: Partial<TechEntry>) => onChange(entries.map((e, j) => (j === i ? { ...e, ...p } : e)));
+  return (
+    <div className="space-y-3 rounded-lg border border-white/10 bg-white/[0.02] p-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[#b3a5ff]">Work & Task Entries — Web & Technical format</p>
+        <Button size="sm" variant="outline" className="h-7 gap-1 border-[#8b7ff5]/40 px-2 text-[11px] text-[#b3a5ff]" onClick={() => onChange([...entries, blank()])}><Plus className="h-3 w-3" /> Add entry</Button>
+      </div>
+      {entries.length === 0 && <p className="text-[11px] text-slate-500">Part of the technical report format — record each task worked on today (copy details from the Full extraction tab if the document listed them).</p>}
+      {entries.map((e, i) => (
+        <div key={i} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Entry {i + 1}</p>
+            <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-500 hover:bg-rose-500/10 hover:text-rose-300" onClick={() => onChange(entries.filter((_, j) => j !== i))}><Trash2 className="h-3.5 w-3.5" /></Button>
+          </div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+            <Field label="Task title"><Input className={inputCls} value={e.title} onChange={(ev) => patch(i, { title: ev.target.value })} placeholder="e.g. Fix checkout bug" /></Field>
+            <Field label="Project / website"><Input className={inputCls} value={e.project} onChange={(ev) => patch(i, { project: ev.target.value })} placeholder="e.g. sbtsgroup.com" /></Field>
+            <Field label="Category">
+              <Select value={e.category} onValueChange={(v) => patch(i, { category: v })}>
+                <SelectTrigger className={inputCls}><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>{TECH_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
+            <Field label="Status">
+              <Select value={e.status} onValueChange={(v) => patch(i, { status: v })}>
+                <SelectTrigger className={inputCls}><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>{TECH_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
+            <Field label="Hours spent"><Input type="number" className={inputCls} value={e.hours} onChange={(ev) => patch(i, { hours: ev.target.value })} placeholder="e.g. 3" /></Field>
+            <Field label="Deliverable"><Input className={inputCls} value={e.deliverable} onChange={(ev) => patch(i, { deliverable: ev.target.value })} placeholder="What was produced" /></Field>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Social media team format — Tasks Assigned & Completed (mirror of the manual form). */
+function SocialTasksEditor({ tasks, onChange }: { tasks: SocialTask[]; onChange: (t: SocialTask[]) => void }) {
+  const blank = (): SocialTask => ({ task: "", platform: "", status: "", deliverable: "" });
+  const patch = (i: number, p: Partial<SocialTask>) => onChange(tasks.map((t, j) => (j === i ? { ...t, ...p } : t)));
+  return (
+    <div className="space-y-3 rounded-lg border border-white/10 bg-white/[0.02] p-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[#b3a5ff]">Tasks Assigned & Completed — Social Media format</p>
+        <Button size="sm" variant="outline" className="h-7 gap-1 border-[#8b7ff5]/40 px-2 text-[11px] text-[#b3a5ff]" onClick={() => onChange([...tasks, blank()])}><Plus className="h-3 w-3" /> Add task</Button>
+      </div>
+      {tasks.length === 0 && <p className="text-[11px] text-slate-500">Part of the social media report format — one row per task with its platform and status.</p>}
+      {tasks.map((t, i) => (
+        <div key={i} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Task {i + 1}</p>
+            <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-500 hover:bg-rose-500/10 hover:text-rose-300" onClick={() => onChange(tasks.filter((_, j) => j !== i))}><Trash2 className="h-3.5 w-3.5" /></Button>
+          </div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Field label="Task / activity"><Input className={inputCls} value={t.task} onChange={(ev) => patch(i, { task: ev.target.value })} placeholder="e.g. Design campaign graphics" /></Field>
+            <Field label="Platform">
+              <Select value={t.platform} onValueChange={(v) => patch(i, { platform: v })}>
+                <SelectTrigger className={inputCls}><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>{SOCIAL_PLATFORMS.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
+            <Field label="Status">
+              <Select value={t.status} onValueChange={(v) => patch(i, { status: v })}>
+                <SelectTrigger className={inputCls}><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>{SOCIAL_TASK_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
+            <Field label="Deliverable / notes"><Input className={inputCls} value={t.deliverable} onChange={(ev) => patch(i, { deliverable: ev.target.value })} placeholder="Output or link" /></Field>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 interface ReviewSections {
   challenges?: string | null;
@@ -54,6 +288,8 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
   const [metrics, setMetrics] = useState<KpiMetric[]>([]);
   const [sections, setSections] = useState<ReviewSections>({});
   const [additional, setAdditional] = useState("");
+  const [techEntries, setTechEntries] = useState<TechEntry[]>([]);
+  const [socialTasks, setSocialTasks] = useState<SocialTask[]>([]);
   const [confirming, setConfirming] = useState(false);
   const [confirmed, setConfirmed] = useState<{ ref: string; submitted: boolean } | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -62,9 +298,12 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
   const [discarded, setDiscarded] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const [includedUnmapped, setIncludedUnmapped] = useState<string[]>([]);
+  // Managers may file a document on behalf of any team; staff always file in
+  // their own team's format.
+  const isManager = user.role === "ADMIN" || user.role === "SUPERVISOR";
 
   const reset = () => {
-    setFile(null); setUploadId(null); setExtraction(null); setMetrics([]); setSections({}); setAdditional(""); setConfirmed(null); setError(null); setDiscarded(false); setShowRaw(false); setIncludedUnmapped([]);
+    setFile(null); setUploadId(null); setExtraction(null); setMetrics([]); setSections({}); setAdditional(""); setConfirmed(null); setError(null); setDiscarded(false); setShowRaw(false); setIncludedUnmapped([]); setTechEntries([]); setSocialTasks([]);
     if (fileRef.current) fileRef.current.value = "";
   };
 
@@ -98,27 +337,46 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
       }
       const ext = res as ExtractResponse;
       setExtraction(ext);
-      // Seed the KPI metric editor with the extracted values — supervisor
-      // uploads get the supervisor template grid (team KPIs + attendance),
-      // everyone else the agent grid.
+      // ── Team-aware review: EVERY department reviews the upload in its own
+      // report format with its own KPI configuration — the social media team
+      // sees the social media template rows, web dev the technical metrics,
+      // outbound/inbound agents the call KPIs, supervisors the supervisor
+      // grid. The outbound agent template is never forced onto another team.
       const isSupervisor = department === "MANAGEMENT";
-      const { AGENT_KPIS_SEED, SUPERVISOR_KPIS_SEED } = await import("@/lib/kpi-seed");
-      const seedDefs = isSupervisor ? SUPERVISOR_KPIS_SEED : AGENT_KPIS_SEED;
       const routedByKey = new Map((ext.doc?.full.routed ?? []).map((r) => [r.key, r]));
-      const seeded = seedDefs.map((d) => {
-        const found = ext.fields.find((f) => f.key === d.key);
-        const reported = routedByKey.get(d.key);
-        return {
-          ...d,
-          actual: found && typeof found.value === "number" ? found.value : null,
-          // The document's own "Team Target" column — never the agent KPI config
-          target: isSupervisor && typeof reported?.reportedTarget === "number" ? reported.reportedTarget : d.target,
-          targetLabel: isSupervisor && typeof reported?.reportedTarget === "number" ? String(reported.reportedTarget) : d.targetLabel,
-          auto: false,
-          notes: found?.needsReview ? "Extracted — please verify" : "",
-        };
-      });
-      setMetrics(seeded as KpiMetric[]);
+      const extractedEntries: [string, number][] = ext.fields
+        .filter((f) => typeof f.value === "number")
+        .map((f) => [f.key, f.value as number]);
+      if (isSupervisor) {
+        const { SUPERVISOR_KPIS_SEED } = await import("@/lib/kpi-seed");
+        const seeded = SUPERVISOR_KPIS_SEED.map((d) => {
+          const found = ext.fields.find((f) => f.key === d.key);
+          const reported = routedByKey.get(d.key);
+          return {
+            ...d,
+            actual: found && typeof found.value === "number" ? found.value : null,
+            // The document's own "Team Target" column — never the agent KPI config
+            target: typeof reported?.reportedTarget === "number" ? reported.reportedTarget : d.target,
+            targetLabel: typeof reported?.reportedTarget === "number" ? String(reported.reportedTarget) : d.targetLabel,
+            auto: false,
+            notes: found?.needsReview ? "Extracted — please verify" : "",
+          };
+        });
+        setMetrics(seeded as KpiMetric[]);
+      } else {
+        // Ordered so the right source wins when two summary keys map onto one
+        // team template row (documented in SOCIAL_SOURCE_PRIORITY).
+        const valueOf = new Map(extractedEntries);
+        const ordered: [string, number][] = department === "SOCIAL_MEDIA"
+          ? [
+              ...SOCIAL_SOURCE_PRIORITY.filter((k) => valueOf.has(k)).map((k) => [k, valueOf.get(k)!] as [string, number]),
+              ...extractedEntries.filter(([k]) => !SOCIAL_SOURCE_PRIORITY.includes(k)),
+            ]
+          : extractedEntries;
+        const { rows: catalogue, overrides } = await loadTeamKpiConfig(user, department);
+        const dept = department === "BPO" && user.team === "INBOUND" ? "INBOUND" : department;
+        setMetrics(buildTeamKpiRows(dept, catalogue, overrides, ordered));
+      }
       setSections(ext.sections || {});
       setAdditional(ext.sections?.additionalActivities || "");
       // Prefill the attendance block from the document understanding stage
@@ -153,9 +411,15 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
     if (!uploadId) return;
     setConfirming(true); setError(null);
     try {
+      // Team-format details: technical work entries and social media tasks are
+      // part of those teams' report formats — they travel with the confirm so
+      // the created report carries the full team template, not just KPI rows.
+      const cleanTech = techEntries.filter((e) => Object.values(e).some((v) => v && String(v).trim() !== ""));
+      const cleanSocial = socialTasks.filter((e) => Object.values(e).some((v) => v && String(v).trim() !== ""));
+      const workEntries = department === "WEB_DEV" ? cleanTech : department === "SOCIAL_MEDIA" ? cleanSocial : undefined;
       const { report } = await api<{ report: { ref: string } }>("/api/uploads/confirm", {
         method: "POST",
-        body: JSON.stringify({ uploadId, confirmedMetrics: metrics, sections: { ...sections, additionalActivities: additional }, reportDate, department, submit }),
+        body: JSON.stringify({ uploadId, confirmedMetrics: metrics, sections: { ...sections, additionalActivities: additional }, reportDate, department, submit, ...(workEntries ? { workEntries } : {}) }),
       });
       setConfirmed({ ref: report.ref, submitted: submit });
     } catch (e) {
@@ -194,16 +458,23 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
 
       <SectionCard title="Upload Report" subtitle={`The document is read in full — tables, sections and reading order preserved — then every KPI is routed to the right field for your review. ${SUPPORTED}`}>
         <div className="grid gap-4 md:grid-cols-3">
-          <Field label="Department">
-            <Select value={department} onValueChange={setDepartment}>
-              <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="BPO">BPO & Outbound Call Centre</SelectItem>
-                <SelectItem value="WEB_DEV">Web Development & Technical</SelectItem>
-                <SelectItem value="SOCIAL_MEDIA">Social Media</SelectItem>
-                <SelectItem value="MANAGEMENT">Management / Supervisor</SelectItem>
-              </SelectContent>
-            </Select>
+          <Field label={isManager ? "Department" : "Team — your own report format"}>
+            {isManager ? (
+              <Select value={department} onValueChange={setDepartment}>
+                <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BPO">BPO & Outbound Call Centre</SelectItem>
+                  <SelectItem value="WEB_DEV">Web Development & Technical</SelectItem>
+                  <SelectItem value="SOCIAL_MEDIA">Social Media</SelectItem>
+                  <SelectItem value="MANAGEMENT">Management / Supervisor</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="flex h-9 items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 text-sm text-slate-200" title="Reports are always read in your own team's format and KPI configuration">
+                <Users className="h-3.5 w-3.5 shrink-0 text-[#8b7ff5]" />
+                <span className="truncate">{DEPT_LABELS[user.department] || user.department}{user.team && DEPT_LABELS[user.team] && DEPT_LABELS[user.team] !== (DEPT_LABELS[user.department] || user.department) ? ` — ${DEPT_LABELS[user.team]}` : ""}</span>
+              </div>
+            )}
           </Field>
           <Field label="Reporting date">
             <Input type="date" className={inputCls} value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
@@ -326,6 +597,9 @@ export default function UploadView({ user, defaultDate }: { user: SessionUser; d
                     <KpiTable metrics={metrics} onChange={setMetrics} />
                   </>
                 )}
+
+                {department === "WEB_DEV" && <TechEntriesEditor entries={techEntries} onChange={setTechEntries} />}
+                {department === "SOCIAL_MEDIA" && <SocialTasksEditor tasks={socialTasks} onChange={setSocialTasks} />}
 
                 {department === "MANAGEMENT" ? (
                   <div className="space-y-4">

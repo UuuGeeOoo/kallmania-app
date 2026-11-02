@@ -114,6 +114,14 @@ export function ReportDetailDialog({ report, open, onClose }: { report: ReportDT
   const email = kpis.filter((k) => k.category === "EMAIL_EXTENSION");
   let logs: { leadName?: string; disposition?: string; followUp?: string; notes?: string }[] = [];
   try { logs = report.callLogs ? JSON.parse(report.callLogs) : []; } catch {}
+  // Team formats: technical reports carry a plain metricsSummary; social media
+  // reports carry the team's KPI table plus task entries. Reading a report
+  // must show the team's own details, not just the shared attendance block.
+  let ms: Record<string, number> = {};
+  try { ms = report.metricsSummary ? JSON.parse(report.metricsSummary) : {}; } catch {}
+  let entries: Record<string, unknown>[] = [];
+  try { entries = report.workEntries ? JSON.parse(report.workEntries) : []; } catch {}
+  const MetricLabel = ({ k }: { k: string }) => k.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -130,6 +138,7 @@ export function ReportDetailDialog({ report, open, onClose }: { report: ReportDT
             <div><p className="text-slate-500">Employee</p><p className="mt-0.5 font-medium text-slate-200">{report.user?.fullName}</p></div>
             <div><p className="text-slate-500">Date</p><p className="mt-0.5 font-medium text-slate-200">{fmtDate(report.reportDate)}</p></div>
             <div><p className="text-slate-500">Department</p><p className="mt-0.5 font-medium text-slate-200">{DEPT_LABELS[report.department] || report.department}</p></div>
+            <div><p className="text-slate-500">Team</p><p className="mt-0.5 font-medium text-slate-200">{report.teamName || "—"}</p></div>
             <div><p className="text-slate-500">Source</p><p className="mt-0.5 font-medium text-slate-200">{report.sourceType === "UPLOAD_EXTRACTED" ? "Uploaded document" : "Manual entry"}</p></div>
             <div><p className="text-slate-500">Verification</p><p className="mt-0.5 font-medium text-slate-200">{report.verificationStatus.replace(/_/g, " ")}</p></div>
             <div><p className="text-slate-500">Attendance</p><p className="mt-0.5 font-medium text-slate-200">{report.attendanceStatus || "—"}{report.latenessMins ? ` (${report.latenessMins}m late)` : ""}</p></div>
@@ -177,6 +186,39 @@ export function ReportDetailDialog({ report, open, onClose }: { report: ReportDT
                   </div>
                 </details>
               )}
+            </div>
+          )}
+
+          {kpis.length === 0 && Object.keys(ms).length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#b3a5ff]">▸ Key Metrics</p>
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                {Object.entries(ms).map(([k, v]) => (
+                  <div key={k} className="rounded border border-white/10 px-2 py-1.5 text-[11px]">
+                    <p className="truncate text-slate-500"><MetricLabel k={k} /></p>
+                    <p className="font-semibold text-slate-200">{v}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {entries.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#b3a5ff]">▸ {report.type === "SOCIAL" ? "Tasks Assigned & Completed" : "Work & Task Entries"}</p>
+              <div className="space-y-1">
+                {entries.map((e, i) => (
+                  <div key={i} className="flex flex-wrap items-center gap-2 rounded border border-white/10 px-2 py-1.5 text-xs">
+                    <span className="font-medium text-slate-200">{String(e.task || e.title || e.platform || "Entry")}</span>
+                    {e.status ? <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-slate-300">{String(e.status)}</span> : null}
+                    {e.platform ? <span className="rounded bg-[#6c5ce7]/20 px-1.5 py-0.5 text-[10px] text-[#b3a5ff]">{String(e.platform)}</span> : null}
+                    {e.category ? <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-slate-300">{String(e.category)}</span> : null}
+                    {e.project ? <span className="text-slate-500">{String(e.project)}</span> : null}
+                    {e.deliverable ? <span className="text-slate-500">→ {String(e.deliverable)}</span> : null}
+                    {e.hours ? <span className="ml-auto text-slate-500">{String(e.hours)}h</span> : null}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -491,6 +533,7 @@ export function ReportSummary({ report }: { report: ReportDTO }) {
         <div><p className="text-slate-500">Employee</p><p className="mt-0.5 font-medium text-slate-200">{report.user?.fullName}</p></div>
         <div><p className="text-slate-500">Date</p><p className="mt-0.5 font-medium text-slate-200">{fmtDate(report.reportDate)}</p></div>
         <div><p className="text-slate-500">Department</p><p className="mt-0.5 font-medium text-slate-200">{DEPT_LABELS[report.department] || report.department}</p></div>
+        <div><p className="text-slate-500">Team</p><p className="mt-0.5 font-medium text-slate-200">{report.teamName || "—"}</p></div>
         <div><p className="text-slate-500">Source</p><p className="mt-0.5 font-medium text-slate-200">{report.sourceType === "UPLOAD_EXTRACTED" ? "Uploaded document" : "Manual entry"}</p></div>
         <div><p className="text-slate-500">Verification</p><p className="mt-0.5 font-medium text-slate-200">{report.verificationStatus.replace(/_/g, " ")}</p></div>
         <div><p className="text-slate-500">Attendance</p><p className="mt-0.5 font-medium text-slate-200">{report.attendanceStatus || "—"}</p></div>

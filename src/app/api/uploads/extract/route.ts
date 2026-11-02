@@ -31,7 +31,15 @@ export async function POST(req: NextRequest) {
       return fail("Stored file could not be read", 500);
     }
 
-    const department = upload.department || "BPO";
+    // Document understanding runs in the uploader's OWN team format: staff
+    // always read their own department's template (a social-media agent's
+    // upload can never be understood as an outbound report), managers may
+    // process uploads on behalf of the department the file was filed under.
+    const isManager = ["SUPERVISOR", "ADMIN"].includes(me.role);
+    const department =
+      !isManager && upload.userId === me.id
+        ? me.department || upload.department || "BPO"
+        : upload.department || "BPO";
     const result = await extractReport(buffer, upload.mimeType, upload.originalName, department);
 
     if (!result.ok) {
