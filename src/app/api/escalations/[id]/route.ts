@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { handle, ok, fail } from "@/lib/api-utils";
 import { notify, audit } from "@/lib/notify";
+import { trackActivity } from "@/lib/intel/track";
 import { canPostMessage, canSeeEscalation, ensureThread, markThreadRead, participantsToNotify } from "@/lib/escalations";
 
 /**
@@ -98,6 +99,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       });
     }
     await audit({ userId: me.id, actorName: me.fullName, action: "ESCALATION_MESSAGE", entity: "Escalation", entityId: id, details: text.slice(0, 200) });
+    await trackActivity({ userId: me.id, eventType: "ESCALATION_REPLIED", relatedType: "Escalation", relatedId: id, centre: { country: me.country, state: me.state, team: me.team } });
 
     return ok({ message }, 201);
   });

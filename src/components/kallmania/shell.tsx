@@ -10,7 +10,7 @@ import { useTheme } from "next-themes";
 import {
   FileText, Upload, ListTodo, ClipboardCheck, Layers, Users, Target,
   Bell, LogOut, ScrollText, KeyRound, FolderOpen, FileCog, FileCheck2, Megaphone,
-  UserCircle2, Siren, Sun, Moon, ChevronDown, Home, LayoutGrid, BellRing,
+  UserCircle2, Siren, Sun, Moon, ChevronDown, Home, LayoutGrid, BellRing, BrainCircuit,
 } from "lucide-react";
 import { EscalationComposer } from "@/components/kallmania/escalation-center";
 
@@ -58,6 +58,7 @@ export function navForRole(role: string): NavItem[] {
   ];
   const adminNav: NavItem[] = [
     ...supervisorNav,
+    { key: "intel", label: "Operational Intelligence", icon: BrainCircuit },
     { key: "admin-users", label: "User Management", icon: Users },
     { key: "audit", label: "Audit Trail", icon: ScrollText },
     { key: "push-health", label: "Push Health", icon: BellRing },
@@ -93,6 +94,7 @@ export function navGroupsForRole(role: string, nav: NavItem[]): NavGroup[] {
     if (has("team-tasks")) groups.push({ kind: "flat", item: pickNav(nav, "team-tasks") });
     const config = pickAll(role === "ADMIN" ? ["kpi-config", "tl-template", "audit", "push-health"] : ["kpi-config", "tl-template"]);
     if (config.length) groups.push({ kind: "group", label: "Configuration", items: config });
+    if (has("intel")) groups.push({ kind: "flat", item: pickNav(nav, "intel") });
     if (has("supervisor-report")) groups.push({ kind: "flat", item: pickNav(nav, "supervisor-report") });
     if (has("notice-board")) groups.push({ kind: "flat", item: pickNav(nav, "notice-board") });
     return groups;

@@ -15,6 +15,7 @@ import { MyReportsView, ReviewView } from "@/components/kallmania/reports-view";
 import ReportsArchiveView from "@/components/kallmania/archive-view";
 import ConsolidatedView from "@/components/kallmania/consolidated-view";
 import { AdminUsersView, KpiConfigView, AuditView, NotificationsView, UploadsAdminView, PushAdminView } from "@/components/kallmania/admin-views";
+import IntelView from "@/components/kallmania/intel/intel-view";
 import { EscalationsPanel } from "@/components/kallmania/escalation-center";
 import NoticeBoardView from "@/components/kallmania/notice-board";
 import ProfileView from "@/components/kallmania/profile-view";
@@ -232,6 +233,8 @@ export default function Page() {
         return <KpiConfigView user={user} />;
       case "audit":
         return <AuditView />;
+      case "intel":
+        return <IntelView user={user} />;
       case "push-health":
         return <PushAdminView />;
       case "notifications":

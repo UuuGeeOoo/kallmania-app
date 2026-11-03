@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { hashPassword, verifyPassword, setSessionCookie, clearSessionCookie, getCurrentUser, ROLE_META, TEAM_META, resolveRegistration } from "@/lib/auth";
 import { handle, ok, fail } from "@/lib/api-utils";
 import { audit } from "@/lib/notify";
+import { trackActivity } from "@/lib/intel/track";
 
 export async function GET() {
   return handle(async () => {
@@ -95,6 +96,7 @@ export async function POST(req: NextRequest) {
       if (user.status === "SUSPENDED") return fail("Your account has been suspended. Please contact the administrator.", 403);
       await setSessionCookie(user.id);
       await audit({ userId: user.id, actorName: user.fullName, action: "LOGIN", entity: "User", entityId: user.id });
+      await trackActivity({ userId: user.id, eventType: "LOGIN", centre: { country: user.country, state: user.state, team: user.team } });
       return ok({ success: true });
     }
 

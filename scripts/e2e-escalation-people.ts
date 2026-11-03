@@ -224,6 +224,7 @@ for (let attempt = 1; attempt <= 6 && !cleanupOk; attempt++) {
       db.pushEvent.deleteMany({ where: { userId: { in: oldIds } } }),
       db.pushSubscription.deleteMany({ where: { userId: { in: oldIds } } }),
       db.notification.deleteMany({ where: { userId: { in: oldIds } } }),
+      db.activityEvent.deleteMany({ where: { userId: { in: oldIds } } }), // LOGIN tracking (intel module) — FK on User
       db.user.deleteMany({ where: { id: { in: oldIds } } }),
     ]);
     cleanupOk = true;

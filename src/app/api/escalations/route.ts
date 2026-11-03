@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { requireUser, AuthError } from "@/lib/auth";
 import { handle, ok, fail } from "@/lib/api-utils";
 import { notify, audit } from "@/lib/notify";
+import { trackActivity } from "@/lib/intel/track";
 import {
   canManageStatus,
   canReopen,
@@ -254,6 +255,7 @@ export async function POST(req: NextRequest) {
     }
 
     await audit({ userId: me.id, actorName: me.fullName, action: "CREATE_ESCALATION", entity: "Escalation", entityId: escalation.id, details: `${type}${targetUser ? `:${targetUser.fullName}` : ""} — ${escalation.subject}` });
+    await trackActivity({ userId: me.id, eventType: "ESCALATION_RAISED", relatedType: "Escalation", relatedId: escalation.id, metadata: { subject: escalation.subject, severity: escalation.severity }, centre: { country: me.country, state: me.state, team: me.team } });
     return ok({ escalation: { ...escalation, unread: false, _count: { messages: 1, events: 1 } } }, 201);
   });
 }
@@ -343,6 +345,9 @@ export async function PATCH(req: NextRequest) {
         action === "ack" || action === "resolve" ? `esc-${action}:${id}` : null
       );
       await audit({ userId: me.id, actorName: me.fullName, action: `ESCALATION_${t.event}`, entity: "Escalation", entityId: id, details: finalNote ? String(finalNote).trim().slice(0, 200) : null });
+      if (t.event === "RESOLVED") {
+        await trackActivity({ userId: me.id, eventType: "ESCALATION_RESOLVED", relatedType: "Escalation", relatedId: id, centre: { country: me.country, state: me.state, team: me.team } });
+      }
       return ok({ escalation: updated });
     }
 

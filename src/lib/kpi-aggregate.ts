@@ -127,19 +127,22 @@ const DEPT_ROWS: Record<string, RowDef[]> = {
 const DEPT_ORDER = ["BPO", "WEB_DEV", "SOCIAL_MEDIA", "INBOUND", "OUTBOUND"];
 const asUnit = (u: string): "count" | "percent" | "minutes" => (u === "percent" || u === "minutes" ? u : "count");
 
-/** Derived metrics recomputed from raw component sums */
+/** Derived metrics recomputed from raw component sums.
+ *  Missing components are treated as absent (0 for additive components) —
+ *  never as NaN (`undefined + undefined` would poison the row). */
 function deriveFromSums(key: string, sums: Record<string, number>): number | null {
   if (key === "contactRate") {
     if (!sums.totalCallsMade) return null;
-    return round2((sums.callsConnected / sums.totalCallsMade) * 100);
+    return round2(((sums.callsConnected ?? 0) / sums.totalCallsMade) * 100);
   }
   if (key === "conversionRate") {
     if (!sums.callsConnected) return null;
-    return round2(((sums.hotLeads + sums.warmLeads) / sums.callsConnected) * 100);
+    const leads = (sums.hotLeads ?? 0) + (sums.warmLeads ?? 0);
+    return round2((leads / sums.callsConnected) * 100);
   }
   if (key === "leadsGenerated") {
     if (!sums.hotLeads && !sums.warmLeads) return null;
-    return sums.hotLeads + sums.warmLeads;
+    return (sums.hotLeads ?? 0) + (sums.warmLeads ?? 0);
   }
   return null;
 }

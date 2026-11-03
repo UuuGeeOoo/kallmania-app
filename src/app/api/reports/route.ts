@@ -6,6 +6,7 @@ import { handle, ok, fail, safeParse, toDateOrNull } from "@/lib/api-utils";
 import { recalcKpis, isShortfall, type KpiMetric } from "@/lib/kpi";
 import { resolveKpiCatalogue } from "@/lib/kpi-resolve";
 import { audit, notify, notifySupervisors } from "@/lib/notify";
+import { trackActivity } from "@/lib/intel/track";
 
 function genRef(type: string): string {
   const prefix = type === "AGENT_BPO" ? "BPO" : type === "TECH" ? "TEC" : type === "SOCIAL" ? "SOC" : type === "TEAM_LEAD" ? "TL" : "SUP";
@@ -306,6 +307,13 @@ export async function POST(req: NextRequest) {
       userId: me.id, actorName: me.fullName, action: submit ? "SUBMIT_REPORT" : "SAVE_REPORT",
       entity: "Report", entityId: report.id, details: `${report.ref} (${reportType})${submit ? " SUBMITTED" : correction ? " — corrected while awaiting approval" : " draft"}`,
     });
+    await trackActivity({
+      userId: me.id,
+      eventType: submit ? "REPORT_SUBMITTED" : id ? (report.status === "DRAFT" ? "REPORT_DRAFT_SAVED" : "REPORT_UPDATED") : "REPORT_DRAFT_SAVED",
+      relatedType: "Report", relatedId: report.id,
+      metadata: { reportType, ref: report.ref, corrected: correction },
+      centre: { country: me.country, state: me.state, team: me.team },
+    });
 
     const fresh = await db.report.findUnique({ where: { id: report.id } });
     return ok({ report: fresh }, id ? 200 : 201);
@@ -398,6 +406,7 @@ export async function PATCH(req: NextRequest) {
       dedupeKey: `review:${report.id}:${decision}`,
     });
     await audit({ userId: me.id, actorName: me.fullName, action: `REPORT_${decision.toUpperCase()}`, entity: "Report", entityId: id, details: `${report.ref} by ${report.user.fullName}` });
+    await trackActivity({ userId: me.id, eventType: "REPORT_REVIEWED", relatedType: "Report", relatedId: id, metadata: { decision, ref: report.ref }, centre: { country: me.country, state: me.state, team: me.team } });
     return ok({ report: updated });
   });
 }

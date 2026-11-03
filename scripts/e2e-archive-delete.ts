@@ -110,6 +110,7 @@ check("4a. admin DELETE of unknown id → 404", missing.status === 404, `status=
 await db.report.deleteMany({ where: { userId: { in: ids }, ref: { startsWith: "ARCE2E-" } } });
 await db.notification.deleteMany({ where: { userId: { in: ids } } });
 await db.auditLog.deleteMany({ where: { userId: { in: ids } } });
+await db.activityEvent.deleteMany({ where: { userId: { in: ids } } }); // LOGIN tracking (intel module) — FK on User
 await db.pushDelivery.deleteMany({ where: { subscription: { userId: { in: ids } } } });
 await db.pushEvent.deleteMany({ where: { userId: { in: ids } } });
 await db.pushSubscription.deleteMany({ where: { userId: { in: ids } } });

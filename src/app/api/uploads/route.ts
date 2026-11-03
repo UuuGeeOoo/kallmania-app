@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, isSupervisorLike } from "@/lib/auth";
 import { handle, ok, fail, toDateOrNull } from "@/lib/api-utils";
+import { trackActivity } from "@/lib/intel/track";
 import { audit } from "@/lib/notify";
 import { createHash } from "crypto";
 import { mkdir, writeFile } from "fs/promises";
@@ -104,6 +105,7 @@ export async function POST(req: NextRequest) {
       },
     });
     await audit({ userId: me.id, actorName: me.fullName, action: "UPLOAD_REPORT_FILE", entity: "UploadedFile", entityId: upload.id, details: `${file.name} (${file.size} bytes) for ${reportDate}` });
+    await trackActivity({ userId: me.id, eventType: "UPLOAD_UPLOADED", relatedType: "UploadedFile", relatedId: upload.id, metadata: { originalName: file.name }, centre: { country: me.country, state: me.state, team: me.team } });
     return ok({ upload, duplicateWarning: false }, 201);
   });
 }

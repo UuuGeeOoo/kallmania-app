@@ -59,6 +59,37 @@ model User {
   pushSubscriptions PushSubscription[]
   pushEvents        PushEvent[]
   pushPreference    PushPreference?
+  activityEvents    ActivityEvent[]
+}
+
+// ── Application activity tracking (Operational Intelligence module) ────────
+// Meaningful, non-sensitive operational events recorded server-side so the
+// administrative analytics can distinguish real work activity from logins.
+// Never stores passwords, message contents, or other sensitive material.
+// Sources: server route instrumentation (authoritative) + the existing
+// AuditLog LOGIN rows (historical logins mined at report time).
+model ActivityEvent {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  // LOGIN | REPORT_CREATED | REPORT_DRAFT_SAVED | REPORT_DRAFT_RESUMED |
+  // REPORT_SUBMITTED | REPORT_UPDATED | REPORT_REVIEWED | TASK_STATUS_CHANGED |
+  // TASK_COMPLETED | ESCALATION_RAISED | ESCALATION_REPLIED | ESCALATION_RESOLVED |
+  // NOTICE_ACKNOWLEDGED | UPLOAD_UPLOADED | UPLOAD_CONFIRMED
+  eventType   String
+  // Report | Task | Escalation | Notice | UploadedFile
+  relatedType String?
+  relatedId   String?
+  // Author's centre/team snapshot — keeps historical scoping stable
+  centreCountry String?
+  centreState   String?
+  team          String?
+  metadata    String? // small JSON blob (e.g. { reportType, status })
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([createdAt])
 }
 
 // Individual (per-member) KPI configuration — overrides of the centre/global

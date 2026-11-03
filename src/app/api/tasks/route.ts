@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { requireUser, isSupervisorLike } from "@/lib/auth";
 import { handle, ok, fail, toDateOrNull } from "@/lib/api-utils";
 import { audit, notify } from "@/lib/notify";
+import { trackActivity } from "@/lib/intel/track";
 
 const TASK_INCLUDE = {
   assignee: { select: { id: true, fullName: true, role: true } },
@@ -281,6 +282,17 @@ export async function PATCH(req: NextRequest) {
       }
     }
     const updated = await db.task.update({ where: { id }, data, include: TASK_INCLUDE });
+
+    // Activity tracking (Operational Intelligence) — actor-based status changes
+    if (updates.status && updates.status !== task.status) {
+      await trackActivity({
+        userId: me.id,
+        eventType: updates.status === "COMPLETED" ? "TASK_COMPLETED" : "TASK_STATUS_CHANGED",
+        relatedType: "Task", relatedId: id,
+        metadata: { from: task.status, to: updates.status, title: updated.title },
+        centre: { country: me.country, state: me.state, team: me.team },
+      });
+    }
 
     // Notifications
     if (updates.status === "BLOCKED" && task.assigneeId) {

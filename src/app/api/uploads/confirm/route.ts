@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { handle, ok, fail, toDateOrNull } from "@/lib/api-utils";
 import { recalcKpis, type KpiMetric } from "@/lib/kpi";
+import { trackActivity } from "@/lib/intel/track";
 import { audit, notifySupervisors } from "@/lib/notify";
 import { defaultTemplateFor, tlTemplateKeyFor, type TlDefinition } from "@/lib/team-lead-template";
 import { safeParse } from "@/lib/api-utils";
@@ -298,6 +299,7 @@ export async function POST(req: NextRequest) {
       userId: me.id, actorName: me.fullName, action: "CONFIRM_EXTRACTION", entity: "Report", entityId: report.id,
       details: `${ref} confirmed from upload ${upload.originalName}${submit ? " and submitted" : ""}`,
     });
+    await trackActivity({ userId: me.id, eventType: submit ? "REPORT_SUBMITTED" : "UPLOAD_CONFIRMED", relatedType: "Report", relatedId: report.id, metadata: { ref, fromUpload: true }, centre: { country: me.country, state: me.state, team: me.team } });
 
     return ok({ report }, 201);
   });

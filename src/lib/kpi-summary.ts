@@ -170,19 +170,24 @@ export function teamPeriodTargets(
   return out;
 }
 
-/** Derived metrics recomputed from raw component sums */
+/** Derived metrics recomputed from raw component sums.
+ *  Components that were never reported are treated as ABSENT (0 for additive
+ *  components) — never as NaN: `undefined + undefined` would poison the whole
+ *  row and (via JSON) surface as a bogus null on the dashboard. */
 function deriveFromSums(key: string, sums: Record<string, number>): number | null {
   if (key === "contactRate") {
     if (!sums.totalCallsMade) return null;
-    return Math.round((sums.callsConnected / sums.totalCallsMade) * 10000) / 100;
+    const connected = sums.callsConnected ?? 0;
+    return Math.round((connected / sums.totalCallsMade) * 10000) / 100;
   }
   if (key === "conversionRate") {
     if (!sums.callsConnected) return null;
-    return Math.round(((sums.hotLeads + sums.warmLeads) / sums.callsConnected) * 10000) / 100;
+    const leads = (sums.hotLeads ?? 0) + (sums.warmLeads ?? 0);
+    return Math.round((leads / sums.callsConnected) * 10000) / 100;
   }
   if (key === "leadsGenerated") {
     if (!sums.hotLeads && !sums.warmLeads) return null;
-    return sums.hotLeads + sums.warmLeads;
+    return (sums.hotLeads ?? 0) + (sums.warmLeads ?? 0);
   }
   return null;
 }
@@ -240,12 +245,16 @@ export function cumulativeKpiRows(
       const derived = DERIVED_KEYS.has(def.key) ? deriveFromSums(def.key, sums) : null;
       actual = derived ?? (sums[def.key] !== undefined ? Math.round(sums[def.key] * 100) / 100 : null);
     }
+    // A non-finite value must never enter a row (a NaN actual would poison the
+    // achievement % and surface as a bogus null through JSON serialization).
+    if (actual !== null && !Number.isFinite(actual)) actual = null;
 
     // Targets: counts scale by days with data; percent/minutes targets stay fixed.
     // Roster-scaled team targets (dashboard) arrive pre-computed and win.
     const pt = def.unit === "count" ? periodTargets?.get(def.key) : undefined;
     const scale = pt ? 1 : def.unit === "count" && baseTarget !== null ? distinctDates : 1;
-    const target = pt ? pt.target : baseTarget !== null ? Math.round(baseTarget * scale * 100) / 100 : null;
+    let target = pt ? pt.target : baseTarget !== null ? Math.round(baseTarget * scale * 100) / 100 : null;
+    if (target !== null && !Number.isFinite(target)) target = null;
     const pct = actual !== null && target !== null && target !== 0 ? Math.round((actual / target) * 10000) / 100 : null;
 
     const suffix = def.unit === "percent" ? "%" : def.unit === "minutes" ? "mins" : "";
@@ -266,6 +275,6 @@ export function cumulativeKpiRows(
       targetLabel,
       actual,
       pct,
-    };
+    } as CumRow;
   });
 }
