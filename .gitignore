@@ -70,3 +70,4 @@ downloads/
 upload/
 .env.bak.*
 .env.heal
+download/

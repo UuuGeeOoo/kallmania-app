@@ -60,6 +60,7 @@ model User {
   pushEvents        PushEvent[]
   pushPreference    PushPreference?
   activityEvents    ActivityEvent[]
+  sbtsEvents        SbtsEvent[]
 }
 
 // ── Application activity tracking (Operational Intelligence module) ────────
@@ -90,6 +91,61 @@ model ActivityEvent {
   @@index([userId, createdAt])
   @@index([eventType, createdAt])
   @@index([createdAt])
+}
+
+// ── SBTS Media Command Centre integration (protocol v1) ─────────────────────
+// The external SBTS Media Command Centre pushes agent performance scores and
+// end-of-day reports as signed events. Every event is stored idempotently by
+// its sender-supplied eventId (duplicates are skipped, never re-processed).
+// Scoring is OWNED BY SBTS — Kallmania stores and displays, never recomputes.
+model SbtsEvent {
+  id         String    @id @default(cuid())
+  // Sender-supplied unique event id — the idempotency key
+  eventId    String    @unique
+  // performance.score | daily.report (protocol v1)
+  type       String
+  // Agent identity as sent by SBTS — mapped to a Kallmania account by exact
+  // (case-insensitive) email match at ingest time
+  agentEmail String
+  // The performance/report business date (YYYY-MM-DD)
+  eventDate  String
+  // performance.score fields (null for daily.report)
+  score      Float?
+  delta      Float?
+  components String?   // JSON object { component: points }
+  // daily.report fields (null for performance.score)
+  report     String?
+  // Sender timestamp (informational; freshness enforcement uses the signature headers)
+  sentAt     DateTime?
+  receivedAt DateTime  @default(now())
+  // Matched Kallmania account at ingest time (null = unmapped email, kept for reconciliation)
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  matched    Boolean   @default(false)
+  // Exact raw JSON payload as received — audit/completeness, unknown fields preserved
+  raw        String
+
+  @@index([type, agentEmail, eventDate])
+  @@index([agentEmail, receivedAt])
+  @@index([eventDate])
+  @@index([userId, receivedAt])
+}
+
+// Machine credentials for the SBTS ingest pipe. The bearer API key is stored
+// ONLY as a SHA-256 hash (verification without plaintext); it is shown exactly
+// once at generation/rotation. The HMAC secret is held server-side (it must be
+// retrievable to verify signatures). Rotation mints a new credential and puts
+// the old one into a grace window so the 24/7 pipe never breaks mid-rotation.
+model SbtsCredential {
+  id         String    @id @default(cuid())
+  label      String    @default("SBTS Media Command Centre")
+  keyHash    String    @unique // sha256 hex of the bearer key
+  keyHint    String    // first4…last4 — identification only, never the key
+  secret     String    // HMAC-SHA256 shared secret
+  active     Boolean   @default(true)
+  revokedAt  DateTime?
+  graceUntil DateTime? // revoked credential still verifies until this instant
+  createdAt  DateTime  @default(now())
 }
 
 // Individual (per-member) KPI configuration — overrides of the centre/global

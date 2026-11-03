@@ -10,7 +10,7 @@ import { useTheme } from "next-themes";
 import {
   FileText, Upload, ListTodo, ClipboardCheck, Layers, Users, Target,
   Bell, LogOut, ScrollText, KeyRound, FolderOpen, FileCog, FileCheck2, Megaphone,
-  UserCircle2, Siren, Sun, Moon, ChevronDown, Home, LayoutGrid, BellRing, BrainCircuit,
+  UserCircle2, Siren, Sun, Moon, ChevronDown, Home, LayoutGrid, BellRing, BrainCircuit, BarChart3,
 } from "lucide-react";
 import { EscalationComposer } from "@/components/kallmania/escalation-center";
 
@@ -33,13 +33,20 @@ export function navForRole(role: string): NavItem[] {
     { key: "escalations", label: "Escalations", icon: Siren },
     { key: "profile", label: "My Profile", icon: UserCircle2 },
   ];
+  // Social media agents see the SBTS Media Command Centre scoreboard — their
+  // real-time performance scores and daily reports pushed by the Media Centre.
+  if (role === "SOCIAL_MEDIA") {
+    employeeNav.splice(1, 0, { key: "media-scoreboard", label: "SBTS Scores", icon: BarChart3 });
+  }
   // Team leads assign & monitor the tasks of the agents in their centre and
   // configure the individual KPI targets of their own team members.
   if (role === "TEAM_LEAD") {
     employeeNav.splice(5, 0, { key: "team-tasks", label: "Tasks & Assignments", icon: ClipboardCheck }, { key: "kpi-config", label: "KPI Configuration", icon: Target });
+    employeeNav.splice(1, 0, { key: "media-scoreboard", label: "SBTS Scores", icon: BarChart3 });
   }
   const supervisorNav: NavItem[] = [
     { key: "dashboard", label: "Dashboard", icon: Home },
+    { key: "media-scoreboard", label: "SBTS Scores", icon: BarChart3 },
     { key: "notice-board", label: "Notice Board", icon: Megaphone },
     { key: "review", label: "Review Reports", icon: ClipboardCheck },
     { key: "archive", label: "Reports Archive", icon: FolderOpen },
@@ -95,6 +102,7 @@ export function navGroupsForRole(role: string, nav: NavItem[]): NavGroup[] {
     const config = pickAll(role === "ADMIN" ? ["kpi-config", "tl-template", "audit", "push-health"] : ["kpi-config", "tl-template"]);
     if (config.length) groups.push({ kind: "group", label: "Configuration", items: config });
     if (has("intel")) groups.push({ kind: "flat", item: pickNav(nav, "intel") });
+    if (has("media-scoreboard")) groups.push({ kind: "flat", item: pickNav(nav, "media-scoreboard") });
     if (has("supervisor-report")) groups.push({ kind: "flat", item: pickNav(nav, "supervisor-report") });
     if (has("notice-board")) groups.push({ kind: "flat", item: pickNav(nav, "notice-board") });
     return groups;
@@ -102,6 +110,7 @@ export function navGroupsForRole(role: string, nav: NavItem[]): NavGroup[] {
 
   const reports = pickAll(["my-reports", "upload"]);
   if (reports.length) groups.push({ kind: "group", label: "Reports", items: reports });
+  if (has("media-scoreboard")) groups.push({ kind: "flat", item: pickNav(nav, "media-scoreboard") });
   if (has("tasks")) groups.push({ kind: "flat", item: pickNav(nav, "tasks") });
   if (role === "TEAM_LEAD" && has("team-tasks")) groups.push({ kind: "flat", item: pickNav(nav, "team-tasks") });
   if (role === "TEAM_LEAD" && has("kpi-config")) groups.push({ kind: "group", label: "Configuration", items: pickAll(["kpi-config"]) });
