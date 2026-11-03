@@ -1171,3 +1171,22 @@ Work Log:
 
 Stage Summary:
 - The SBTS Media Command Centre request is fully implemented and verified end to end: an external scoring system can now push signed performance events 24/7 into Kallmania (machine-authenticated, timestamp-fresh, HMAC-verified, idempotent on eventId, per-item tolerant), Kallmania maps events to accounts by exact email with unmapped emails surfaced instead of dropped, every viewer sees exactly their own scope (agent → own, social lead → team, management → all), scores animate live as 0-100 bars with deltas and component breakdowns, rotation is zero-downtime with a grace window, and the five requested deliverables ship as a forwardable handover PDF + Excel roster — with the contract frozen as v1 and every secret kept out of the repository.
+
+## Task 58 — SBTS handover downloads: chat delivery, production 404 root-cause, DB-backed deliverables (2026-11-04)
+
+User could not find download links in chat; three failed "handover.json" Chrome downloads diagnosed as
+unauthenticated hits on /api/sbts/handover (path segment + JSON content-type naming). Added the admin-only
+download route + scoreboard buttons (c0c4dda), then fail-safe HTML "Administrator sign-in required" notice for
+top-level navigation auth failures + real-Chromium e2e (407edb3). User then reported the TRUE production 404:
+kallmaniareportingcentre.space-z.ai (registered production host, auto-deployed, shares the Supabase DB) serves
+the app without the sandbox-only gitignored download/ directory — root-caused and fixed by storing the two
+deliverables in the shared DB: new SbtsDeliverable table (db push, no migration dir in this project —
+prisma db push model), scripts/sbts-deliverables.ts seeds PDF 227354B + xlsx 6898B with sha256 fingerprints,
+route loads DB-first with disk fallback (9acd66c). PROVEN with download/ hidden: both files serve from DB.
+Also this session: sandbox recycle recovery (rebuild + .env heal + GEMINI_API_KEY restore), .gitignore
+re-corruption repair (workspace sync wiped it to 2 lines — restored 73-line version), 16 mode-only changes
+reverted, SBTS credential rotated with 24h grace (new UPSw…hn9B ACTIVE, old Dh8Z…mvMR grace until Nov 4
+17:15 UTC), roster re-verified against live DB (3 operational kallmania.com + 4 do-not-map fixtures),
+live smoke ALL OK (stored→mapped opeace@→replay duplicate), deliverables regenerated in download/ and
+delivered for the social media team handover. Pending: production deploy cycle picks up 9acd66c (polling
+sbts-prod-download-test.mjs against the real host).
