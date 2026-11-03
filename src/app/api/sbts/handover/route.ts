@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFile } from "fs/promises";
 import path from "path";
+import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { handle, fail } from "@/lib/api-utils";
 
@@ -13,25 +14,35 @@ export const runtime = "nodejs";
  *
  * The handover PDF carries the LIVE production API key and HMAC secret, so the
  * files are never exposed as unauthenticated static assets — they are streamed
- * from the gitignored download/ directory only to signed-in administrators.
- * The file key is a strict whitelist; no user-controlled path ever reaches the
- * filesystem.
+ * only to signed-in administrators. Bytes come from the shared database
+ * (SbtsDeliverable, seeded by scripts/sbts-deliverables.ts) so every deployment
+ * — including production hosts whose filesystem has no download/ directory —
+ * serves identical copies; the gitignored download/ directory is a fallback.
+ * The file key is a strict whitelist; no user-controlled path reaches the disk.
  */
-const FILES: Record<string, { filename: string; type: string }> = {
-  pdf: { filename: "SBTS_integration_handover_v1.pdf", type: "application/pdf" },
+const FILES: Record<string, { filename: string; type: string; dbKey: string }> = {
+  pdf: { filename: "SBTS_integration_handover_v1.pdf", type: "application/pdf", dbKey: "handover-pdf" },
   xlsx: {
     filename: "kallmania_media_agents_roster.xlsx",
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    dbKey: "roster-xlsx",
   },
 };
 
-async function loadDeliverable(filename: string): Promise<Buffer | null> {
-  // The standalone server runs with cwd .next/standalone; source builds run
-  // from the project root. Resolve both, plus the absolute workspace path.
+async function loadDeliverable(meta: { filename: string; dbKey: string }): Promise<Buffer | null> {
+  // 1. Shared database — present on every deployment that shares the DB.
+  try {
+    const row = await db.sbtsDeliverable.findUnique({ where: { name: meta.dbKey } });
+    if (row?.bytes?.length) return Buffer.from(row.bytes);
+  } catch {
+    // table not migrated yet — fall through to the filesystem
+  }
+  // 2. Filesystem fallback. The standalone server runs with cwd
+  //    .next/standalone; source builds run from the project root.
   const candidates = [
-    path.resolve(process.cwd(), "download", filename),
-    path.resolve(process.cwd(), "..", "..", "download", filename),
-    path.resolve("/home/z/my-project/download", filename),
+    path.resolve(process.cwd(), "download", meta.filename),
+    path.resolve(process.cwd(), "..", "..", "download", meta.filename),
+    path.resolve("/home/z/my-project/download", meta.filename),
   ];
   for (const p of candidates) {
     try {
@@ -81,9 +92,9 @@ export async function GET(req: NextRequest) {
     const meta = FILES[key];
     if (!meta) return fail("Unknown deliverable — use ?file=pdf or ?file=xlsx.", 400);
 
-    const buf = await loadDeliverable(meta.filename);
+    const buf = await loadDeliverable(meta);
     if (!buf) {
-      return fail("Deliverable file is not on the server — regenerate it into download/ first.", 404);
+      return fail("Deliverable bytes are missing — regenerate the file into download/ and re-run scripts/sbts-deliverables.ts.", 404);
     }
 
     return new NextResponse(new Uint8Array(buf), {

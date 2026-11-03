@@ -148,6 +148,19 @@ model SbtsCredential {
   createdAt  DateTime  @default(now())
 }
 
+// Handover deliverables served by /api/sbts/handover. Stored in the shared
+// database (NOT the gitignored download/ directory) so every deployment of
+// the app — including production hosts with an empty filesystem — serves the
+// same bytes. Seeded by scripts/sbts-deliverables.ts.
+model SbtsDeliverable {
+  id        String   @id @default(cuid())
+  name      String   @unique // "handover-pdf" | "roster-xlsx"
+  mimeType  String
+  bytes     Bytes
+  sizeBytes Int
+  updatedAt DateTime @updatedAt
+}
+
 // Individual (per-member) KPI configuration — overrides of the centre/global
 // KPI targets for ONE staff member. Administrators and supervisors save
 // directly as APPROVED; a team lead's edits stay PENDING until a supervisor
