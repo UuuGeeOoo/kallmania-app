@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { api, type SessionUser } from "@/lib/client";
 import { cn } from "@/lib/utils";
-import { Activity, AlertCircle, ChevronDown, ChevronUp, Copy, KeyRound, Loader2, RefreshCw, Radio, ScrollText, TrendingDown, TrendingUp, Minus } from "lucide-react";
+import { Activity, AlertCircle, ChevronDown, ChevronUp, Copy, FileDown, KeyRound, Loader2, RefreshCw, Radio, ScrollText, TrendingDown, TrendingUp, Minus } from "lucide-react";
 
 // ── SBTS Media Command Centre scoreboard ────────────────────────────────────
 // Scores are computed by the external SBTS Media Command Centre and pushed
@@ -348,10 +348,20 @@ export function MediaScoreboard({ user }: { user: SessionUser }) {
           ) : (
             <p className="text-xs text-slate-500">Pipe status unavailable.</p>
           )}
-          <div className="mt-3 flex items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button size="sm" variant="outline" className="border-white/15 bg-white/[0.05]" disabled={rotating} onClick={() => void rotate(24)}>
               {rotating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Rotate key &amp; secret (24h grace)
             </Button>
+            <a href="/api/sbts/handover?file=pdf" download>
+              <Button size="sm" variant="outline" className="border-white/15 bg-white/[0.05]" type="button">
+                <FileDown className="h-4 w-4" /> Handover PDF
+              </Button>
+            </a>
+            <a href="/api/sbts/handover?file=xlsx" download>
+              <Button size="sm" variant="outline" className="border-white/15 bg-white/[0.05]" type="button">
+                <FileDown className="h-4 w-4" /> Agent roster XLSX
+              </Button>
+            </a>
           </div>
           {rotation && (
             <div className="mt-3 rounded-xl border border-emerald-400/30 bg-emerald-400/[0.07] p-3 text-xs">
