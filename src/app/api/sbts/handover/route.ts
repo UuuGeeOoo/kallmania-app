@@ -43,9 +43,39 @@ async function loadDeliverable(filename: string): Promise<Buffer | null> {
   return null;
 }
 
+/**
+ * Top-level navigation (the download buttons / a pasted URL) gets a visible
+ * explanation page instead of a JSON 401 — a bare JSON error is exactly what
+ * Chrome surfaces as a cryptic failed "handover.json" download entry.
+ * API-style calls keep the JSON error.
+ */
+function wantsHtml(req: NextRequest): boolean {
+  if (req.headers.get("sec-fetch-dest") === "document") return true;
+  return (req.headers.get("accept") ?? "").includes("text/html");
+}
+
+function htmlNotice(title: string, message: string): NextResponse {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>${esc(title)}</title><style>body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#e2e8f0;display:grid;place-items:center;min-height:100vh;margin:0;padding:1rem}main{max-width:36rem;background:#1e293b;border:1px solid #334155;border-radius:1rem;padding:2.25rem}h1{font-size:1.2rem;margin:0 0 .75rem}p{line-height:1.6;color:#94a3b8;margin:.5rem 0}a{color:#4da8da}</style></head><body><main><h1>${esc(title)}</h1><p>${esc(message)}</p><p><a href="/">Open Kallmania and sign in as an administrator</a></p></main></body></html>`;
+  return new NextResponse(html, {
+    status: 200,
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+  });
+}
+
 export async function GET(req: NextRequest) {
   return handle(async () => {
-    await requireAdmin();
+    try {
+      await requireAdmin();
+    } catch {
+      if (wantsHtml(req)) {
+        return htmlNotice(
+          "Administrator sign-in required",
+          "The SBTS handover pack carries the live integration credentials (API key and HMAC secret), so downloads are restricted to signed-in administrators. Sign in with your administrator account on Kallmania, then open this download again — or use the Handover PDF / Agent roster XLSX buttons in the Integration pipe card on the SBTS Scores page.",
+        );
+      }
+      return fail("Administrator session required for handover downloads.", 401);
+    }
 
     const key = new URL(req.url).searchParams.get("file") ?? "pdf";
     const meta = FILES[key];

@@ -352,12 +352,12 @@ export function MediaScoreboard({ user }: { user: SessionUser }) {
             <Button size="sm" variant="outline" className="border-white/15 bg-white/[0.05]" disabled={rotating} onClick={() => void rotate(24)}>
               {rotating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Rotate key &amp; secret (24h grace)
             </Button>
-            <a href="/api/sbts/handover?file=pdf" download>
+            <a href="/api/sbts/handover?file=pdf" target="_blank" rel="noopener">
               <Button size="sm" variant="outline" className="border-white/15 bg-white/[0.05]" type="button">
                 <FileDown className="h-4 w-4" /> Handover PDF
               </Button>
             </a>
-            <a href="/api/sbts/handover?file=xlsx" download>
+            <a href="/api/sbts/handover?file=xlsx" target="_blank" rel="noopener">
               <Button size="sm" variant="outline" className="border-white/15 bg-white/[0.05]" type="button">
                 <FileDown className="h-4 w-4" /> Agent roster XLSX
               </Button>
