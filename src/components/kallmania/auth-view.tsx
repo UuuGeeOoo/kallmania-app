@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { api, TEAM_LABELS, type SessionUser } from "@/lib/client";
 import { PasswordInput } from "@/components/kallmania/shared";
 import { Country, State, City } from "country-state-city";
-import { Loader2, LogIn, UserPlus, ShieldCheck, AlertCircle, CheckCircle2, Building2, Users2, BadgeCheck, Clock4, CalendarClock } from "lucide-react";
+import { Loader2, LogIn, UserPlus, ShieldCheck, AlertCircle, CheckCircle2, Building2, Users2, BadgeCheck, Clock4, CalendarClock, KeyRound } from "lucide-react";
 
 /** Teams under Kallmania — every operational role falls in under the Kallmania division */
 const BPO_TEAMS = [
@@ -58,11 +58,21 @@ function BrandArt() {
 }
 
 export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) => void }) {
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [form, setForm] = useState({ email: "", password: "", fullName: "", team: "OUTBOUND", position: "AGENT", employeeId: "", phone: "", country: "NG", state: "", city: "", employmentType: "FULL_TIME" });
+  // Forgot-password flow: request → admin approves → agent sets a new password.
+  // Stages mirror the request lifecycle: request → pending → approved → done
+  // (denied offers to raise a fresh request).
+  const [forgotStage, setForgotStage] = useState<"request" | "pending" | "approved" | "denied" | "done">("request");
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotBusy, setForgotBusy] = useState(false);
+  const [forgotMsg, setForgotMsg] = useState<string | null>(null);
+  const [forgotError, setForgotError] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const statesOfCountry = form.country ? State.getStatesOfCountry(form.country) : [];
   const citiesOfState = (() => {
     if (!form.country || !form.state) return [];
@@ -107,6 +117,191 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
     }
   };
 
+  const openForgot = () => {
+    setMode("forgot");
+    setError(null);
+    setSuccess(null);
+    setForgotStage("request");
+    setForgotMsg(null);
+    setForgotError(null);
+    setNewPassword("");
+    setConfirmPassword("");
+  };
+
+  const backToLogin = (message?: string) => {
+    setMode("login");
+    setError(null);
+    setSuccess(message || null);
+    setForgotMsg(null);
+    setForgotError(null);
+    setNewPassword("");
+    setConfirmPassword("");
+  };
+
+  const requestReset = async () => {
+    setForgotError(null);
+    setForgotMsg(null);
+    if (!forgotEmail.trim()) { setForgotError("Enter the email on your account"); return; }
+    setForgotBusy(true);
+    try {
+      const res = await api<{ status: string; message: string }>("/api/auth", {
+        method: "POST",
+        body: JSON.stringify({ action: "requestPasswordReset", email: forgotEmail }),
+      });
+      setForgotMsg(res.message);
+      setForgotStage(res.status === "APPROVED" ? "approved" : "pending");
+    } catch (e) {
+      setForgotError((e as Error).message);
+    } finally {
+      setForgotBusy(false);
+    }
+  };
+
+  const checkResetStatus = async () => {
+    setForgotError(null);
+    setForgotBusy(true);
+    try {
+      const res = await api<{ status: string }>("/api/auth", {
+        method: "POST",
+        body: JSON.stringify({ action: "passwordResetStatus", email: forgotEmail }),
+      });
+      if (res.status === "APPROVED") { setForgotMsg("The administrator approved your request — set your new password below."); setForgotStage("approved"); }
+      else if (res.status === "DENIED") { setForgotMsg(null); setForgotStage("denied"); }
+      else if (res.status === "NONE") { setForgotMsg(null); setForgotError("No request found for this email — send one below."); setForgotStage("request"); }
+      else if (res.status === "USED") { setForgotMsg(null); setForgotError("That approval was already used. Raise a new request if you still need it."); setForgotStage("request"); }
+      else { setForgotMsg("Still waiting for the administrator to approve the request. Check again shortly."); }
+    } catch (e) {
+      setForgotError((e as Error).message);
+    } finally {
+      setForgotBusy(false);
+    }
+  };
+
+  const completeReset = async () => {
+    setForgotError(null);
+    setForgotMsg(null);
+    if (newPassword.length < 6) { setForgotError("New password must be at least 6 characters"); return; }
+    if (newPassword !== confirmPassword) { setForgotError("The two passwords do not match"); return; }
+    setForgotBusy(true);
+    try {
+      const res = await api<{ message: string }>("/api/auth", {
+        method: "POST",
+        body: JSON.stringify({ action: "completePasswordReset", email: forgotEmail, newPassword }),
+      });
+      setForgotMsg(res.message);
+      setForgotStage("done");
+    } catch (e) {
+      setForgotError((e as Error).message);
+    } finally {
+      setForgotBusy(false);
+    }
+  };
+
+  // ── Forgot-password panel — request → administrator approves → go-ahead ──
+  // Plain JSX (not a nested component) — a function component defined here
+  // would remount on every keystroke and steal the input focus.
+  const forgotPanel = (
+    <>
+      <h1 className="text-3xl font-bold text-white">Forgot password</h1>
+      <p className="mt-1.5 text-sm text-slate-400">
+        Ask the administrator for approval to set a new password. Once they approve your request, come back here with the same email — you will get the go-ahead to generate a new one.
+      </p>
+
+      <div className="mt-7 space-y-4">
+        {forgotStage !== "approved" && forgotStage !== "done" && (
+          <div className="space-y-1.5">
+            <Label className="text-slate-300">Email on your account</Label>
+            <Input
+              type="email"
+              className="border-slate-600/50 bg-transparent text-slate-100 placeholder:text-slate-500"
+              placeholder="you@kallmania.com"
+              value={forgotEmail}
+              onChange={(e) => setForgotEmail(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && (forgotStage === "request" ? requestReset() : checkResetStatus())}
+            />
+          </div>
+        )}
+
+        {forgotStage === "request" && (
+          <Button onClick={requestReset} disabled={forgotBusy} className="k-btn-primary h-11 w-full rounded-full text-sm font-semibold">
+            {forgotBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+            Request approval from administrator
+          </Button>
+        )}
+
+        {forgotStage === "pending" && (
+          <>
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-300">
+              <Clock4 className="mt-0.5 h-4 w-4 shrink-0" />
+              {forgotMsg || "Your request has been sent to the administrator."}
+            </div>
+            <Button onClick={checkResetStatus} disabled={forgotBusy} className="k-btn-primary h-11 w-full rounded-full text-sm font-semibold">
+              {forgotBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+              Check again — has it been approved?
+            </Button>
+          </>
+        )}
+
+        {forgotStage === "approved" && (
+          <>
+            <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-300">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              {forgotMsg || "The administrator approved your request — set your new password below."}
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-slate-300">New password</Label>
+              <PasswordInput className="border-slate-600/50 bg-transparent text-slate-100 placeholder:text-slate-500" placeholder="Min. 6 characters" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-slate-300">Confirm new password</Label>
+              <PasswordInput className="border-slate-600/50 bg-transparent text-slate-100 placeholder:text-slate-500" placeholder="Repeat the new password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && completeReset()} />
+            </div>
+            <Button onClick={completeReset} disabled={forgotBusy} className="k-btn-primary h-11 w-full rounded-full text-sm font-semibold">
+              {forgotBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+              Generate new password
+            </Button>
+          </>
+        )}
+
+        {forgotStage === "denied" && (
+          <div className="space-y-3">
+            <div className="flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2.5 text-xs text-rose-300">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              The administrator declined this request. You can send a new request, or contact the administrator directly.
+            </div>
+            <Button onClick={requestReset} disabled={forgotBusy} variant="outline" className="h-11 w-full rounded-full border-slate-600/50 text-sm font-semibold text-slate-200">
+              {forgotBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+              Send a new request
+            </Button>
+          </div>
+        )}
+
+        {forgotStage === "done" && (
+          <>
+            <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-300">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              {forgotMsg || "Password updated. Sign in with your new password."}
+            </div>
+            <Button onClick={() => backToLogin()} className="k-btn-primary h-11 w-full rounded-full text-sm font-semibold">
+              <LogIn className="h-4 w-4" /> Back to login
+            </Button>
+          </>
+        )}
+
+        {forgotError && (
+          <div className="flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2.5 text-xs text-rose-300">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {forgotError}
+          </div>
+        )}
+
+        <p className="text-center text-xs text-slate-400">
+          Remembered it?{" "}
+          <button className="font-semibold text-[#8b7ff5] hover:underline" onClick={() => backToLogin()}>Back to login</button>
+        </p>
+      </div>
+    </>
+  );
+
   return (
     <div className="relative flex min-h-screen items-center justify-center p-4 sm:p-8">
       <div className="k-aurora" aria-hidden />
@@ -122,6 +317,10 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
             </div>
           </div>
 
+          {mode === "forgot" ? (
+            forgotPanel
+          ) : (
+            <>
           <h1 className="text-3xl font-bold text-white">{mode === "login" ? "Login" : "Create your account"}</h1>
           <p className="mt-1.5 text-sm text-slate-400">
             {mode === "login" ? "See your growth and get consulting support!" : "Choose where you fall in under Kallmania. An administrator will confirm your login and position."}
@@ -254,6 +453,13 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
               <Label className="text-slate-300">Password</Label>
               <PasswordInput className="border-slate-600/50 bg-transparent text-slate-100 placeholder:text-slate-500" placeholder={mode === "register" ? "Min. 6 characters" : "Min. 8 character"} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} onKeyDown={(e) => e.key === "Enter" && submit()} />
             </div>
+            {mode === "login" && (
+              <div className="flex justify-end">
+                <button type="button" className="text-xs font-semibold text-[#8b7ff5] hover:underline" onClick={openForgot}>
+                  Forgot password?
+                </button>
+              </div>
+            )}
 
             {error && (
               <div className="flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2.5 text-xs text-rose-300">
@@ -283,6 +489,8 @@ export default function AuthView({ onAuthed }: { onAuthed: (user: SessionUser) =
               )}
             </p>
           </div>
+            </>
+          )}
 
           <p className="mt-10 text-[11px] text-slate-500">©2026 Kallmania · SBTS Group. All rights reserved</p>
         </div>

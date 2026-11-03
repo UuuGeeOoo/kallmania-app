@@ -68,17 +68,29 @@ async function visible(page, selector, timeout = 6000) {
   }
 }
 
+/** FK-safe removal of the temporary e2e users and everything referencing them. */
+async function purgeUsers() {
+  const rows = await db.user.findMany({ where: { email: { in: EMAILS } }, select: { id: true } });
+  const ids = rows.map((u) => u.id);
+  if (!ids.length) return;
+  await db.notification.deleteMany({ where: { userId: { in: ids } } });
+  await db.pushEvent.deleteMany({ where: { userId: { in: ids } } });
+  await db.pushSubscription.deleteMany({ where: { userId: { in: ids } } });
+  await db.pushPreference.deleteMany({ where: { userId: { in: ids } } }).catch(() => {});
+  await db.auditLog.deleteMany({ where: { userId: { in: ids } } });
+  await db.activityEvent.deleteMany({ where: { userId: { in: ids } } });
+  await db.sbtsEvent.deleteMany({ where: { userId: { in: ids } } });
+  // an in-flight overdue check can still land a notification between the
+  // deletes above and here — tolerate it, the caller's next pass catches it
+  await db.user.deleteMany({ where: { email: { in: EMAILS } } }).catch(() => {});
+}
+
 async function main() {
-  // cleanup + seed
-  const olds = await db.user.findMany({ where: { email: { in: EMAILS } }, select: { id: true } });
-  const ids = olds.map((u) => u.id);
-  if (ids.length) {
-    await db.activityEvent.deleteMany({ where: { userId: { in: ids } } });
-    await db.sbtsEvent.deleteMany({ where: { userId: { in: ids } } });
-  }
+  // cleanup + seed — notifications/audits first (the overdue scheduler can
+  // address the temporary admin after 18:00 local → FK-safe deletion order)
+  await purgeUsers();
   await db.sbtsEvent.deleteMany({ where: { agentEmail: { in: EMAILS } } });
   await db.sbtsCredential.deleteMany({ where: { label: { startsWith: "E2E-SBTS-UI" } } });
-  await db.user.deleteMany({ where: { email: { in: EMAILS } } });
 
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
   await db.user.create({ data: { ...SOC, passwordHash, status: "APPROVED" } });
@@ -123,16 +135,19 @@ async function main() {
 
   await browser.close();
 
-  // cleanup
-  const users = await db.user.findMany({ where: { email: { in: EMAILS } }, select: { id: true } });
-  const uids = users.map((u) => u.id);
-  if (uids.length) {
-    await db.activityEvent.deleteMany({ where: { userId: { in: uids } } });
-    await db.sbtsEvent.deleteMany({ where: { userId: { in: uids } } });
-  }
+  // cleanup — the browsing session triggers the lazy overdue-report scheduler,
+  // which addresses the temporary admin (after 18:00 local) and may still be
+  // in flight when the first purge runs: pass 2 + retry catches stragglers.
+  await purgeUsers();
+  await purgeUsers();
   await db.sbtsEvent.deleteMany({ where: { agentEmail: { in: EMAILS } } });
   await db.sbtsCredential.deleteMany({ where: { label: { startsWith: "E2E-SBTS-UI" } } });
-  await db.user.deleteMany({ where: { email: { in: EMAILS } } });
+  for (let i = 0; i < 4; i++) {
+    const left = await db.user.findMany({ where: { email: { in: EMAILS } }, select: { id: true } });
+    if (!left.length) break;
+    await purgeUsers();
+    await new Promise((r) => setTimeout(r, 700));
+  }
 
   console.log("─".repeat(50));
   if (failures) { console.log(`SBTS BROWSER: ${failures} FAILURE(S)`); process.exit(1); }

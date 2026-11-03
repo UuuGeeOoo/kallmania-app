@@ -124,6 +124,117 @@ export async function POST(req: NextRequest) {
       return ok({ success: true });
     }
 
+    // ── FORGOT PASSWORD — agent requests, admin approves, agent sets new one ──
+    // A locked-out agent cannot read in-app notifications (they cannot sign
+    // in), so the go-ahead channel is this same login screen: the agent
+    // re-checks the request status here, and the approval unlocks a ONE-TIME
+    // "set new password" form. No email is involved anywhere in the flow.
+    if (action === "requestPasswordReset") {
+      const emailNorm = String(body.email || "").trim().toLowerCase();
+      if (!emailNorm) return fail("Enter the email on your account");
+      const user = await db.user.findUnique({ where: { email: emailNorm } });
+      if (!user) return fail("No account found for this email address", 404);
+      if (user.status === "REJECTED") return fail("This account was not approved. Please contact the administrator.", 403);
+      if (user.status === "SUSPENDED") return fail("This account has been suspended. Please contact the administrator.", 403);
+      if (user.status === "PENDING")
+        return fail("This account is still awaiting administrator confirmation — the administrator will confirm your login and role.", 403);
+      // One live request per email: a PENDING one just reports back, an
+      // APPROVED one is the go-ahead itself.
+      const live = await db.passwordResetRequest.findFirst({
+        where: { email: emailNorm, status: { in: ["PENDING", "APPROVED"] } },
+        orderBy: { requestedAt: "desc" },
+      });
+      if (live) {
+        return ok({
+          success: true,
+          status: live.status,
+          message:
+            live.status === "APPROVED"
+              ? "The administrator approved your request — set your new password below."
+              : "A request is already with the administrator. Once it is approved, come back here and check again — you will be able to set a new password.",
+        });
+      }
+      const resetRequest = await db.passwordResetRequest.create({ data: { email: emailNorm, userId: user.id } });
+      await audit({
+        userId: user.id,
+        actorName: user.fullName,
+        action: "PASSWORD_RESET_REQUESTED",
+        entity: "PasswordResetRequest",
+        entityId: resetRequest.id,
+        details: `Forgot-password request raised from the login screen for ${emailNorm}`,
+      });
+      const admins = await db.user.findMany({ where: { role: "ADMIN", status: "APPROVED" } });
+      const { notify } = await import("@/lib/notify");
+      for (const a of admins) {
+        await notify({
+          userId: a.id,
+          type: "PASSWORD_RESET_REQUEST",
+          severity: "INFO",
+          title: "Password reset request",
+          message: `${user.fullName} (${emailNorm}) forgot their password and asked for approval to set a new one. Review it in User Management → Password reset requests.`,
+          linkData: { view: "admin-users" },
+          dedupeKey: `pwreset-req:${resetRequest.id}`,
+        });
+      }
+      return ok({
+        success: true,
+        status: "PENDING",
+        message: "Request sent to the administrator. Once they approve it, come back here, enter the same email and check again — you will get the go-ahead to set a new password.",
+      });
+    }
+
+    // Where is my request? Polled by the login screen's forgot-password panel.
+    if (action === "passwordResetStatus") {
+      const emailNorm = String(body.email || "").trim().toLowerCase();
+      if (!emailNorm) return fail("Enter the email on your account");
+      const latest = await db.passwordResetRequest.findFirst({
+        where: { email: emailNorm },
+        orderBy: { requestedAt: "desc" },
+      });
+      return ok({ status: latest?.status ?? "NONE" });
+    }
+
+    // The go-ahead: an APPROVED request is consumed exactly once, here.
+    if (action === "completePasswordReset") {
+      const emailNorm = String(body.email || "").trim().toLowerCase();
+      const { newPassword } = body;
+      if (!emailNorm || !newPassword) return fail("Email and new password are required");
+      if (String(newPassword).length < 6) return fail("New password must be at least 6 characters");
+      const approval = await db.passwordResetRequest.findFirst({
+        where: { email: emailNorm, status: "APPROVED" },
+        orderBy: { decidedAt: "desc" },
+      });
+      if (!approval)
+        return fail("No approved password reset found for this email. Raise a request from the login screen and wait for the administrator's approval.", 403);
+      const user = await db.user.findUnique({ where: { email: emailNorm } });
+      if (!user) return fail("Account not found", 404);
+      if (user.status !== "APPROVED") return fail("This account is not active. Please contact the administrator.", 403);
+      await db.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(String(newPassword)) } });
+      await db.passwordResetRequest.update({ where: { id: approval.id }, data: { status: "USED", usedAt: new Date() } });
+      await audit({
+        userId: user.id,
+        actorName: user.fullName,
+        action: "PASSWORD_RESET_COMPLETED",
+        entity: "PasswordResetRequest",
+        entityId: approval.id,
+        details: `New password set from the login screen after administrator approval (request ${approval.id})`,
+      });
+      const admins = await db.user.findMany({ where: { role: "ADMIN", status: "APPROVED" } });
+      const { notify } = await import("@/lib/notify");
+      for (const a of admins) {
+        await notify({
+          userId: a.id,
+          type: "PASSWORD_RESET_COMPLETED",
+          severity: "INFO",
+          title: "Password reset completed",
+          message: `${user.fullName} (${emailNorm}) set a new password after your approval — the account is back in use.`,
+          linkData: { view: "admin-users" },
+          dedupeKey: `pwreset-used:${approval.id}`,
+        });
+      }
+      return ok({ success: true, message: "Password updated. Sign in with your new password." });
+    }
+
     return fail("Unknown action");
   });
 }

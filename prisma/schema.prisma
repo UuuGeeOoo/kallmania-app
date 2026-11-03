@@ -161,6 +161,28 @@ model SbtsDeliverable {
   updatedAt DateTime @updatedAt
 }
 
+// Self-service password reset — an agent who forgot their password asks from
+// the login screen ("Forgot password?"); an administrator approves or denies
+// the request in User Management; an approved request unlocks a ONE-TIME
+// "set new password" form for that email on the login screen. No email is
+// sent — the agent re-checks their request status on the same screen, and the
+// in-app notification arrives once they can sign in again.
+model PasswordResetRequest {
+  id            String    @id @default(cuid())
+  email         String
+  userId        String? // the account the request resolved to, when it exists
+  // PENDING | APPROVED | DENIED | USED
+  status        String    @default("PENDING")
+  requestedAt   DateTime  @default(now())
+  decidedAt     DateTime?
+  decidedById   String?
+  decidedByName String?
+  usedAt        DateTime?
+
+  @@index([email, status])
+  @@index([status, requestedAt])
+}
+
 // Individual (per-member) KPI configuration — overrides of the centre/global
 // KPI targets for ONE staff member. Administrators and supervisors save
 // directly as APPROVED; a team lead's edits stay PENDING until a supervisor

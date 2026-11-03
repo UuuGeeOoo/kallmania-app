@@ -25,6 +25,28 @@ import { Users, CheckCircle2, XCircle, PauseCircle, PlayCircle, KeyRound, Trash2
 const ALL_ROLES = ["AGENT_BPO", "TEAM_LEAD", "DEVELOPER", "SOCIAL_MEDIA", "SUPERVISOR", "ADMIN"];
 const ALL_TEAMS = ["OUTBOUND", "INBOUND", "EMAIL", "SOCIAL", "TECH"];
 
+/** A forgot-password request raised from the login screen (see /api/password-resets). */
+interface ResetRequestRow {
+  id: string;
+  email: string;
+  status: string; // PENDING | APPROVED | DENIED | USED
+  requestedAt: string;
+  decidedAt: string | null;
+  decidedByName: string | null;
+  usedAt: string | null;
+  fullName: string | null;
+  role: string | null;
+  team: string | null;
+  accountStatus: string | null;
+}
+
+const RESET_STATUS_STYLES: Record<string, string> = {
+  PENDING: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+  APPROVED: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+  DENIED: "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+  USED: "bg-slate-500/15 text-slate-600 dark:text-slate-300",
+};
+
 /** ISO-2 code → country name for the Location column (built once per module load) */
 const COUNTRY_NAMES: Record<string, string> = Object.fromEntries(
   Country.getAllCountries().map((c) => [c.isoCode, c.name])
@@ -37,6 +59,7 @@ function locationLabel(u: { country?: string | null; state?: string | null }): s
 
 export function AdminUsersView({ user }: { user: SessionUser }) {
   const [users, setUsers] = useState<UserDTO[]>([]);
+  const [resetReqs, setResetReqs] = useState<ResetRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("ALL");
   const [resetUser, setResetUser] = useState<UserDTO | null>(null);
@@ -53,6 +76,9 @@ export function AdminUsersView({ user }: { user: SessionUser }) {
     try {
       const { users } = await api<{ users: UserDTO[] }>("/api/users");
       setUsers(users);
+      api<{ requests: ResetRequestRow[] }>("/api/password-resets")
+        .then(({ requests }) => setResetReqs(requests))
+        .catch(() => setResetReqs([])); // non-fatal — table may predate this feature
     } finally {
       setLoading(false);
     }
@@ -91,6 +117,27 @@ export function AdminUsersView({ user }: { user: SessionUser }) {
       const role = u.role === "TEAM_LEAD" ? "TEAM_LEAD" : agentRoleByTeam[team] || u.role;
       await api("/api/users", { method: "PATCH", body: JSON.stringify({ userId: u.id, action: "changeRole", role, team }) });
       await load();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Forgot-password flow: approving gives the agent the go-ahead to set a new
+  // password on the login screen (one-time); denying closes the request.
+  const decideReset = async (r: ResetRequestRow, action: "approve" | "deny") => {
+    setBusy(r.id + action);
+    try {
+      await api("/api/password-resets", { method: "PATCH", body: JSON.stringify({ id: r.id, action }) });
+      await load();
+      toast({
+        title: action === "approve" ? "Reset approved" : "Reset denied",
+        description:
+          action === "approve"
+            ? `${r.fullName || r.email} can now set a new password from the login screen (Forgot password → same email). The approval works once.`
+            : `${r.fullName || r.email} will see the denial when they check their request on the login screen.`,
+      });
+    } catch (e) {
+      toast({ title: "Action failed", description: e instanceof Error ? e.message : "Unexpected error — please try again", variant: "destructive" });
     } finally {
       setBusy(null);
     }
@@ -157,6 +204,44 @@ export function AdminUsersView({ user }: { user: SessionUser }) {
                 <Button size="sm" variant="outline" disabled={busy === u.id + "reject"} onClick={() => act(u.id, "reject")} className="border-rose-500/50 text-rose-300 hover:bg-rose-500/10">
                   <XCircle className="mr-1 h-3.5 w-3.5" /> Reject
                 </Button>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
+      {resetReqs.length > 0 && (
+        <SectionCard title="Password reset requests" subtitle="Agents who forgot their password ask from the login screen — approve to give the go-ahead, then they set a new password themselves. Approval works once." className="mb-5 border-[#8b7ff5]/30">
+          <div className="space-y-3">
+            {resetReqs.map((r) => (
+              <div
+                key={r.id}
+                className={`flex flex-wrap items-center gap-3 rounded-lg border p-3 ${r.status === "PENDING" ? "border-[#8b7ff5]/30 bg-[#6c5ce7]/5" : "border-white/10 bg-white/[0.02]"}`}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-slate-100">
+                    {r.fullName || "Unknown account"}
+                    <span className="ml-2 text-xs font-normal text-slate-400">{r.email}</span>
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    {r.role ? ROLE_LABELS[r.role] : "Account"}
+                    {r.team ? ` · ${TEAM_LABELS[r.team] || r.team}` : ""}
+                    · requested {fmtDateTime(r.requestedAt)}
+                    {r.decidedAt && r.decidedByName ? ` · decided by ${r.decidedByName}` : ""}
+                    {r.usedAt ? " · new password already set" : ""}
+                  </p>
+                </div>
+                <span className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${RESET_STATUS_STYLES[r.status] || "bg-slate-500/15 text-slate-300"}`}>{r.status}</span>
+                {r.status === "PENDING" && (
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" disabled={busy === r.id + "approve"} onClick={() => decideReset(r, "approve")} className="bg-emerald-600 hover:bg-emerald-500">
+                      {busy === r.id + "approve" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1 h-3.5 w-3.5" />} Approve
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={busy === r.id + "deny"} onClick={() => decideReset(r, "deny")} className="border-rose-500/50 text-rose-300 hover:bg-rose-500/10">
+                      <XCircle className="mr-1 h-3.5 w-3.5" /> Deny
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

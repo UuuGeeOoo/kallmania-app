@@ -1190,3 +1190,47 @@ reverted, SBTS credential rotated with 24h grace (new UPSw…hn9B ACTIVE, old Dh
 live smoke ALL OK (stored→mapped opeace@→replay duplicate), deliverables regenerated in download/ and
 delivered for the social media team handover. Pending: production deploy cycle picks up 9acd66c (polling
 sbts-prod-download-test.mjs against the real host).
+
+## Task 59 — Signed expiring handover download links + agent forgot-password flow (2026-11-04)
+
+Two user requests in one session: (1) the handover download error was still not solved for the
+social media team — they have no admin accounts, so ANY session-gated link keeps producing the
+cryptic failed "handover.json" Chrome download; (2) add a forgot-password option where the agent
+requests access, the ADMIN ACCEPTS, and the agent gets the go-ahead to generate a new password.
+
+SIGNED HANDOVER LINKS: /api/sbts/handover now accepts ?file=…&exp=<unix>&sig=<hex> where
+sig = HMAC-SHA256(secret, "handover:v1:<file>:<exp>") — the signature IS the proof, no login
+required (new src/lib/handover-token.ts). The signing secret lives in the shared DB
+(SystemFlag "handover:signing-secret", lazily minted, upsert-safe) NOT in env, so the sandbox
+preview and the production host verify the same links with zero configuration. Tampered /
+expired / cross-file signatures fall back to the admin-session gate (the gate only tightens).
+Generator: scripts/sbts-handover-links.ts [days] [base]. VERIFIED MYSELF before telling the user:
+curl no-cookie → PDF 200 %PDF- 227354B 10 pages A4 + xlsx 200 PK 6898B openpyxl-clean with
+correct Content-Disposition filenames; 5 negative cases (tampered, expired, sig-swapped files,
+no token API 401, unknown file 400); NEW scripts/e2e-sbts-handover-signed-links.mjs — real
+logged-out Chromium (0 cookies) downloads both files via top-level navigation and asserts
+filenames/magic/sizes, tampered link → 200 visible notice page: 9/9 PASS.
+
+FORGOT PASSWORD (request → admin approves → agent sets new password): new PasswordResetRequest
+table (email, userId, PENDING/APPROVED/DENIED/USED lifecycle, decided-by, one-time usedAt —
+additive db push to the shared DB). POST /api/auth actions: requestPasswordReset (rejects
+unknown emails 404 + PENDING/REJECTED/SUSPENDED accounts, one live request per email, audits +
+notifies all admins), passwordResetStatus (login-screen poll), completePasswordReset (requires
+an APPROVED request, consumes it exactly once → USED, bcrypt rehash, audits + confirms admins).
+New admin route /api/password-resets (GET list newest-first with resolved account info, PATCH
+approve|deny — PENDING-only transitions, audited, requester notified in-app for when they are
+back in). UI: login screen gains "Forgot password?" → forgot panel (request → pending with
+"check again" polling → approved unlocks one-time new-password + confirm form → done; denied
+offers a fresh request) — plain JSX panel, not a nested component, to avoid remount-focus loss;
+User Management gains a "Password reset requests" card (PENDING rows with Approve/Deny, decided
+rows with status badges + decided-by). NEW scripts/e2e-password-reset-flow.mjs: 30/30 PASS —
+PENDING account refused, unknown email 404, duplicate request dedupes to one row, pre-approval
+set-password 403, non-admin list 403 + anonymous 401, admin sees/approves, re-approve 400,
+status polls PENDING→APPROVED→USED→DENIED, short password refused, old password dead + new
+password logs in, approval reuse 403, deny path blocked; test rows fully cleaned up. Also fixed
+a pre-existing time-of-day landmine in scripts/e2e-sbts-browser.mjs: after 18:00 the lazy
+overdue scheduler REPORT_OVERDUE-notifies the temporary e2e admin mid-run and FK-blocks user
+deletion — purgeUsers() helper (notifications → push → audits → activity → sbtsEvents → users)
+now runs on setup + twice on cleanup with a straggler retry; suite back to ALL PASS. Regression:
+e2e-sbts-handover-download.mjs ALL PASS, e2e-sbts.ts ALL PASS, tsc 0 src errors, production
+standalone rebuilt and healthy on :3000 (BUILD_ID prod11031847).
