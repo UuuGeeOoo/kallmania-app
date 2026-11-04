@@ -62,7 +62,8 @@ const main = async () => {
   const pdfHead = readFileSync(pdfPath).subarray(0, 5).toString();
   ok("PDF magic bytes %PDF-", pdfHead === "%PDF-", pdfHead);
   const pdfSize = statSync(pdfPath).size;
-  ok("PDF size 227354 bytes", pdfSize === 227354, String(pdfSize));
+  const seeded = await prisma.sbtsDeliverable.findUnique({ where: { name: "handover-pdf" } });
+  ok("PDF size matches DB-seeded bytes", seeded && pdfSize === seeded.sizeBytes, `${pdfSize} vs seeded ${seeded?.sizeBytes}`);
 
   // ── XLSX via top-level navigation, no login ──
   const xlsxUrl = `${BASE}/api/sbts/handover?file=xlsx&exp=${exp}&sig=${sign("xlsx")}`;
