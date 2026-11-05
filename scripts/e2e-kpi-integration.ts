@@ -20,6 +20,10 @@
 //     its KPI records.
 //  7. SECURITY: agents see only their own records; a lead's private panel is
 //     lead-only; archive is supervisor/admin; cross-centre/cross-role reads 403.
+//  8. ALL-TEAM PIPELINE: the same submission→KPI-record path proven for a
+//     call-centre (AGENT_BPO/INBOUND, mandatory-catalogue aware) and a
+//     technical (DEVELOPER/TECH) agent — achievement math per unit type,
+//     cross-team 403, correction idempotency (master prompt §6 + §12).
 const BASE = "http://localhost:3000";
 import { readFileSync } from "fs";
 import { createHash, createHmac, randomBytes } from "crypto";
@@ -39,8 +43,10 @@ const D2 = new Date().toISOString().slice(0, 10);
 const AGENT = { email: "kpi-agent@kallmania.test", fullName: "E2E KPI Agent", role: "SOCIAL_MEDIA", department: "SOCIAL_MEDIA", team: "SOCIAL", employeeId: "E2E-KPI-1", country: "NG", state: "Enugu" };
 const LEAD = { email: "kpi-lead@kallmania.test", fullName: "E2E KPI Lead", role: "TEAM_LEAD", department: "SOCIAL_MEDIA", team: "SOCIAL", employeeId: "E2E-KPI-2", country: "NG", state: "Enugu" };
 const OTHER = { email: "kpi-other@kallmania.test", fullName: "E2E KPI Other Agent", role: "SOCIAL_MEDIA", department: "SOCIAL_MEDIA", team: "SOCIAL", employeeId: "E2E-KPI-3", country: "NG", state: "Enugu" };
+const CCAGENT = { email: "kpi-cc@kallmania.test", fullName: "E2E KPI Call Centre Agent", role: "AGENT_BPO", department: "BPO", team: "INBOUND", employeeId: "E2E-KPI-5" };
+const TECHAGENT = { email: "kpi-tech@kallmania.test", fullName: "E2E KPI Tech Agent", role: "DEVELOPER", department: "TECHNICAL", team: "TECH", employeeId: "E2E-KPI-6" };
 const ADMIN = { email: "kpi-admin@kallmania.test", fullName: "E2E KPI Admin", role: "ADMIN", department: "MANAGEMENT", team: null, employeeId: "E2E-KPI-4", country: "NG", state: "Enugu" };
-const ALL = [AGENT, LEAD, OTHER, ADMIN];
+const ALL = [AGENT, LEAD, OTHER, ADMIN, CCAGENT, TECHAGENT];
 const E2E_EMAILS = ALL.map((u) => u.email);
 
 let failures = 0;
@@ -130,6 +136,8 @@ async function main() {
   const agentId = (await db.user.findUnique({ where: { email: AGENT.email } }))!.id;
   const leadId = (await db.user.findUnique({ where: { email: LEAD.email } }))!.id;
   const otherId = (await db.user.findUnique({ where: { email: OTHER.email } }))!.id;
+  const ccId = (await db.user.findUnique({ where: { email: CCAGENT.email } }))!.id;
+  const techId = (await db.user.findUnique({ where: { email: TECHAGENT.email } }))!.id;
 
   const KEY = `E2EKPIKEY${randomBytes(24).toString("hex")}`;
   const SECRET = randomBytes(32).toString("hex");
@@ -141,6 +149,8 @@ async function main() {
   const leadCookie = await login(LEAD);
   const otherCookie = await login(OTHER);
   const adminCookie = await login(ADMIN);
+  const ccCookie = await login(CCAGENT);
+  const techCookie = await login(TECHAGENT);
 
   const socialMetrics = [
     { key: "postsCreated", label: "Content Published", target: 5, targetLabel: "5", actual: 7, variance: 2, unit: "count", category: "CORE", auto: false, notes: "" },
@@ -161,7 +171,7 @@ async function main() {
     const sub = await call(agentCookie, "/api/reports", { method: "POST", body: JSON.stringify({ id: reportId, type: "SOCIAL", reportDate: D2, kpiMetrics: socialMetrics, submit: true }) });
     check("report submitted", sub.status === 200, JSON.stringify(sub.json).slice(0, 160));
 
-    const recs = await call(agentCookie, "/api/kpi/results?period=day") as { status: number; json: { count: number; records: { kpiKey: string; label: string; target: number | null; actual: number | null; achievement: number | null; statusLabel: string | null; verification: string; source: string; report: { ref: string } | null }[]; summary: { kpiKey: string; actualTotal: number }[] } };
+    const recs = await call(agentCookie, "/api/kpi/results?period=day") as unknown as { status: number; json: { count: number; records: { kpiKey: string; label: string; target: number | null; actual: number | null; achievement: number | null; statusLabel: string | null; verification: string; source: string; report: { ref: string } | null }[]; summary: { kpiKey: string; actualTotal: number }[] } };
     check("submission created KPI records for filled metrics only", recs.json.count === 2, `count=${recs.json.count}`);
     check("record linked to the report ref", recs.json.records.every((r) => r.report?.ref), JSON.stringify(recs.json.records[0]));
     check("missing value never faked (commentsDMs absent)", !recs.json.records.some((r) => r.kpiKey === "commentsDMs"));
@@ -178,7 +188,7 @@ async function main() {
 
     // Submitting again without changes must not duplicate (idempotent upsert).
     await call(agentCookie, "/api/reports", { method: "POST", body: JSON.stringify({ id: reportId, type: "SOCIAL", reportDate: D2, kpiMetrics: socialMetrics }) }); // correction save (still SUBMITTED)
-    const recs2 = await call(agentCookie, "/api/kpi/results?period=day") as { json: { count: number } };
+    const recs2 = await call(agentCookie, "/api/kpi/results?period=day") as unknown as { json: { count: number } };
     check("correction re-materialization does not duplicate", recs2.json.count === 2, `count=${recs2.json.count}`);
   }
 
@@ -186,7 +196,7 @@ async function main() {
   {
     const rej = await call(adminCookie, "/api/reports", { method: "PATCH", body: JSON.stringify({ id: reportId, decision: "reject", feedback: "numbers need checking" }) });
     check("admin rejected the report", rej.status === 200);
-    const afterRej = await call(agentCookie, "/api/kpi/results?period=day") as { json: { records: { verification: string }[] } };
+    const afterRej = await call(agentCookie, "/api/kpi/results?period=day") as unknown as { json: { records: { verification: string }[] } };
     check("records marked REJECTED on return", afterRej.json.records.every((r) => r.verification === "REJECTED"));
 
     // Correct + resubmit: same keys, new value → revision bump, previousActual kept
@@ -194,7 +204,7 @@ async function main() {
     await call(agentCookie, "/api/reports", { method: "POST", body: JSON.stringify({ id: reportId, type: "SOCIAL", reportDate: D2, kpiMetrics: socialMetrics, submit: false }) }); // REJECTED → DRAFT
     const resub = await call(agentCookie, "/api/reports", { method: "POST", body: JSON.stringify({ id: reportId, type: "SOCIAL", reportDate: D2, kpiMetrics: socialMetrics, submit: true }) });
     check("resubmitted after correction", resub.status === 200);
-    const after = await call(agentCookie, "/api/kpi/results?period=day") as { json: { count: number; records: { kpiKey: string; revision: number; previousActual: number | null; actual: number | null; verification: string }[] } };
+    const after = await call(agentCookie, "/api/kpi/results?period=day") as unknown as { json: { count: number; records: { kpiKey: string; revision: number; previousActual: number | null; actual: number | null; verification: string }[] } };
     const reach = after.json.records.find((r) => r.kpiKey === "reachImpressions");
     check("no duplicates after full lifecycle (still 2)", after.json.count === 2, `count=${after.json.count}`);
     check("correction bumped revision with previousActual", reach?.revision === 2 && reach?.previousActual === 8500 && reach?.actual === 9200, JSON.stringify(reach));
@@ -202,7 +212,7 @@ async function main() {
 
     const appr = await call(adminCookie, "/api/reports", { method: "PATCH", body: JSON.stringify({ id: reportId, decision: "approve" }) });
     check("admin approved the report", appr.status === 200);
-    const afterAppr = await call(agentCookie, "/api/kpi/results?period=day") as { json: { records: { verification: string }[] } };
+    const afterAppr = await call(agentCookie, "/api/kpi/results?period=day") as unknown as { json: { records: { verification: string }[] } };
     check("records marked APPROVED", afterAppr.json.records.every((r) => r.verification === "APPROVED"));
   }
 
@@ -212,7 +222,7 @@ async function main() {
     const evt = { eventId, type: "performance.score" as const, agent: { email: AGENT.email }, date: D2, score: 72.5, delta: 3.5, components: { content: 28.5, engagement: 24, consistency: 20 } };
     const r1 = await postEvent(KEY, SECRET, evt);
     check("score event stored+mapped", r1.status === 200 && (r1.json as { results: { status: string }[] }).results[0].status === "stored");
-    const recs = await call(agentCookie, "/api/kpi/results?period=day&source=SBTS") as { json: { records: { kpiKey: string; label: string; target: number | null; statusLabel: string | null; actual: number | null; source: string; sbtsEvent: { eventId: string } | null }[] } };
+    const recs = await call(agentCookie, "/api/kpi/results?period=day&source=SBTS") as unknown as { json: { records: { kpiKey: string; label: string; target: number | null; statusLabel: string | null; actual: number | null; source: string; sbtsEvent: { eventId: string } | null }[] } };
     check("SBTS headline record written", recs.json.records.some((r) => r.kpiKey === "sbts_score" && r.actual === 72.5));
     check("SBTS component records written (3)", recs.json.records.filter((r) => r.kpiKey.startsWith("sbts_") && r.kpiKey !== "sbts_score").length === 3, JSON.stringify(recs.json.records.map((r) => r.kpiKey)));
     check("SBTS records linked to the event id", recs.json.records.every((r) => r.sbtsEvent?.eventId === eventId));
@@ -221,7 +231,7 @@ async function main() {
 
     const r2 = await postEvent(KEY, SECRET, evt); // same eventId — replay
     check("replayed event reported duplicate", (r2.json as { results: { status: string }[] }).results[0].status === "duplicate");
-    const recs2 = await call(agentCookie, "/api/kpi/results?period=day&source=SBTS") as { json: { records: unknown[] } };
+    const recs2 = await call(agentCookie, "/api/kpi/results?period=day&source=SBTS") as unknown as { json: { records: unknown[] } };
     check("replay did NOT inflate KPI records", recs2.json.records.length === recs.json.records.length, `before=${recs.json.records.length} after=${recs2.json.records.length}`);
   }
 
@@ -233,7 +243,7 @@ async function main() {
     const r1 = await postEvent(KEY, SECRET, evt);
     check("daily.report with template stored+mapped", r1.status === 200 && (r1.json as { results: { status: string; mapped?: boolean }[] }).results[0].status === "stored");
 
-    const arch = await call(adminCookie, "/api/archive?sourceType=SBTS_IMPORT") as { json: { reports: { ref: string; template: string | null; kpiRecordCount: number; pipelineStatus: string }[] } };
+    const arch = await call(adminCookie, "/api/archive?sourceType=SBTS_IMPORT") as unknown as { json: { reports: { ref: string; template: string | null; kpiRecordCount: number; pipelineStatus: string }[] } };
     const imported = arch.json.reports.find((r) => r.ref === `SBTS-${eventId}`);
     check("external report lands in the archive (source filter)", !!imported, JSON.stringify(arch.json.reports.map((r) => r.ref)).slice(0, 120));
     check("template associated with the archived report", imported?.template === "SBTS supplied template", imported?.template ?? "none");
@@ -241,7 +251,7 @@ async function main() {
     check("free text fabricates NO KPI records", imported?.kpiRecordCount === 0);
 
     const rep = await db.report.findUnique({ where: { ref: `SBTS-${eventId}` } });
-    const recsByReport = await call(adminCookie, `/api/kpi/results?reportId=${rep!.id}`) as { json: { count: number } };
+    const recsByReport = await call(adminCookie, `/api/kpi/results?reportId=${rep!.id}`) as unknown as { json: { count: number } };
     check("report-scoped record lookup works (0 rows)", recsByReport.json.count === 0);
 
     // Replay cannot recreate the archive row (unique ref, duplicate event).
@@ -273,11 +283,11 @@ async function main() {
     check("lead report submitted", tlSub.status === 200 || tlSub.status === 201, JSON.stringify(tlSub.json).slice(0, 160));
     const tlReportId = String((tlSub.json as { report?: { id: string } }).report?.id);
 
-    const tlRecs = await call(leadCookie, "/api/kpi/results?period=day&source=TL_REPORT") as { json: { count: number; records: { kpiKey: string; label: string; source: string }[] } };
+    const tlRecs = await call(leadCookie, "/api/kpi/results?period=day&source=TL_REPORT") as unknown as { json: { count: number; records: { kpiKey: string; label: string; source: string }[] } };
     check("lead metrics materialized as PERSONAL records", tlRecs.json.count === 3, `count=${tlRecs.json.count}`);
     check("personal records carry TL_REPORT source", tlRecs.json.records.every((r) => r.source === "TL_REPORT"));
 
-    const perf = await call(leadCookie, "/api/sbts/tl-performance") as { status: number; json: { lead: { fullName: string }; todayStatus: string; compliance: { submittedDays: number }; kpiBreakdown: { kpiKey: string; label: string; actualTotal: number; days: number }[]; history: { ref: string }[] } };
+    const perf = await call(leadCookie, "/api/sbts/tl-performance") as unknown as { status: number; json: { lead: { fullName: string }; todayStatus: string; compliance: { submittedDays: number }; kpiBreakdown: { kpiKey: string; label: string; actualTotal: number; days: number }[]; history: { ref: string }[] } };
     check("My Team Lead Performance endpoint works", perf.status === 200);
     check("personal panel shows today's report as SUBMITTED", perf.json.todayStatus === "SUBMITTED", perf.json.todayStatus);
     check("compliance counts today's filing", perf.json.compliance.submittedDays >= 1);
@@ -293,7 +303,7 @@ async function main() {
 
   console.log("── 6. ARCHIVE INTEGRATION & CASCADE ──");
   {
-    const arch = await call(adminCookie, `/api/archive?userId=${agentId}`) as { json: { reports: { id: string; kpiRecordCount: number; sourceType: string }[]; stats: { kpiRecords: number } } };
+    const arch = await call(adminCookie, `/api/archive?userId=${agentId}`) as unknown as { json: { reports: { id: string; kpiRecordCount: number; sourceType: string }[]; stats: { kpiRecords: number } } };
     const mine = arch.json.reports.find((r) => r.id === reportId);
     check("archive row carries KPI record count", !!mine && mine.kpiRecordCount === 2, `count=${mine?.kpiRecordCount}`);
     check("archive stats include KPI record totals", (arch.json.stats?.kpiRecords ?? 0) >= 2);
@@ -325,6 +335,53 @@ async function main() {
     const s7 = await call(otherCookie, `/api/kpi/results?userId=${otherId}&period=day`).then((r) => r.status);
     check("self access always allowed", s7 === 200, `status=${s7}`);
     void leadId;
+  }
+
+  console.log("── 8. ALL-TEAM PIPELINE (master §6/§12: call centre + technical) ──");
+  {
+    // AGENT_BPO submit-validation fills every mandatory catalogue key the
+    // production DB requires (the CC agent has no centre → global scope),
+    // then adds one custom metric for exact achievement math.
+    const mandatory = await db.kpiConfig.findMany({ where: { department: { in: ["BPO", "INBOUND"] }, mandatory: true, active: true } });
+    const ccMetrics = [
+      ...mandatory.map((c) => ({ key: c.key, label: c.label, target: c.defaultTarget ?? 1, targetLabel: String(c.defaultTarget ?? 1), actual: c.defaultTarget ?? 1, variance: 0, unit: (c.unit as "count" | "percent" | "minutes") ?? "count", category: "CORE", auto: false, notes: "" })),
+      { key: "callsHandled", label: "Calls Handled", target: 50, targetLabel: "50", actual: 60, variance: 10, unit: "count" as const, category: "CORE", auto: false, notes: "" },
+    ];
+    const ccSub = await call(ccCookie, "/api/reports", { method: "POST", body: JSON.stringify({ type: "AGENT_BPO", reportDate: D2, kpiMetrics: ccMetrics, attendanceStatus: "Present", submit: true }) });
+    check("call-centre report submitted", ccSub.status === 200 || ccSub.status === 201, JSON.stringify(ccSub.json).slice(0, 200));
+    const ccReportId = String((ccSub.json as { report?: { id: string } }).report?.id);
+    const ccRecs = await call(ccCookie, "/api/kpi/results?period=day") as unknown as { json: { count: number; records: { kpiKey: string; achievement: number | null; statusLabel: string | null; source: string; verification: string }[] } };
+    const ccCalls = ccRecs.json.records.find((r) => r.kpiKey === "callsHandled");
+    check("call-centre KPI records materialize", ccCalls !== undefined && ccRecs.json.count >= 1, `count=${ccRecs.json.count} mandatory=${mandatory.length}`);
+    check("call-centre achievement math (60/50 = 120% MET)", ccCalls?.achievement === 120 && ccCalls?.statusLabel === "MET", JSON.stringify(ccCalls));
+    check("call-centre records carry REPORT source + SUBMITTED verification", ccCalls?.source === "REPORT" && ccCalls?.verification === "SUBMITTED");
+
+    const techMetrics = [
+      { key: "ticketsResolved", label: "Tickets Resolved", target: 20, targetLabel: "20", actual: 15, variance: -5, unit: "count" as const, category: "CORE", auto: false, notes: "" },
+      { key: "uptimePct", label: "Uptime", target: 99, targetLabel: "99", actual: 99.8, variance: 0.8, unit: "percent" as const, category: "CORE", auto: false, notes: "" },
+    ];
+    const techSub = await call(techCookie, "/api/reports", { method: "POST", body: JSON.stringify({ type: "TECH", reportDate: D2, kpiMetrics: techMetrics, submit: true }) });
+    check("technical report submitted", techSub.status === 200 || techSub.status === 201, JSON.stringify(techSub.json).slice(0, 200));
+    const techRecs = await call(techCookie, "/api/kpi/results?period=day") as unknown as { json: { count: number; records: { kpiKey: string; achievement: number | null; statusLabel: string | null }[] } };
+    const tickets = techRecs.json.records.find((r) => r.kpiKey === "ticketsResolved");
+    const up = techRecs.json.records.find((r) => r.kpiKey === "uptimePct");
+    check("technical KPI records materialize (both metrics)", techRecs.json.count === 2, `count=${techRecs.json.count}`);
+    check("technical below-target labelled (15/20 = 75% BELOW_TARGET)", tickets?.achievement === 75 && tickets?.statusLabel === "BELOW_TARGET", JSON.stringify(tickets));
+    check("technical percent math (99.8/99 = 100.81% MET)", up?.achievement === 100.81 && up?.statusLabel === "MET", JSON.stringify(up));
+
+    // Drill-down shows only own team's keys; cross-team read stays blocked.
+    const ccKeys = new Set(ccMetrics.map((m) => m.key));
+    const ccOwn = (ccRecs.json.records ?? []).every((r) => ccKeys.has(r.kpiKey));
+    check("call-centre drill-down returns only own metrics", ccOwn);
+    const cross = await call(ccCookie, `/api/kpi/results?userId=${techId}&period=day`).then((r) => r.status);
+    check("cross-team record read blocked (403)", cross === 403, `status=${cross}`);
+    const techDrill = await call(techCookie, `/api/users/${techId}/kpi?period=day&date=${D2}`) as unknown as { json: { kpiRecords?: unknown[] } };
+    check("technical per-user drill-down surfaces records", Array.isArray(techDrill.json.kpiRecords) && techDrill.json.kpiRecords.length === 2);
+
+    // Correction re-materialization stays idempotent per team.
+    await call(ccCookie, "/api/reports", { method: "POST", body: JSON.stringify({ id: ccReportId, type: "AGENT_BPO", reportDate: D2, kpiMetrics: ccMetrics, attendanceStatus: "Present" }) });
+    const ccRecs2 = await call(ccCookie, "/api/kpi/results?period=day") as unknown as { json: { count: number } };
+    check("call-centre correction does not duplicate", ccRecs2.json.count === ccRecs.json.count, `before=${ccRecs.json.count} after=${ccRecs2.json.count}`);
   }
 
   console.log("── CLEANUP ──");

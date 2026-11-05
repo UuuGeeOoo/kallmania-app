@@ -16,7 +16,7 @@ if (!rows.length) console.log("NO DELIVERABLE ROWS — regeneration needed");
 const flags = await db.$queryRawUnsafe<any[]>(`SELECT key FROM "SystemFlag" WHERE key LIKE 'handover%'`);
 for (const f of flags) console.log("flag:", f.key);
 
-const cred = await db.sbtsCredential.findMany({ select: { status: true, keyHint: true, rotatedAt: true }, orderBy: { createdAt: "desc" }, take: 3 });
-for (const c of cred) console.log("credential:", c.status, c.keyHint, c.rotatedAt);
+const cred = await db.sbtsCredential.findMany({ select: { active: true, keyHint: true, graceUntil: true }, orderBy: { createdAt: "desc" }, take: 3 });
+for (const c of cred) console.log("credential:", c.active ? "ACTIVE" : "OFF", c.keyHint, c.graceUntil);
 
 await db.$disconnect();
