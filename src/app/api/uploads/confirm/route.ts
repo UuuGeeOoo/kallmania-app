@@ -73,6 +73,8 @@ export async function POST(req: NextRequest) {
         userId: me.id, type: reportType,
         reportDate: { gte: confirmDayStart, lt: confirmDayEnd },
         status: { in: ["SUBMITTED", "APPROVED"] },
+        // SBTS-imported archive copies never block the owner's own submission
+        sourceType: { not: "SBTS_IMPORT" },
       },
     });
     if (sameDayLive)
@@ -293,6 +295,18 @@ export async function POST(req: NextRequest) {
           }
         } catch { /* malformed payload — skip */ }
       }
+    }
+
+    // ── Normalized KPI records: an upload-confirmed submission writes the same
+    // KpiResult rows as a manual submission (extracted values ARE KPI values).
+    try {
+      if (report.status === "SUBMITTED") {
+        const owner = { id: me.id, team: me.team, department: effectiveDepartment };
+        if (reportType === "TEAM_LEAD") await (await import("@/lib/kpi-results")).materializeTeamLeadKpiResults(report, owner);
+        else if (reportType !== "SUPERVISOR") await (await import("@/lib/kpi-results")).materializeReportKpiResults(report, owner);
+      }
+    } catch (kpiErr) {
+      console.error("KPI result materialization failed for", ref, kpiErr);
     }
 
     await audit({

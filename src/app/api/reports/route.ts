@@ -5,6 +5,7 @@ import { requireUser, isSupervisorLike } from "@/lib/auth";
 import { handle, ok, fail, safeParse, toDateOrNull } from "@/lib/api-utils";
 import { recalcKpis, isShortfall, type KpiMetric } from "@/lib/kpi";
 import { resolveKpiCatalogue } from "@/lib/kpi-resolve";
+import { materializeReportKpiResults, materializeTeamLeadKpiResults, markReportKpiResults } from "@/lib/kpi-results";
 import { audit, notify, notifySupervisors } from "@/lib/notify";
 import { trackActivity } from "@/lib/intel/track";
 
@@ -184,6 +185,8 @@ export async function POST(req: NextRequest) {
             userId: existing.userId, type: reportType,
             reportDate: { gte: dayStart, lt: dayEnd },
             status: { in: ["SUBMITTED", "APPROVED"] },
+            // SBTS-imported archive copies never block the owner's own submission
+            sourceType: { not: "SBTS_IMPORT" },
             NOT: { id: existing.id },
           },
         });
@@ -210,6 +213,8 @@ export async function POST(req: NextRequest) {
           userId: me.id, type: reportType,
           reportDate: { gte: dayStart, lt: dayEnd },
           status: { in: ["SUBMITTED", "APPROVED"] },
+          // SBTS-imported archive copies never block the owner's own submission
+          sourceType: { not: "SBTS_IMPORT" },
         },
       });
       if (dup) return fail(`You already have a ${dup.status === "APPROVED" ? "finalized" : "submitted"} report for this day (${dup.ref}). A report cannot be submitted twice for the same day — open the Daily Report page for that date to make corrections instead.`, 409);
@@ -301,6 +306,26 @@ export async function POST(req: NextRequest) {
       }
       // verification upgrade
       await db.report.update({ where: { id: report.id }, data: { verificationStatus: report.sourceType === "UPLOAD_EXTRACTED" ? "CONFIRMED_BY_EMPLOYEE" : "MANUAL_ENTRY" } });
+    }
+
+    // ── Normalized KPI records ──
+    // Submission (and any correction of an already-submitted report) writes the
+    // machine-readable KpiResult rows — one per KPI value — linking every
+    // actual to this report, its owner, the period and the verification state.
+    // Drafts never create records; rejected reports keep their rows marked REJECTED.
+    try {
+      if (report.status === "SUBMITTED" || report.status === "APPROVED") {
+        const ownerUser = await db.user.findUnique({ where: { id: report.userId }, select: { id: true, team: true, department: true } });
+        if (ownerUser) {
+          const owner = { id: ownerUser.id, team: ownerUser.team, department: report.department || ownerUser.department };
+          if (reportType === "TEAM_LEAD") await materializeTeamLeadKpiResults(report, owner);
+          else if (reportType !== "SUPERVISOR") await materializeReportKpiResults(report, owner);
+        }
+      } else {
+        await markReportKpiResults(report.id, report.status);
+      }
+    } catch (kpiErr) {
+      console.error("KPI result materialization failed for", report.ref, kpiErr);
     }
 
     await audit({
@@ -396,6 +421,14 @@ export async function PATCH(req: NextRequest) {
     }
 
     const updated = await db.report.update({ where: { id }, data });
+    // Keep the normalized KPI records in sync with the review decision.
+    try {
+      if (decision === "approve" || decision === "reject") {
+        await markReportKpiResults(id, decision === "approve" ? "APPROVED" : "REJECTED");
+      }
+    } catch (kpiErr) {
+      console.error("KPI result verification sync failed for", id, kpiErr);
+    }
     await notify({
       userId: report.userId,
       type: decision === "approve" ? "REPORT_APPROVED" : "REPORT_RETURNED",

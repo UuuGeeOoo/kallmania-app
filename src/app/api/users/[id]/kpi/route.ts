@@ -89,6 +89,30 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       for (const [k, v] of Object.entries(ms)) if (typeof v === "number") deptTotals[k] = (deptTotals[k] || 0) + v;
     }
 
+    // Normalized KPI records for the same period — the machine-readable store
+    // written automatically from submissions and matched SBTS events. Surfaced
+    // here so a KPI value can always be traced to its source (report ref or
+    // Media Scoreboard event) directly from the drill-down.
+    const kpiRecords = await db.kpiResult.findMany({
+      where: { userId: id, reportDate: { gte: ps, lte: pe } },
+      orderBy: [{ reportDate: "desc" }, { kpiKey: "asc" }],
+      take: 200,
+      select: {
+        id: true, kpiKey: true, label: true, unit: true, target: true, actual: true,
+        achievement: true, statusLabel: true, source: true, reportDate: true,
+        verification: true, revision: true, previousActual: true,
+        report: { select: { id: true, ref: true, type: true } },
+        sbtsEvent: { select: { eventId: true, eventDate: true } },
+      },
+    });
+    const recordSummary = new Map<string, { kpiKey: string; label: string; actualTotal: number; achievements: number[] }>();
+    for (const r of kpiRecords) {
+      const cur = recordSummary.get(r.kpiKey) ?? { kpiKey: r.kpiKey, label: r.label, actualTotal: 0, achievements: [] as number[] };
+      cur.actualTotal += r.actual ?? 0;
+      if (r.achievement !== null) cur.achievements.push(r.achievement);
+      recordSummary.set(r.kpiKey, cur);
+    }
+
     // Task performance for the same period
     const tasks = await db.task.findMany({
       where: {
@@ -119,6 +143,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       rows,
       deptTotals,
       taskStats,
+      kpiRecords: kpiRecords.map((r) => ({
+        id: r.id, kpiKey: r.kpiKey, label: r.label, unit: r.unit, target: r.target, actual: r.actual,
+        achievement: r.achievement, statusLabel: r.statusLabel, source: r.source, reportDate: r.reportDate,
+        verification: r.verification, revision: r.revision, previousActual: r.previousActual,
+        reportRef: r.report?.ref ?? null, reportType: r.report?.type ?? null,
+        sbtsEventId: r.sbtsEvent?.eventId ?? null,
+      })),
+      kpiRecordSummary: [...recordSummary.values()].map((s) => {
+        const avg = s.achievements.length ? Math.round((s.achievements.reduce((x, y) => x + y, 0) / s.achievements.length) * 100) / 100 : null;
+        return { kpiKey: s.kpiKey, label: s.label, actualTotal: Math.round(s.actualTotal * 100) / 100, avgAchievement: avg, status: avg === null ? "NO_TARGET" : avg >= 100 ? "MET" : avg >= 80 ? "ON_TRACK" : "BELOW_TARGET" };
+      }).sort((a, b) => (b.avgAchievement ?? -1) - (a.avgAchievement ?? -1)),
       recentReports: reports.slice(-8).reverse().map((r) => ({ id: r.id, ref: r.ref, type: r.type, status: r.status, reportDate: r.reportDate })),
       techLabels: TECH_SUMMARY_METRICS,
       socialLabels: SOCIAL_SUMMARY_METRICS,

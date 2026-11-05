@@ -37,6 +37,151 @@ interface AgentRow {
   latestReportExcerpt: string | null;
   reports7d: number;
 }
+// ── My Team Lead Performance (personal, NOT the team's scores) ──────────────
+// The lead's own record, retrieved by their authenticated user id only:
+// KPI rows materialized from their own submitted lead reports, reporting
+// compliance, strongest/weakest KPI, month-over-month movement and their own
+// submission history. Rendered inside the Media Scoreboard for TEAM_LEAD.
+interface TlPerformance {
+  lead: { id: string; fullName: string; team: string | null; department: string };
+  period: { label: string };
+  todayStatus: "SUBMITTED" | "OUTSTANDING" | "NOT_SCHEDULED";
+  compliance: { scheduledDays: number; submittedDays: number; pct: number | null };
+  kpiBreakdown: { kpiKey: string; label: string; unit: string; actualTotal: number; days: number; avgAchievement: number | null; prevAvgAchievement: number | null }[];
+  strongest: { kpiKey: string; label: string; avgAchievement: number } | null;
+  weakest: { kpiKey: string; label: string; avgAchievement: number } | null;
+  sbtsRecords: { kpiKey: string; label: string; actual: number | null; reportDate: string }[];
+  history: { id: string; ref: string; status: string; reportDate: string; sourceType: string; reviewedAt: string | null; reviewer: string | null }[];
+}
+
+function TlPerformancePanel() {
+  const [data, setData] = useState<TlPerformance | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api<TlPerformance>("/api/sbts/tl-performance").then(setData).catch((e) => setError(e instanceof Error ? e.message : "Failed to load"));
+  }, []);
+  if (error) return null; // non-leads never see the panel; server enforces 403
+  if (!data) {
+    return (
+      <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-400">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading your personal performance…
+      </div>
+    );
+  }
+  const statusChip =
+    data.todayStatus === "SUBMITTED"
+      ? { label: "Report submitted today", cls: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" }
+      : data.todayStatus === "OUTSTANDING"
+        ? { label: "Today's report outstanding", cls: "border-amber-400/30 bg-amber-400/10 text-amber-300" }
+        : { label: "Not scheduled today", cls: "border-white/15 bg-white/[0.05] text-slate-300" };
+  return (
+    <div className="rounded-2xl border border-[#eda06a]/30 bg-gradient-to-b from-[#eda06a]/[0.08] to-transparent p-5">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="flex items-center gap-2 text-base font-bold text-slate-100">
+            <ScrollText className="h-4 w-4 text-[#eda06a]" /> My Team Lead Performance
+          </h3>
+          <p className="text-xs text-slate-400">
+            {data.lead.fullName} · period {data.period.label} · your personal record, kept separate from your team&apos;s scoreboard
+          </p>
+        </div>
+        <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-medium", statusChip.cls)}>{statusChip.label}</span>
+      </div>
+
+      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Reporting compliance</p>
+          <p className="text-xl font-bold text-slate-50">{data.compliance.submittedDays}<span className="text-sm font-normal text-slate-400"> / {data.compliance.scheduledDays} working days</span></p>
+          {data.compliance.pct !== null && <p className="text-xs text-slate-400">{data.compliance.pct}% filed</p>}
+        </div>
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Strongest KPI</p>
+          {data.strongest ? (
+            <>
+              <p className="truncate text-sm font-bold text-emerald-300">{data.strongest.label}</p>
+              <p className="text-xs text-slate-400">{data.strongest.avgAchievement}% avg achievement</p>
+            </>
+          ) : <p className="text-sm text-slate-400">—</p>}
+        </div>
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Needs attention</p>
+          {data.weakest ? (
+            <>
+              <p className="truncate text-sm font-bold text-amber-300">{data.weakest.label}</p>
+              <p className="text-xs text-slate-400">{data.weakest.avgAchievement}% avg achievement</p>
+            </>
+          ) : <p className="text-sm text-slate-400">—</p>}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-xl border border-white/10">
+        <table className="w-full text-left text-xs">
+          <thead className="bg-white/[0.04] text-slate-400">
+            <tr>
+              <th className="px-3 py-2 font-semibold">KPI (from your submitted reports)</th>
+              <th className="px-3 py-2 font-semibold">Actual total</th>
+              <th className="px-3 py-2 font-semibold">Days</th>
+              <th className="px-3 py-2 font-semibold">Avg achievement</th>
+              <th className="px-3 py-2 font-semibold">vs last month</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5 text-slate-300">
+            {data.kpiBreakdown.map((k) => {
+              const delta = k.prevAvgAchievement !== null && k.avgAchievement !== null ? k.avgAchievement - k.prevAvgAchievement : null;
+              return (
+                <tr key={k.kpiKey}>
+                  <td className="px-3 py-2 font-medium text-slate-200">{k.label}</td>
+                  <td className="px-3 py-2">{k.actualTotal}{k.unit === "percent" ? "%" : ""}</td>
+                  <td className="px-3 py-2">{k.days}</td>
+                  <td className="px-3 py-2">
+                    {k.avgAchievement === null ? <span className="text-slate-500">no target set</span> : (
+                      <span className="inline-flex items-center gap-2">
+                        <span className="inline-block h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
+                          <span className={cn("block h-full", k.avgAchievement >= 100 ? "bg-emerald-400" : k.avgAchievement >= 80 ? "bg-amber-400" : "bg-rose-400")} style={{ width: `${Math.min(100, k.avgAchievement)}%` }} />
+                        </span>
+                        {k.avgAchievement}%
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    {delta === null ? <span className="text-slate-500">—</span> : (
+                      <span className={cn("inline-flex items-center gap-1", delta >= 0 ? "text-emerald-300" : "text-rose-300")}>
+                        {delta >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                        {delta >= 0 ? "+" : ""}{Math.round(delta * 100) / 100} pts
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {!data.kpiBreakdown.length && (
+              <tr><td className="px-3 py-3 text-slate-400" colSpan={5}>No personal KPI records yet — they appear here automatically once you submit your lead report.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {data.sbtsRecords.length > 0 && (
+        <p className="mt-2 text-[11px] text-slate-400">
+          Media Scoreboard records mapped to your account: {data.sbtsRecords.slice(0, 4).map((r) => `${r.label} ${r.actual ?? "—"} (${r.reportDate})`).join(" · ")}
+        </p>
+      )}
+
+      <div className="mt-3">
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">My report submission history</p>
+        <div className="flex flex-wrap gap-1.5">
+          {data.history.slice(0, 10).map((h) => (
+            <span key={h.id} className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-slate-300">
+              {new Date(h.reportDate).toISOString().slice(0, 10)} · {h.ref} · {h.status}{h.reviewer ? ` · reviewed by ${h.reviewer}` : ""}
+            </span>
+          ))}
+          {!data.history.length && <span className="text-[11px] text-slate-500">No lead reports submitted yet.</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface ScoresPayload {
   scope: "own" | "team" | "all";
   version: string;
@@ -258,6 +403,8 @@ export function MediaScoreboard({ user }: { user: SessionUser }) {
           <AlertCircle className="h-4 w-4" /> {error}
         </div>
       )}
+
+      {user.role === "TEAM_LEAD" && <TlPerformancePanel />}
 
       {own ? (
         <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-6 backdrop-blur">

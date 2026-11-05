@@ -9,7 +9,9 @@ import {
   validateSbtsEvent,
   extractEventId,
   isUniqueViolation,
+  type ValidSbtsEvent,
 } from "@/lib/integrations/sbts";
+import { materializeSbtsKpiResults } from "@/lib/kpi-results";
 
 /**
  * SBTS Media Command Centre ingest — protocol v1.
@@ -77,6 +79,52 @@ export async function POST(req: NextRequest) {
     let duplicates = 0;
     let rejected = 0;
 
+    /**
+     * Post-storage side effects for a FIRST-TIME stored, matched event:
+     *  1. performance.score → normalized KpiResult rows (headline + components),
+     *     idempotent on eventId so replays can never inflate results.
+     *  2. daily.report → an SBTS_IMPORT Report row in the Report Archive with
+     *     the supplied template associated (flagged EXTRACTED_UNCONFIRMED for
+     *     review — SBTS owns scoring, Kallmania never invents numbers from text).
+     * Failures are logged and never break the pipe: the event itself is safe.
+     */
+    const runSideEffects = async (ev: ValidSbtsEvent, uid: string) => {
+      try {
+        const u = await db.user.findUnique({ where: { id: uid }, select: { id: true, team: true, department: true, role: true } });
+        if (!u) return;
+        const owner = { id: u.id, team: u.team, department: u.department || "SOCIAL_MEDIA" };
+        const storedEv = await db.sbtsEvent.findUnique({ where: { eventId: ev.eventId } });
+        if (!storedEv) return;
+        await materializeSbtsKpiResults(storedEv, owner);
+        if (ev.type === "daily.report") {
+          const ref = `SBTS-${ev.eventId}`;
+          const existing = await db.report.findUnique({ where: { ref } });
+          if (!existing) {
+            await db.report.create({
+              data: {
+                ref,
+                type: "SOCIAL",
+                reportDate: new Date(ev.eventDate + "T00:00:00.000Z"),
+                userId: uid,
+                department: owner.department,
+                status: "SUBMITTED",
+                sourceType: "SBTS_IMPORT",
+                verificationStatus: "EXTRACTED_UNCONFIRMED",
+                payload: JSON.stringify({
+                  sections: { report: ev.report },
+                  templateKey: "SBTS_EXTERNAL",
+                  templateName: ev.template ? "SBTS supplied template" : "SBTS free-text (no template supplied)",
+                  template: ev.template ?? null,
+                }),
+              },
+            });
+          }
+        }
+      } catch (err) {
+        console.error("SBTS side-effects failed for", ev.eventId, err);
+      }
+    };
+
     for (const item of batch) {
       const v = validateSbtsEvent(item);
       if (!v.ok) {
@@ -97,6 +145,7 @@ export async function POST(req: NextRequest) {
             delta: ev.delta,
             components: ev.components,
             report: ev.report,
+            reportTemplate: ev.template,
             sentAt: ev.sentAt,
             raw: ev.raw,
             userId,
@@ -105,6 +154,7 @@ export async function POST(req: NextRequest) {
         });
         stored += 1;
         results.push({ eventId: ev.eventId, status: "stored", mapped: userId !== null });
+        if (userId) await runSideEffects(ev, userId);
       } catch (err) {
         if (isUniqueViolation(err)) {
           duplicates += 1;

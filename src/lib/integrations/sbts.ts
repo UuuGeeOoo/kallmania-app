@@ -175,6 +175,8 @@ export interface ValidSbtsEvent {
   delta: number | null;
   components: string | null;
   report: string | null;
+  // Additive v1 extension: optional template text accompanying a daily.report
+  template: string | null;
   sentAt: Date | null;
   raw: string;
 }
@@ -226,6 +228,7 @@ export function validateSbtsEvent(input: unknown): { ok: true; event: ValidSbtsE
   let delta: number | null = null;
   let components: string | null = null;
   let report: string | null = null;
+  let template: string | null = null;
 
   if (type === "performance.score") {
     score = asFiniteNumber(e.score);
@@ -251,6 +254,16 @@ export function validateSbtsEvent(input: unknown): { ok: true; event: ValidSbtsE
     if (!report.trim()) return { ok: false, error: "report is required for daily.report events" };
     if (report.length > SBTS_MAX_REPORT_CHARS)
       return { ok: false, error: `report exceeds ${SBTS_MAX_REPORT_CHARS} characters` };
+    // Optional companion template (additive v1): the report format the external
+    // site says this report follows. Stored and archived WITH the report so the
+    // extraction/mapping can be reviewed against its stated structure — a
+    // missing template is accepted but the report is flagged for review.
+    if (e.template !== undefined && e.template !== null) {
+      if (typeof e.template !== "string") return { ok: false, error: "template must be a string when supplied" };
+      if (e.template.length > SBTS_MAX_REPORT_CHARS)
+        return { ok: false, error: `template exceeds ${SBTS_MAX_REPORT_CHARS} characters` };
+      template = e.template;
+    }
   }
 
   let sentAt: Date | null = null;
@@ -261,7 +274,7 @@ export function validateSbtsEvent(input: unknown): { ok: true; event: ValidSbtsE
 
   return {
     ok: true,
-    event: { eventId, type, agentEmail, eventDate, score, delta, components, report, sentAt, raw: JSON.stringify(e) },
+    event: { eventId, type, agentEmail, eventDate, score, delta, components, report, template, sentAt, raw: JSON.stringify(e) },
   };
 }
 

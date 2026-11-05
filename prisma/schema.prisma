@@ -61,6 +61,7 @@ model User {
   pushPreference    PushPreference?
   activityEvents    ActivityEvent[]
   sbtsEvents        SbtsEvent[]
+  kpiResults        KpiResult[]     @relation("KpiResultOwner")
 }
 
 // ── Application activity tracking (Operational Intelligence module) ────────
@@ -124,6 +125,13 @@ model SbtsEvent {
   matched    Boolean   @default(false)
   // Exact raw JSON payload as received — audit/completeness, unknown fields preserved
   raw        String
+  // Optional report template supplied alongside a daily.report (additive v1
+  // extension): the template text the external site says the report follows.
+  // Stored so the archive can show report + template together and reviewers
+  // can spot a report that does not follow its stated template.
+  reportTemplate String?
+  // Normalized KPI records materialized from this event (SBTS-owned scores)
+  kpiResults KpiResult[] @relation("KpiResultEvent")
 
   @@index([type, agentEmail, eventDate])
   @@index([agentEmail, receivedAt])
@@ -272,7 +280,7 @@ model Report {
   reviewedAt         DateTime?
 
   // ── Provenance ──
-  // MANUAL | UPLOAD_EXTRACTED | CONSOLIDATED
+  // MANUAL | UPLOAD_EXTRACTED | CONSOLIDATED | SBTS_IMPORT
   sourceType   String  @default("MANUAL")
   sourceFileId String?
   // MANUAL_ENTRY | EXTRACTED_UNCONFIRMED | CONFIRMED_BY_EMPLOYEE | REVIEWED_BY_SUPERVISOR
@@ -281,9 +289,64 @@ model Report {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Normalized KPI result records materialized from this report at submit time
+  kpiResults KpiResult[] @relation("KpiResultSource")
+
   @@index([reportDate])
   @@index([userId])
   @@index([type, status])
+}
+
+// ── Normalized KPI result records ───────────────────────────────────────────
+// The machine-readable KPI store: one row per (report|external event) × KPI,
+// written automatically when a report is SUBMITTED (manual, upload-confirmed
+// or team-lead payload) or when a matched SBTS score event lands. The
+// dashboards keep deriving trends from the reports at read time; these rows
+// are the per-KPI audit trail that links every actual value back to its
+// source (report ref, SBTS event id), period, target and verification state.
+// A duplicate submission or replayed external event can never inflate results:
+// every row is idempotent on dedupeKey, and corrections bump `revision` while
+// keeping the previous actual in `previousActual`.
+model KpiResult {
+  id          String   @id @default(cuid())
+  // Idempotency: "report:{reportId}:{kpiKey}" | "tl:{reportId}:{kpiKey}" |
+  // "sbts:{eventId}" | "sbts:{eventId}:{component}"
+  dedupeKey   String   @unique
+  userId      String
+  user        User     @relation("KpiResultOwner", fields: [userId], references: [id], onDelete: Cascade)
+  team        String?
+  department  String
+  kpiKey      String
+  label       String
+  unit        String   @default("count") // count | percent | minutes | score
+  target      Float?
+  actual      Float?
+  // Direction-aware achievement percent; null when target is unset (never faked)
+  achievement Float?
+  // MET | ON_TRACK | BELOW_TARGET | NO_TARGET (shortfall convention: <80%)
+  statusLabel String?
+  // REPORT (agent/social/tech report) | TL_REPORT (team lead's own template
+  // metrics) | SBTS (external Media Command Centre score)
+  source      String
+  reportId    String?
+  report      Report?  @relation("KpiResultSource", fields: [reportId], references: [id], onDelete: Cascade)
+  sbtsEventId String?
+  sbtsEvent   SbtsEvent? @relation("KpiResultEvent", fields: [sbtsEventId], references: [id], onDelete: SetNull)
+  // The reporting day the value belongs to (UTC midnight) + "YYYY-MM" month key
+  reportDate  DateTime
+  periodMonth String
+  // Mirrors the report workflow: SUBMITTED | APPROVED | REJECTED
+  verification String  @default("SUBMITTED")
+  // Correction history: bumped when a resubmitted report refreshes the row
+  revision       Int      @default(1)
+  previousActual Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, reportDate])
+  @@index([reportId])
+  @@index([source, periodMonth])
+  @@index([team, periodMonth])
 }
 
 model ReportTemplate {

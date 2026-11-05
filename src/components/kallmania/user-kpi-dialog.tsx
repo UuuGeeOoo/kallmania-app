@@ -23,6 +23,8 @@ interface UserKpiData {
   recentReports: { id: string; ref: string; type: string; status: string; reportDate: string }[];
   techLabels?: { key: string; label: string }[];
   socialLabels?: { key: string; label: string }[];
+  kpiRecords?: { id: string; kpiKey: string; label: string; unit: string; target: number | null; actual: number | null; achievement: number | null; statusLabel: string | null; source: string; reportDate: string; verification: string; revision: number; reportRef: string | null; sbtsEventId: string | null }[];
+  kpiRecordSummary?: { kpiKey: string; label: string; actualTotal: number; avgAchievement: number | null; status: string }[];
 }
 
 const PERIODS: { key: Period; label: string }[] = [
@@ -160,6 +162,32 @@ export function UserKpiDialog({ user: staff, viewer, open, setOpen }: { user: Us
                     <div key={m.key} className="rounded border border-white/10 px-2 py-1.5 text-[11px]">
                       <p className="truncate text-slate-500">{m.label}</p>
                       <p className="font-semibold text-slate-200">{fmtVal(m.actual, m.unit)}</p>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            {!!data.kpiRecords?.length && (
+              <details>
+                <summary className="cursor-pointer text-[11px] font-semibold uppercase text-[#8b7ff5]">
+                  KPI records ({data.kpiRecords.length} · incl. {data.kpiRecords.filter((r) => r.source === "SBTS").length} from Media Scoreboard)
+                </summary>
+                <div className="mt-2 max-h-52 space-y-1 overflow-y-auto">
+                  {data.kpiRecords.map((rec) => (
+                    <div key={rec.id} className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-1.5 text-[11px]">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-slate-200">{rec.label}</p>
+                        <p className="truncate text-[10px] text-slate-500">
+                          {new Date(rec.reportDate).toISOString().slice(0, 10)} · {rec.source === "SBTS" ? `Media Scoreboard${rec.sbtsEventId ? ` · ${rec.sbtsEventId.slice(0, 10)}…` : ""}` : rec.reportRef ? `report ${rec.reportRef}` : rec.source}{rec.revision > 1 ? ` · corrected (rev ${rec.revision})` : ""}
+                        </p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="font-semibold text-slate-200">{fmtVal(rec.actual, rec.unit)}{rec.target !== null ? <span className="text-slate-500"> / {fmtVal(rec.target, rec.unit)}</span> : ""}</p>
+                        <p className={cn("text-[10px] font-semibold", rec.achievement === null ? "text-slate-500" : pctColor(rec.achievement))}>
+                          {rec.achievement !== null ? `${rec.achievement}%` : rec.statusLabel === "NO_TARGET" ? "no target" : ""}
+                        </p>
+                      </div>
                     </div>
                   ))}
                 </div>

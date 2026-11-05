@@ -84,6 +84,8 @@ async function main() {
   const oldUsers = await db.user.findMany({ where: { email: { in: E2E_EMAILS } }, select: { id: true } });
   const oldIds = oldUsers.map((u) => u.id);
   if (oldIds.length) {
+    await db.kpiResult.deleteMany({ where: { userId: { in: oldIds } } });
+    await db.report.deleteMany({ where: { userId: { in: oldIds } } }); // SBTS_IMPORT archive copies + own reports
     await db.activityEvent.deleteMany({ where: { userId: { in: oldIds } } });
     await db.sbtsEvent.deleteMany({ where: { OR: [{ userId: { in: oldIds } }, { agentEmail: { in: E2E_EMAILS } }] } });
   }
