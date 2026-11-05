@@ -2,13 +2,14 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser, isSupervisorLike, AuthError } from "@/lib/auth";
 import { handle, ok, fail } from "@/lib/api-utils";
+import { resolveKpiDirection } from "@/lib/kpi-engine";
 
 /**
  * GET /api/kpi/results — normalized KPI result records.
  *
- * ?userId=   whose records (default: me)      ?period=day|week|month|year
- * ?date=     anchor date (YYYY-MM-DD)        ?source=REPORT|TL_REPORT|SBTS
- * ?reportId= records of one report (review/archive detail)
+ * ?userId=   whose records (default: me)      ?period=day|week|month|quarter|year|custom
+ * ?date=     anchor date (YYYY-MM-DD)         ?source=REPORT|TL_REPORT|SBTS
+ * ?reportId= records of one report (review/archive detail)  ?from=&to= for custom
  *
  * Access: self for everyone; TEAM_LEAD → own centre's staff; SUPERVISOR →
  * own centre; ADMIN → everyone. reportId access follows the report's owner
@@ -23,7 +24,9 @@ export async function GET(req: NextRequest) {
     const userId = searchParams.get("userId") || me.id;
     const reportId = searchParams.get("reportId");
     const source = searchParams.get("source");
-    const period = (searchParams.get("period") || "month") as "day" | "week" | "month" | "year";
+    const period = (searchParams.get("period") || "month") as "day" | "week" | "month" | "quarter" | "year" | "custom";
+    const from = searchParams.get("from");
+    const to = searchParams.get("to");
     const date = searchParams.get("date") || new Date().toISOString().slice(0, 10);
 
     // ── Access control (backend, not UI) ──
@@ -47,13 +50,17 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // ── Period window (mirrors /api/kpi/summary semantics) ──
+    // ── Period window (mirrors /api/kpi/cumulative semantics) ──
     const anchor = new Date(date + "T00:00:00.000Z");
     let start = new Date(anchor);
     let end = new Date(anchor);
-    if (period === "day") end = new Date(anchor.getTime() + 86_399_999);
+    if (period === "custom" && from && to && /^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to) && from <= to) {
+      start = new Date(from + "T00:00:00.000Z");
+      end = new Date(to + "T23:59:59.999Z");
+    } else if (period === "day") end = new Date(anchor.getTime() + 86_399_999);
     else if (period === "week") { const dow = (anchor.getUTCDay() + 6) % 7; start = new Date(anchor.getTime() - dow * 86_400_000); end = new Date(start.getTime() + 6 * 86_400_000 + 86_399_999); }
     else if (period === "month") { start = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1)); end = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, 0, 23, 59, 59, 999)); }
+    else if (period === "quarter") { const q = Math.floor(anchor.getUTCMonth() / 3); start = new Date(Date.UTC(anchor.getUTCFullYear(), q * 3, 1)); end = new Date(Date.UTC(anchor.getUTCFullYear(), q * 3 + 3, 0, 23, 59, 59, 999)); }
     else { start = new Date(Date.UTC(anchor.getUTCFullYear(), 0, 1)); end = new Date(Date.UTC(anchor.getUTCFullYear(), 11, 31, 23, 59, 59, 999)); }
 
     const where: Record<string, unknown> = {
@@ -62,7 +69,6 @@ export async function GET(req: NextRequest) {
     };
     if (source && ["REPORT", "TL_REPORT", "SBTS"].includes(source)) where.source = source;
     if (reportId) { where.reportId = reportId; delete where.reportDate; }
-
     const [records, bySource] = await Promise.all([
       db.kpiResult.findMany({
         where,
@@ -80,25 +86,70 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    // Compact per-KPI roll-up across the period: actuals sum, achievements
-    // average only over rows that have one — missing data is never zero.
-    const rollup = new Map<string, { kpiKey: string; label: string; unit: string; targetSum: number | null; actualSum: number; days: number; achievements: number[]; worst: number | null }>();
-    for (const r of [...records].sort((a, b) => a.reportDate.getTime() - b.reportDate.getTime())) {
-      const cur = rollup.get(r.kpiKey) ?? { kpiKey: r.kpiKey, label: r.label, unit: r.unit, targetSum: null, actualSum: 0, days: 0, achievements: [] as number[], worst: null as number | null };
-      cur.actualSum += r.actual ?? 0;
+    // Cumulative per-KPI roll-up — the §2.F math: cumulative target = Σ daily
+    // targets, cumulative actual = Σ daily actuals, cumulative variance =
+    // Σ (actual − target), achievement = cumulative actual ÷ cumulative target
+    // (direction-aware; NEVER an average of daily achievement percentages).
+    // Same-day duplicates collapse (latest wins) so a second report of one day
+    // can never double-count. Rows without an actual are noData days — they
+    // stay out of every sum and are counted, not zero-filled.
+    const deptOf = (await db.user.findUnique({ where: { id: targetUserId }, select: { department: true, team: true } }))?.department ?? "";
+    const dirRows = await db.kpiConfig.findMany({ where: { department: { in: [deptOf, "SOCIAL_MEDIA", "WEB_DEV"] }, active: true }, select: { key: true, direction: true } });
+    const directions = new Map(dirRows.map((r) => [r.key, r.direction]));
+    const rollup = new Map<string, {
+      kpiKey: string; label: string; unit: string; targetSum: number | null; actualSum: number | null; varianceSum: number | null;
+      days: number; noDataDays: number; metDays: number; exceededDays: number; missedDays: number; worst: number | null;
+    }>();
+    const byDay = new Map<string, typeof records>();
+    for (const r of records) {
+      const d = new Date(r.reportDate).toISOString().slice(0, 10);
+      const arr = byDay.get(`${r.kpiKey}|${d}`) ?? [];
+      arr.push(r);
+      byDay.set(`${r.kpiKey}|${d}`, arr);
+    }
+    for (const rowsOfKeyDay of byDay.values()) {
+      const latest = [...rowsOfKeyDay].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
+      const cur = rollup.get(latest.kpiKey) ?? {
+        kpiKey: latest.kpiKey, label: latest.label, unit: latest.unit, targetSum: null, actualSum: null, varianceSum: null,
+        days: 0, noDataDays: 0, metDays: 0, exceededDays: 0, missedDays: 0, worst: null as number | null,
+      };
       cur.days += 1;
-      if (r.target !== null) cur.targetSum = (cur.targetSum ?? 0) + r.target;
-      if (r.achievement !== null) {
-        cur.achievements.push(r.achievement);
-        if (cur.worst === null || r.achievement < cur.worst) cur.worst = r.achievement;
+      if (latest.actual === null || latest.actual === undefined) {
+        cur.noDataDays += 1;
+      } else {
+        cur.actualSum = (cur.actualSum ?? 0) + latest.actual;
+        if (latest.target !== null) {
+          cur.targetSum = (cur.targetSum ?? 0) + latest.target;
+          cur.varianceSum = (cur.varianceSum ?? 0) + (latest.actual - latest.target);
+        }
+        const dir = resolveKpiDirection(directions, latest.kpiKey, latest.unit);
+        const d = dir === "LOWER_BETTER"
+          ? latest.target ? Math.round((latest.target / Math.max(latest.actual, Number.EPSILON)) * 10000) / 100 : null
+          : latest.target ? Math.round((latest.actual / latest.target) * 10000) / 100 : null;
+        if (d !== null) {
+          if (d > 100) { cur.exceededDays += 1; } else if (d >= 100) { cur.metDays += 1; } else { cur.missedDays += 1; }
+          if (cur.worst === null || d < cur.worst) cur.worst = d;
+        }
       }
-      rollup.set(r.kpiKey, cur);
+      rollup.set(latest.kpiKey, cur);
     }
     const summary = [...rollup.values()].map((s) => {
-      const avgAch = s.achievements.length ? Math.round((s.achievements.reduce((x, y) => x + y, 0) / s.achievements.length) * 100) / 100 : null;
-      const status = avgAch === null ? "NO_TARGET" : avgAch >= 100 ? "MET" : avgAch >= 80 ? "ON_TRACK" : "BELOW_TARGET";
-      return { kpiKey: s.kpiKey, label: s.label, unit: s.unit, targetTotal: s.targetSum, actualTotal: Math.round(s.actualSum * 100) / 100, days: s.days, avgAchievement: avgAch, worstAchievement: s.worst, status };
-    }).sort((a, b) => (b.avgAchievement ?? -1) - (a.avgAchievement ?? -1));
+      const dir = resolveKpiDirection(directions, s.kpiKey, s.unit);
+      const ach = s.actualSum !== null && s.targetSum !== null && s.targetSum !== 0
+        ? dir === "LOWER_BETTER"
+          ? Math.round((s.targetSum / Math.max(s.actualSum, Number.EPSILON)) * 10000) / 100
+          : Math.round((s.actualSum / s.targetSum) * 10000) / 100
+        : null;
+      const status = s.actualSum === null ? "NO_DATA" : ach === null ? "NO_TARGET" : ach >= 100 ? "MET" : ach >= 80 ? "ON_TRACK" : "BELOW_TARGET";
+      const r2 = (n: number | null) => (n === null ? null : Math.round(n * 100) / 100);
+      return {
+        kpiKey: s.kpiKey, label: s.label, unit: s.unit,
+        cumulativeTarget: r2(s.targetSum), cumulativeActual: r2(s.actualSum), cumulativeVariance: r2(s.varianceSum),
+        achievementPct: ach, status,
+        days: s.days, noDataDays: s.noDataDays, metDays: s.metDays, exceededDays: s.exceededDays, missedDays: s.missedDays,
+        worstDayAchievement: s.worst,
+      };
+    }).sort((a, b) => (b.achievementPct ?? -1) - (a.achievementPct ?? -1));
 
     return ok({
       userId: targetUserId,
@@ -110,6 +161,7 @@ export async function GET(req: NextRequest) {
         target: r.target, actual: r.actual, achievement: r.achievement, statusLabel: r.statusLabel,
         source: r.source, reportDate: r.reportDate, periodMonth: r.periodMonth,
         verification: r.verification, revision: r.revision, previousActual: r.previousActual,
+        extractionConfidence: r.extractionConfidence, evidence: r.evidence,
         report: r.report ? { id: r.report.id, ref: r.report.ref, type: r.report.type, status: r.report.status, sourceType: r.report.sourceType } : null,
         sbtsEvent: r.sbtsEvent ? { eventId: r.sbtsEvent.eventId, eventDate: r.sbtsEvent.eventDate, type: r.sbtsEvent.type } : null,
         updatedAt: r.updatedAt,

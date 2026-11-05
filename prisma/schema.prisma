@@ -340,6 +340,14 @@ model KpiResult {
   // Correction history: bumped when a resubmitted report refreshes the row
   revision       Int      @default(1)
   previousActual Float?
+  // Extraction provenance for values parsed out of external/structured reports
+  // (SBTS Media Scoreboard text): HIGH = explicit Target|Actual|Variance row,
+  // MEDIUM = arithmetic-derived (e.g. inline "5 (+4)" → target = actual−variance),
+  // LOW = partially unparseable row kept for review. Manual rows leave it null.
+  extractionConfidence String?
+  // JSON evidence note: which source line/format the value came from, and why
+  // a value is missing (e.g. "Actual not reported — incomplete extraction").
+  evidence String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

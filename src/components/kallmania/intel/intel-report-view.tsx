@@ -201,6 +201,9 @@ const d = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-GB", {
 type AgentReport = {
   profile: Record<string, string | number | null>;
   kpi: { rows: Record<string, unknown>[]; summary: { meanAchPct: number | null; exceeded: number; met: number; approaching: number; below: number; critical: number; insufficient: number }; submittedDates?: string[] };
+  cumulativeKpi?: { kpis: { kpiKey: string; label: string; unit: string; dailyTarget: number | null; cumulativeTarget: number | null; cumulativeActual: number | null; cumulativeVariance: number | null; achievementPct: number | null; status: string; days: { reported: number; met: number; exceeded: number; missed: number; noData: number }; evidence: string[] }[]; weekly: { kpiKey: string; label: string; cumulativeTarget: number | null; cumulativeActual: number | null }[]; reporting: { expectedDays: number; reportedDays: number; missingDates: string[]; missingCount: number; consistencyPct: number | null; incompleteExtractionDays: number; supersededSameDay: number; note: string }; overall: { achievementPct: number | null; basis: string; cumulativeTarget: number | null; cumulativeActual: number | null } };
+  techTaskProfile?: { assignedDeliverables: number; completedDeliverables: number; outstandingDeliverables: number; overdueDeliverables: number; completionRatePct: number | null; onTimeCompletionRatePct: number | null; tasksCompletedBeyondExpectation: number; carriedIn: number; blocked: number; bugsReported: number; bugsResolved: number; outstandingWork: { label: string; kind: string; detail: string }[]; notes: string[]; basis: Record<string, string> } | null;
+  workCompleted?: { task: string; project: string | null; dates: string[]; deliverables: string[]; timesCompleted: number; reportRefs: string[] }[];
   bestWeakest: { strongest: { label: string; why: string } | null; weakest: { label: string; why: string } | null; largestNegativeVariance: { label: string; variance: number } | null; greatestImprovement: { label: string; deltaPct: number } | null; greatestDecline: { label: string; deltaPct: number } | null; mostConsistent: { label: string; why: string } | null; requiringAttention: { label: string; status: string }[] };
   activity: Record<string, unknown> & { activityTrend: { label: string; submitted: number | null; tasksCompleted: number | null }[] };
   tasks: Record<string, number | null> & { prev: { assigned: number; completed: number; overdue: number } };
@@ -232,6 +235,102 @@ export function AgentReportView({ r }: { r: AgentReport }) {
       <Section title="B. KPI Performance Analysis" subtitle={`Mean achievement ${r.kpi.summary.meanAchPct !== null ? `${r.kpi.summary.meanAchPct}%` : "insufficient data"} — exceeded ${r.kpi.summary.exceeded} · met ${r.kpi.summary.met} · approaching ${r.kpi.summary.approaching} · below ${r.kpi.summary.below} · critical ${r.kpi.summary.critical}`}>
         <KpiTable rows={r.kpi.rows as never} />
       </Section>
+
+      {r.cumulativeKpi && (
+        <Section
+          title="B2. Cumulative KPI Records (report-based engine)"
+          subtitle="Σ actuals ÷ Σ targets per KPI from filed reports and parsed scoreboard rows — never an average of daily percentages; days without a report are flagged MISSING, never zeroed."
+        >
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Stat label="Overall achievement" value={r.cumulativeKpi.overall.achievementPct !== null ? `${r.cumulativeKpi.overall.achievementPct}%` : "n/a"} hint={`Σ${r.cumulativeKpi.overall.cumulativeActual ?? 0} / Σ${r.cumulativeKpi.overall.cumulativeTarget ?? 0}`} />
+            <Stat label="Reporting days" value={`${r.cumulativeKpi.reporting.reportedDays}/${r.cumulativeKpi.reporting.expectedDays}`} hint={r.cumulativeKpi.reporting.consistencyPct !== null ? `${r.cumulativeKpi.reporting.consistencyPct}% consistency` : "no expected days"} />
+            <Stat label="Missing reports" value={String(r.cumulativeKpi.reporting.missingCount)} hint={r.cumulativeKpi.reporting.missingDates.length ? r.cumulativeKpi.reporting.missingDates.slice(0, 3).join(", ") : "none in period"} />
+            <Stat label="Incomplete extractions" value={String(r.cumulativeKpi.reporting.incompleteExtractionDays)} hint="values the source report never stated" />
+          </div>
+          <div className="mt-3 space-y-1.5">
+            {r.cumulativeKpi.kpis.map((k) => (
+              <div key={k.kpiKey} className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium text-slate-200">{k.label}</span>
+                  <span className="tabular-nums text-slate-300">
+                    {k.cumulativeActual ?? "—"} <span className="text-slate-500">/ Σ{k.cumulativeTarget ?? "no target"}</span>
+                    {k.cumulativeVariance !== null && <span className={cn("ml-1 font-semibold", k.cumulativeVariance >= 0 ? "text-emerald-400" : "text-rose-400")}>(variance {k.cumulativeVariance >= 0 ? "+" : ""}{k.cumulativeVariance})</span>}
+                    <span className={cn("ml-1.5 font-bold", k.achievementPct === null ? "text-slate-500" : k.achievementPct >= 100 ? "text-emerald-400" : k.achievementPct >= 80 ? "text-amber-400" : "text-rose-400")}>
+                      {k.achievementPct !== null ? `${k.achievementPct}%` : k.status}
+                    </span>
+                  </span>
+                </div>
+                <p className="mt-0.5 text-[10px] text-slate-500">
+                  {k.days.reported} reported day(s) · exceeded {k.days.exceeded} · met {k.days.met} · missed {k.days.missed}{k.days.noData > 0 ? ` · NOT REPORTED ${k.days.noData}` : ""}
+                  {k.evidence.length ? ` · evidence: ${k.evidence.slice(0, 3).join(", ")}` : ""}
+                </p>
+              </div>
+            ))}
+            {r.cumulativeKpi.kpis.length === 0 && (
+              <p className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+                No verifiable KPI records in this period — absence of data is reported as a gap for review, never as zero achievement or failure.
+              </p>
+            )}
+          </div>
+          {r.cumulativeKpi.weekly.length > 0 && (
+            <p className="mt-2 text-[10px] text-slate-500">Weekly scoreboard rows kept separately (never daily-summed): {r.cumulativeKpi.weekly.map((w) => w.label).join("; ")}.</p>
+          )}
+        </Section>
+      )}
+
+      {(r.workCompleted?.length || r.techTaskProfile) && (
+        <Section
+          title="B3. Work Completed & Outstanding Work (evidence register)"
+          subtitle={r.techTaskProfile ? "Task-based view for a variable-target team — the assignment scope each report declares is the target; counts never substitute for quality." : "Grouped from the submitted reports' own work entries — repeated duties show once with their dates."}
+        >
+          {r.techTaskProfile && (
+            <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Stat label="Assigned deliverables" value={String(r.techTaskProfile.assignedDeliverables)} />
+              <Stat label="Completed" value={String(r.techTaskProfile.completedDeliverables)} hint={r.techTaskProfile.completionRatePct !== null ? `${r.techTaskProfile.completionRatePct}%` : "no assignments"} />
+              <Stat label="Outstanding / overdue" value={`${r.techTaskProfile.outstandingDeliverables} / ${r.techTaskProfile.overdueDeliverables}`} />
+              <Stat label="Bugs resolved / reported" value={`${r.techTaskProfile.bugsResolved} / ${r.techTaskProfile.bugsReported}`} hint="kept strictly separate" />
+            </div>
+          )}
+          {r.techTaskProfile && (
+            <Kv rows={[
+              ["On-time completion", r.techTaskProfile.onTimeCompletionRatePct !== null ? `${r.techTaskProfile.onTimeCompletionRatePct}%` : "no deadline-bearing completions on record (not computable, never guessed)"],
+              ["Beyond expectation", String(r.techTaskProfile.tasksCompletedBeyondExpectation)],
+              ["Blocked (external dependency)", String(r.techTaskProfile.blocked)],
+              ["Carried-in tasks preserved", String(r.techTaskProfile.carriedIn)],
+            ]} />
+          )}
+          {r.workCompleted && r.workCompleted.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400/80">Verified work completed</p>
+              <div className="max-h-56 space-y-1 overflow-y-auto">
+                {r.workCompleted.map((w) => (
+                  <div key={w.task} className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium text-slate-200">{w.task}</span>
+                      <span className="text-[10px] text-slate-500">×{w.timesCompleted} · {w.dates.slice(0, 3).join(", ")}{w.dates.length > 3 ? "…" : ""}</span>
+                    </div>
+                    {w.deliverables.length > 0 && <p className="mt-0.5 line-clamp-2 text-[10px] text-slate-500">{w.deliverables[0]}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {r.techTaskProfile && r.techTaskProfile.outstandingWork.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-400/80">Outstanding / overdue / blocked</p>
+              <div className="max-h-48 space-y-1 overflow-y-auto">
+                {r.techTaskProfile.outstandingWork.map((w, i) => (
+                  <div key={`${w.label}-${i}`} className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs">
+                    <span className={cn("mr-2 rounded px-1.5 py-0.5 text-[10px] font-bold", w.kind === "OVERDUE" ? "bg-rose-400/15 text-rose-300" : w.kind === "BLOCKED" ? "bg-amber-400/15 text-amber-300" : "bg-white/10 text-slate-300")}>{w.kind}</span>
+                    <span className="font-medium text-slate-200">{w.label}</span>
+                    <p className="mt-0.5 text-[10px] text-slate-500">{w.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Section>
+      )}
 
       <Section title="C. Best & Weakest KPI Identification" subtitle="Every classification carries its supporting figures.">
         <Kv rows={[
@@ -329,6 +428,7 @@ type TeamReport = {
   overview: { totalRegistered: number; activeAgents: number; inactive: number; teamLead: { name: string } | null; supervisors: { name: string; centre: string }[]; tasks: Record<string, number | null>; teamKpiRows: Record<string, unknown>[]; meanAgentScore: number | null; reportingCompliancePct: number | null; scheduledAgentDays: number; submittedAgentDays: number; appActivity: { logins: number; meaningfulEvents: number; activeAgents: number }; trend: { label: string; submitted: number | null }[] };
   ranking: { ranked: Record<string, unknown>[]; callouts: Record<string, { name?: string; why?: string; score?: number | null; tasksCompleted?: number; overdue?: number; punctualityPct?: number | null; meaningfulWorkDays?: number; submittedDays?: number } | null> };
   kpiComparison: { teamAverages: { label: string; teamAvg: number | null; row: { target: number | null; actual: number | null } | null }[]; grid: { agent: string; meanAchPct: number | null; strongest: string | null; weakest: string | null; scores: { key: string; achievementPct: number | null }[] }[]; aboveTeamAverage: string[]; belowTeamAverage: string[] };
+  kpiEngineRankings?: { rankings: { id: string; label: string; basis: string; higherIsBetter: boolean; leaders: { agent: string; display: string }[]; needsAttention: { agent: string; display: string; detail: string }[] }[]; measurementNotes: string[] };
   productivity: { usage: Record<string, unknown>[]; mostActive: string | null; leastActive: string | null };
   strengths: { title: string; evidence: string }[];
   weaknesses: { title: string; evidence: string }[];
@@ -404,6 +504,37 @@ export function TeamReportView({ r }: { r: TeamReport }) {
         <Kv rows={r.kpiComparison.teamAverages.map((k) => [k.label, `${k.teamAvg !== null ? `${k.teamAvg}%` : "insufficient data"} (target ${k.row?.target ?? "—"} · actual ${k.row?.actual ?? "—"})`] as [string, string])} />
         <p className="text-[11px] text-slate-400"><span className="font-semibold text-emerald-400">Above team average:</span> {r.kpiComparison.aboveTeamAverage.join(", ") || "—"} · <span className="font-semibold text-rose-400">below team average:</span> {r.kpiComparison.belowTeamAverage.join(", ") || "—"}</p>
       </Section>
+
+      {r.kpiEngineRankings && r.kpiEngineRankings.rankings.length > 0 && (
+        <Section title="C2. KPI-Engine Rankings — each with its measurement basis" subtitle="Different measures stay in separate rankings; raw task counts never substitute for quality, deadlines and verified completion; agents without verifiable data appear in no ranking (never scored as zero).">
+          <div className="space-y-2">
+            {r.kpiEngineRankings.rankings.map((rk) => (
+              <div key={rk.id} className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-slate-100">{rk.label}</span>
+                  <span className="text-[10px] text-slate-500">{rk.higherIsBetter ? "higher is better" : "lower is better"}</span>
+                </div>
+                <p className="mt-0.5 text-[10px] italic text-slate-500">Basis: {rk.basis}</p>
+                <div className="mt-1.5 space-y-1">
+                  {rk.leaders.map((l, i) => (
+                    <div key={l.agent} className="flex flex-wrap items-center justify-between gap-2 rounded border border-white/[0.06] px-2 py-1">
+                      <span className="font-medium text-slate-200">{i + 1}. {l.agent}</span>
+                      <span className="tabular-nums text-slate-300">{l.display}</span>
+                    </div>
+                  ))}
+                  {rk.leaders.length === 0 && <p className="text-[11px] text-slate-500">No agent has data for this measure in the period.</p>}
+                </div>
+                {rk.needsAttention.length > 0 && (
+                  <p className="mt-1.5 text-[10px] text-amber-400/90">Needs attention: {rk.needsAttention.map((a) => `${a.agent} (${a.display})`).join(" · ")}</p>
+                )}
+              </div>
+            ))}
+            {r.kpiEngineRankings.measurementNotes.map((n, i) => (
+              <p key={i} className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2 text-[10px] text-slate-400">{n}</p>
+            ))}
+          </div>
+        </Section>
+      )}
 
       <Section title="D. Team Productivity & Application Usage" subtitle={`Most active: ${r.productivity.mostActive ?? "—"} · least active: ${r.productivity.leastActive ?? "—"} — activity and productivity are separate measurements.`}>
         <div className="overflow-x-auto rounded-xl border border-white/[0.07]">

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { isUniqueViolation } from "@/lib/integrations/sbts";
+import { resolveKpiDirection, rowAchievement } from "@/lib/kpi-engine";
 import type { KpiMetric } from "@/lib/kpi";
 import type { Report, User, SbtsEvent } from "@prisma/client";
 
@@ -16,6 +17,10 @@ import type { Report, User, SbtsEvent } from "@prisma/client";
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type KpiResultSource = "REPORT" | "TL_REPORT" | "SBTS";
+
+// The SBTS daily.report parser/materializer lives in the KPI engine — this
+// re-export keeps every materialization entry point importable from one module.
+export { materializeSbtsReportKpiResults } from "@/lib/kpi-engine";
 
 export interface MaterializeOwner {
   id: string;
@@ -80,7 +85,9 @@ async function upsertKpiResult(row: KpiResultUpsert): Promise<"created" | "updat
   const changed =
     existing.actual !== row.actual ||
     existing.target !== row.target ||
-    existing.verification !== row.verification;
+    existing.verification !== row.verification ||
+    existing.achievement !== row.achievement ||
+    existing.statusLabel !== row.statusLabel;
   if (!changed) return "unchanged";
   await db.kpiResult.update({
     where: { dedupeKey: row.dedupeKey },
@@ -113,6 +120,16 @@ async function effectiveTarget(
   return reportTarget ?? null;
 }
 
+/** KpiConfig catalogue direction per department+key (quality/response-time KPIs
+ *  are LOWER_BETTER — 5h against a 4h budget must grade below target, not above). */
+async function catalogueDirections(department: string): Promise<Map<string, string>> {
+  const rows = await db.kpiConfig.findMany({
+    where: { department, active: true },
+    select: { key: true, direction: true },
+  });
+  return new Map(rows.map((r) => [r.key, r.direction]));
+}
+
 /**
  * Materialize KpiResult rows from an agent/social/tech report's kpiMetrics.
  * Called at SUBMIT time (and on corrections of already-submitted reports).
@@ -138,12 +155,14 @@ export async function materializeReportKpiResults(report: Report, owner: Materia
     periodMonth: monthKey(reportDate),
     verification: report.status,
   };
+  const directions = await catalogueDirections(owner.department);
   let n = 0;
   for (const m of metrics) {
     if (m.actual === null || m.actual === undefined || Number.isNaN(Number(m.actual))) continue;
     const actual = Number(m.actual);
     const target = await effectiveTarget(owner, m.key, m.target ?? null);
-    const { achievement, statusLabel } = achievementFor(actual, target, m.unit || "count");
+    const direction = resolveKpiDirection(directions, m.key, m.unit || "count");
+    const { achievement, statusLabel } = rowAchievement(actual, target, m.unit || "count", direction);
     n += (await upsertKpiResult({
       ...base,
       dedupeKey: `report:${report.id}:${m.key}`,
@@ -246,7 +265,7 @@ export async function materializeSbtsKpiResults(event: SbtsEvent, owner: Materia
       select: { target: true },
     });
     const target = override?.target ?? cfg?.defaultTarget ?? null;
-    const { achievement, statusLabel } = achievementFor(event.score, target, "score");
+    const { achievement, statusLabel } = rowAchievement(event.score, target, "score");
     n += (await upsertKpiResult({
       ...base,
       dedupeKey: `sbts:${event.eventId}`,

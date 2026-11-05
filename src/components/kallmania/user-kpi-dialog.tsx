@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api, fmtDate, ROLE_LABELS, type UserDTO } from "@/lib/client";
 import { EmptyState, StatusBadge } from "@/components/kallmania/shared";
 import { MemberKpiEditor } from "@/components/kallmania/member-kpi-editor";
-import { Loader2, Target, ListTodo, CalendarDays, Settings2 } from "lucide-react";
+import { Loader2, Target, ListTodo, CalendarDays, Settings2, Sigma } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Period = "day" | "week" | "month" | "year";
@@ -33,6 +33,107 @@ const PERIODS: { key: Period; label: string }[] = [
   { key: "month", label: "Monthly" },
   { key: "year", label: "Yearly" },
 ];
+
+interface CumulativeData {
+  cumulative: {
+    kpis: { kpiKey: string; label: string; unit: string; dailyTarget: number | null; cumulativeTarget: number | null; cumulativeActual: number | null; cumulativeVariance: number | null; achievementPct: number | null; status: string; days: { reported: number; met: number; exceeded: number; missed: number; noData: number } }[];
+    weekly: { kpiKey: string; label: string; cumulativeTarget: number | null; cumulativeActual: number | null; achievementPct: number | null }[];
+    reporting: { expectedDays: number; reportedDays: number; missingDates: string[]; missingCount: number; consistencyPct: number | null; incompleteExtractionDays: number; supersededSameDay: number; note: string };
+    overall: { achievementPct: number | null; basis: string; cumulativeTarget: number | null; cumulativeActual: number | null };
+  };
+  dailyRecords: { id: string; date: string; kpiKey: string; label: string; unit: string; target: number | null; actual: number | null; variance: number | null; achievement: number | null; statusLabel: string | null; source: string; extractionConfidence: string | null; ref: string | null }[];
+}
+
+/** The report-based cumulative engine panel (§2.F math over normalized records).
+ *  Yearly maps to a custom Jan 1 → Dec 31 window for the engine API. */
+function CumulativePanel({ userId, period, date }: { userId: string; period: Period; date: string }) {
+  const [data, setData] = useState<CumulativeData | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setErr(null);
+      try {
+        const q = period === "year"
+          ? `period=custom&from=${date.slice(0, 4)}-01-01&to=${date.slice(0, 4)}-12-31`
+          : `period=${period}&date=${date}`;
+        const d = await api<CumulativeData>(`/api/kpi/cumulative?userId=${userId}&${q}`);
+        if (!cancelled) setData(d);
+      } catch (e) {
+        if (!cancelled) setErr((e as Error).message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userId, period, date]);
+  if (err) return <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">Cumulative engine: {err}</p>;
+  if (!data) return <p className="py-2 text-center text-[11px] text-slate-500"><Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> computing cumulative records…</p>;
+  const c = data.cumulative;
+  const kpis = showAll ? c.kpis : c.kpis.slice(0, 6);
+  return (
+    <div className="space-y-2.5 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-[#8b7ff5]"><Sigma className="h-3.5 w-3.5" /> Cumulative KPI (calculated records)</p>
+        <span className="text-[11px] text-slate-400">
+          Overall <span className={cn("font-bold", pctColor(c.overall.achievementPct))}>{c.overall.achievementPct !== null ? `${c.overall.achievementPct}%` : "n/a"}</span>
+        </span>
+      </div>
+      <p className="text-[10px] leading-relaxed text-slate-500">{c.overall.basis} · Σ{c.overall.cumulativeActual ?? 0} actual vs Σ{c.overall.cumulativeTarget ?? 0} target</p>
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          { label: "Reporting days", value: `${c.reporting.reportedDays}/${c.reporting.expectedDays}` },
+          { label: "Missing reports", value: c.reporting.missingCount },
+          { label: "Incomplete extractions", value: c.reporting.incompleteExtractionDays },
+        ].map((s) => (
+          <div key={s.label} className="rounded-lg border border-white/10 px-2 py-1.5 text-center">
+            <p className="text-[10px] text-slate-500">{s.label}</p>
+            <p className={cn("text-sm font-bold tabular-nums", s.label === "Missing reports" && Number(s.value) > 0 ? "text-amber-400" : "text-slate-100")}>{s.value}</p>
+          </div>
+        ))}
+      </div>
+      {c.reporting.missingDates.length > 0 && (
+        <p className="text-[10px] text-amber-400/90">Missing on: {c.reporting.missingDates.slice(0, 8).join(", ")}{c.reporting.missingDates.length > 8 ? "…" : ""} — flagged, never counted as zero.</p>
+      )}
+      {c.reporting.supersededSameDay > 0 && <p className="text-[10px] text-slate-500">{c.reporting.supersededSameDay} same-day duplicate record(s) collapsed (latest wins).</p>}
+      <div className="space-y-1.5">
+        {kpis.map((k) => (
+          <div key={k.kpiKey} className="rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-1.5 text-[11px]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate font-medium text-slate-200">{k.label}</span>
+              <span className="shrink-0 tabular-nums">
+                <span className="text-slate-200">{fmtVal(k.cumulativeActual, k.unit)}</span>
+                <span className="text-slate-500"> / Σ{fmtVal(k.cumulativeTarget, k.unit)}</span>
+                {k.cumulativeVariance !== null && <span className={cn("ml-1 font-semibold", k.cumulativeVariance >= 0 ? "text-emerald-400" : "text-rose-400")}>({k.cumulativeVariance >= 0 ? "+" : ""}{k.cumulativeVariance})</span>}
+                <span className={cn("ml-1.5 font-bold", pctColor(k.achievementPct))}>{k.achievementPct !== null ? `${k.achievementPct}%` : k.status === "NO_DATA" ? "no data" : "no target"}</span>
+              </span>
+            </div>
+            <p className="mt-0.5 text-[10px] text-slate-500">
+              {k.days.reported} reported day(s) · {k.days.exceeded} exceeded · {k.days.met} met · {k.days.missed} missed{k.days.noData > 0 ? ` · ${k.days.noData} NOT REPORTED` : ""}
+            </p>
+          </div>
+        ))}
+        {c.kpis.length > 6 && (
+          <button onClick={() => setShowAll((v) => !v)} className="w-full rounded-lg border border-white/10 py-1 text-[11px] text-slate-400 hover:bg-white/5">
+            {showAll ? "Show less" : `Show all ${c.kpis.length} KPIs`}
+          </button>
+        )}
+      </div>
+      {c.weekly.length > 0 && (
+        <details>
+          <summary className="cursor-pointer text-[10px] font-semibold uppercase text-slate-500">Weekly scoreboard rows (kept separately, never daily-summed)</summary>
+          <div className="mt-1.5 space-y-1">
+            {c.weekly.map((k) => (
+              <div key={k.kpiKey} className="flex justify-between gap-2 rounded border border-white/10 px-2 py-1 text-[10px]">
+                <span className="truncate text-slate-400">{k.label}</span>
+                <span className="shrink-0 tabular-nums text-slate-300">{fmtVal(k.cumulativeActual, "count")} / {fmtVal(k.cumulativeTarget, "count")}{k.achievementPct !== null ? ` · ${k.achievementPct}%` : ""}</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
 
 function pctColor(pct: number | null): string {
   if (pct === null) return "text-slate-500";
@@ -193,6 +294,8 @@ export function UserKpiDialog({ user: staff, viewer, open, setOpen }: { user: Us
                 </div>
               </details>
             )}
+
+            <CumulativePanel userId={staff.id} period={period} date={date} />
 
             {data.recentReports.length > 0 && (
               <div>

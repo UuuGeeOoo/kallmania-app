@@ -12,7 +12,7 @@ import {
   isUniqueViolation,
   type ValidSbtsEvent,
 } from "@/lib/integrations/sbts";
-import { materializeSbtsKpiResults } from "@/lib/kpi-results";
+import { materializeSbtsKpiResults, materializeSbtsReportKpiResults } from "@/lib/kpi-results";
 import { notify } from "@/lib/notify";
 
 /**
@@ -87,8 +87,11 @@ export async function POST(req: NextRequest) {
      * Post-storage side effects for a FIRST-TIME stored, matched event:
      *  1. performance.score → normalized KpiResult rows (headline + components),
      *     idempotent on eventId so replays can never inflate results.
-     *  2. daily.report → an SBTS_IMPORT Report row in the Report Archive with
-     *     the supplied template associated (flagged EXTRACTED_UNCONFIRMED for
+     *  2. daily.report → parsed KPI rows ("Target X | Actual Y | Variance Z",
+     *     inline "A (+V)", weekly RAG rows) materialized as normalized KpiResult
+     *     records — missing actuals become flagged NO_DATA rows, never zeros —
+     *     PLUS an SBTS_IMPORT Report row in the Report Archive with the
+     *     supplied template associated (flagged EXTRACTED_UNCONFIRMED for
      *     review — SBTS owns scoring, Kallmania never invents numbers from text).
      * Failures are logged and never break the pipe: the event itself is safe.
      */
@@ -101,6 +104,7 @@ export async function POST(req: NextRequest) {
         if (!storedEv) return;
         await materializeSbtsKpiResults(storedEv, owner);
         if (ev.type === "daily.report") {
+          await materializeSbtsReportKpiResults(storedEv, owner);
           const ref = `SBTS-${ev.eventId}`;
           const existing = await db.report.findUnique({ where: { ref } });
           if (!existing) {

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { api, type SessionUser } from "@/lib/client";
 import { cn } from "@/lib/utils";
-import { Activity, AlertCircle, ChevronDown, ChevronUp, Copy, FileDown, KeyRound, Loader2, RefreshCw, Radio, ScrollText, TrendingDown, TrendingUp, Minus } from "lucide-react";
+import { Activity, AlertCircle, ChevronDown, ChevronUp, Copy, FileDown, KeyRound, Loader2, RefreshCw, Radio, ScrollText, Sigma, TrendingDown, TrendingUp, Minus } from "lucide-react";
 
 // ── SBTS Media Command Centre scoreboard ────────────────────────────────────
 // Scores are computed by the external SBTS Media Command Centre and pushed
@@ -52,6 +52,77 @@ interface TlPerformance {
   weakest: { kpiKey: string; label: string; avgAchievement: number } | null;
   sbtsRecords: { kpiKey: string; label: string; actual: number | null; reportDate: string }[];
   history: { id: string; ref: string; status: string; reportDate: string; sourceType: string; reviewedAt: string | null; reviewer: string | null }[];
+}
+
+// ── Team cumulative KPI (§2.F engine over normalized records) ───────────────
+// Per-agent cumulative target/actual/variance/achievement computed from the
+// SAME KpiResult records the individual dashboards read — the Media Scoreboard
+// remains the source (its reports were parsed into those records), and the
+// same-day collapse stops a double daily.report from double-counting.
+interface RosterCumulative {
+  user: { id: string; fullName: string; email: string; role: string };
+  cumulative: {
+    kpis: { kpiKey: string; label: string; cumulativeTarget: number | null; cumulativeActual: number | null; cumulativeVariance: number | null; achievementPct: number | null; status: string; days: { reported: number; missed: number; noData: number } }[];
+    reporting: { expectedDays: number; reportedDays: number; missingCount: number; consistencyPct: number | null };
+    overall: { achievementPct: number | null };
+  };
+}
+
+function TeamCumulativePanel() {
+  const [rows, setRows] = useState<RosterCumulative[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    api<{ roster: RosterCumulative[] }>("/api/kpi/cumulative?roster=social&period=month")
+      .then((d) => setRows(d.roster))
+      .catch((e) => setErr(e instanceof Error ? e.message : "Failed to load"));
+  }, []);
+  if (err) return null; // server enforces the 403 — management/lead only
+  if (!rows) {
+    return (
+      <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-400">
+        <Loader2 className="h-4 w-4 animate-spin" /> Computing team cumulative KPI records…
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur">
+      <button className="flex w-full items-center justify-between gap-2" onClick={() => setOpen((v) => !v)}>
+        <p className="flex items-center gap-1.5 text-sm font-bold text-slate-100">
+          <Sigma className="h-4 w-4 text-[#8b7ff5]" /> Team cumulative KPI — calculated from filed scoreboard reports
+        </p>
+        {open ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+      </button>
+      <p className="mt-1 text-[11px] text-slate-500">This month · Σ actuals ÷ Σ targets per KPI (never averaged percentages) · missing working days flagged, never zeroed.</p>
+      {open && (
+        <div className="mt-3 space-y-2">
+          {rows.map((r) => (
+            <div key={r.user.id} className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-100">{r.user.fullName}</p>
+                <p className="text-[11px] text-slate-400">
+                  Overall <span className="font-bold text-[#eda06a]">{r.cumulative.overall.achievementPct !== null ? `${r.cumulative.overall.achievementPct}%` : "n/a"}</span>
+                  <span className="ml-2">reporting {r.cumulative.reporting.reportedDays}/{r.cumulative.reporting.expectedDays} day(s)</span>
+                  {r.cumulative.reporting.missingCount > 0 && <span className="ml-2 rounded bg-amber-400/15 px-1.5 py-0.5 font-semibold text-amber-300">{r.cumulative.reporting.missingCount} missing</span>}
+                </p>
+              </div>
+              <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                {r.cumulative.kpis.slice(0, 6).map((k) => (
+                  <div key={k.kpiKey} className="flex items-center justify-between gap-2 rounded-lg border border-white/10 px-2 py-1 text-[11px]">
+                    <span className="truncate text-slate-300">{k.label}</span>
+                    <span className="shrink-0 tabular-nums text-slate-400">
+                      {k.cumulativeActual ?? "—"} / {k.cumulativeTarget === null ? "no target" : `Σ${k.cumulativeTarget}`}
+                      {k.achievementPct !== null && <span className={cn("ml-1 font-semibold", k.achievementPct >= 100 ? "text-emerald-400" : k.achievementPct >= 80 ? "text-amber-400" : "text-rose-400")}>{k.achievementPct}%</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function TlPerformancePanel() {
@@ -403,6 +474,8 @@ export function MediaScoreboard({ user }: { user: SessionUser }) {
           <AlertCircle className="h-4 w-4" /> {error}
         </div>
       )}
+
+      {(user.role === "TEAM_LEAD" || isManagement) && <TeamCumulativePanel />}
 
       {user.role === "TEAM_LEAD" && <TlPerformancePanel />}
 

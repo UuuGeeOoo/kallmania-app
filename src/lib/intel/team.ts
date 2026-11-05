@@ -10,6 +10,7 @@ import {
   previousPeriod, centreLabelOf, iso, type IntelPeriod, type IntelReportRow,
 } from "./data";
 import { loadMemberOverrides, expectedReportDays } from "./kpi-analysis";
+import { teamEngineCores, deriveRankings } from "./kpi-engine-views";
 import { analyseKpiRows, KPI_STATUS_LABELS, type KpiTargetActual } from "./scoring";
 import { agentCore, rankable, weeklyTrend, type AgentCore } from "./analyze";
 import { aiCommentary } from "./ai";
@@ -151,6 +152,15 @@ export async function buildTeamReport(opts: { team: string | null; teamLeadId: s
   const aboveAvg = grid.filter((g) => g.meanAchPct !== null && teamAvgMean(teamAvgByKey) !== null && (g.meanAchPct as number) >= (teamAvgMean(teamAvgByKey) as number));
   const belowAvg = grid.filter((g) => g.meanAchPct !== null && teamAvgMean(teamAvgByKey) !== null && (g.meanAchPct as number) < (teamAvgMean(teamAvgByKey) as number));
 
+  // ── C2. KPI-engine rankings (§7) — same normalized records as the dashboards;
+  // every ranking carries its measurement basis and different measures stay in
+  // separate lists (volume vs rate vs discipline vs bugs).
+  const engineCores = await teamEngineCores(
+    active.map((u) => ({ id: u.id, fullName: u.fullName, workDays: u.workDays, createdAt: u.createdAt, team: u.team, department: u.department })),
+    period,
+  );
+  const { rankings: engineRankings, separateGrades } = deriveRankings(engineCores);
+
   // ── D. Team productivity & application usage ──
   const usage = cores.map((c) => ({
     agent: c.user.fullName,
@@ -252,6 +262,7 @@ export async function buildTeamReport(opts: { team: string | null; teamLeadId: s
       },
     },
     kpiComparison: { teamAverages: teamAvgByKey, grid, aboveTeamAverage: aboveAvg.map((g) => g.agent), belowTeamAverage: belowAvg.map((g) => g.agent) },
+    kpiEngineRankings: { rankings: engineRankings, measurementNotes: separateGrades },
     productivity: { usage, mostActive: mostActive?.user.fullName ?? null, leastActive: leastActive?.user.fullName ?? null },
     strengths, weaknesses, risks,
     teamLead: leadAnalysis,

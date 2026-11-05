@@ -7,6 +7,7 @@ import {
   type IntelPeriod, type IntelReportRow,
 } from "./data";
 import { userKpiAnalysis, loadMemberOverrides, expectedReportDays } from "./kpi-analysis";
+import { agentCumulativeView, agentTechTaskView, collectWorkCompleted } from "./kpi-engine-views";
 import { performanceScore, loadScoringWeights, meanKpiAchievement, KPI_STATUS_LABELS, type ScoreInputs } from "./scoring";
 import { aiCommentary } from "./ai";
 import type { DataAvailabilityNote, IntelFinding, IntelKpiRow, PerformanceScore, TrendPoint } from "./types";
@@ -82,6 +83,14 @@ export async function buildAgentReport(userId: string, period: IntelPeriod) {
         trendDeltaPct,
       };
     });
+
+  // ── B2. Cumulative KPI records — the engine view over the SAME normalized
+  // records the dashboards use (§9 single source of truth). Sum-based
+  // cumulative math, missing-day flags, per-day evidence.
+  const cumulativeView = await agentCumulativeView(user, period);
+  const isTechTeam = user.team === "TECH";
+  const techView = isTechTeam ? await agentTechTaskView(user.id, reports, period) : null;
+  const workCompleted = collectWorkCompleted(reports.map((r) => ({ ref: r.ref, reportDate: new Date(r.reportDate), status: r.status, workEntries: r.workEntries })));
 
   // ── C. Best & weakest KPI identification ──
   const withAch = kpiWithTrend.filter((r) => r.achievementPct !== null);
@@ -221,6 +230,10 @@ export async function buildAgentReport(userId: string, period: IntelPeriod) {
       submittedDates: kpi.submittedDates,
       summary: { meanAchPct: kpi.meanAchPct, exceeded: kpi.exceeded, met: kpi.met, approaching: kpi.approaching, below: kpi.below, critical: kpi.critical, insufficient: kpi.insufficient, submittedCount: kpi.submittedCount },
     },
+    cumulativeKpi: cumulativeView.cumulative,
+    cumulativeRecords: cumulativeView.dailyRecords,
+    techTaskProfile: techView?.profile ?? null,
+    workCompleted,
     bestWeakest: {
       strongest: strongest ? { label: strongest.label, why: `${strongest.actual} vs target ${strongest.target} = ${strongest.achievementPct}% (${KPI_STATUS_LABELS[strongest.status]})` } : null,
       weakest: weakest ? { label: weakest.label, why: `${weakest.actual ?? "no data"} vs target ${weakest.target} = ${weakest.achievementPct}% (${KPI_STATUS_LABELS[weakest.status]})` } : null,
