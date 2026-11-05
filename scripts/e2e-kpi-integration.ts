@@ -45,8 +45,10 @@ const LEAD = { email: "kpi-lead@kallmania.test", fullName: "E2E KPI Lead", role:
 const OTHER = { email: "kpi-other@kallmania.test", fullName: "E2E KPI Other Agent", role: "SOCIAL_MEDIA", department: "SOCIAL_MEDIA", team: "SOCIAL", employeeId: "E2E-KPI-3", country: "NG", state: "Enugu" };
 const CCAGENT = { email: "kpi-cc@kallmania.test", fullName: "E2E KPI Call Centre Agent", role: "AGENT_BPO", department: "BPO", team: "INBOUND", employeeId: "E2E-KPI-5" };
 const TECHAGENT = { email: "kpi-tech@kallmania.test", fullName: "E2E KPI Tech Agent", role: "DEVELOPER", department: "TECHNICAL", team: "TECH", employeeId: "E2E-KPI-6" };
+const OUTAGENT = { email: "kpi-outbound@kallmania.test", fullName: "E2E KPI Outbound Agent", role: "AGENT_BPO", department: "BPO", team: "OUTBOUND", employeeId: "E2E-KPI-7" };
+const SUP = { email: "kpi-supervisor@kallmania.test", fullName: "E2E KPI Supervisor", role: "SUPERVISOR", department: "BPO", team: null, employeeId: "E2E-KPI-8" };
 const ADMIN = { email: "kpi-admin@kallmania.test", fullName: "E2E KPI Admin", role: "ADMIN", department: "MANAGEMENT", team: null, employeeId: "E2E-KPI-4", country: "NG", state: "Enugu" };
-const ALL = [AGENT, LEAD, OTHER, ADMIN, CCAGENT, TECHAGENT];
+const ALL = [AGENT, LEAD, OTHER, ADMIN, CCAGENT, TECHAGENT, OUTAGENT, SUP];
 const E2E_EMAILS = ALL.map((u) => u.email);
 
 let failures = 0;
@@ -136,8 +138,11 @@ async function main() {
   const agentId = (await db.user.findUnique({ where: { email: AGENT.email } }))!.id;
   const leadId = (await db.user.findUnique({ where: { email: LEAD.email } }))!.id;
   const otherId = (await db.user.findUnique({ where: { email: OTHER.email } }))!.id;
+  const adminId = (await db.user.findUnique({ where: { email: ADMIN.email } }))!.id;
   const ccId = (await db.user.findUnique({ where: { email: CCAGENT.email } }))!.id;
   const techId = (await db.user.findUnique({ where: { email: TECHAGENT.email } }))!.id;
+  const outId = (await db.user.findUnique({ where: { email: OUTAGENT.email } }))!.id;
+  const supId = (await db.user.findUnique({ where: { email: SUP.email } }))!.id;
 
   const KEY = `E2EKPIKEY${randomBytes(24).toString("hex")}`;
   const SECRET = randomBytes(32).toString("hex");
@@ -151,6 +156,8 @@ async function main() {
   const adminCookie = await login(ADMIN);
   const ccCookie = await login(CCAGENT);
   const techCookie = await login(TECHAGENT);
+  const outCookie = await login(OUTAGENT);
+  const supCookie = await login(SUP);
 
   const socialMetrics = [
     { key: "postsCreated", label: "Content Published", target: 5, targetLabel: "5", actual: 7, variance: 2, unit: "count", category: "CORE", auto: false, notes: "" },
@@ -233,6 +240,21 @@ async function main() {
     check("replayed event reported duplicate", (r2.json as { results: { status: string }[] }).results[0].status === "duplicate");
     const recs2 = await call(agentCookie, "/api/kpi/results?period=day&source=SBTS") as unknown as { json: { records: unknown[] } };
     check("replay did NOT inflate KPI records", recs2.json.records.length === recs.json.records.length, `before=${recs.json.records.length} after=${recs2.json.records.length}`);
+
+    // §5 integration reliability — admin error notifications (deduped).
+    const ghostEvt = { eventId: `${eventId}-ghost`, type: "performance.score" as const, agent: { email: "kpi-ghost@nowhere.test" }, date: D2, score: 50 };
+    const g1 = await postEvent(KEY, SECRET, ghostEvt);
+    check("unmapped event stored flagged", g1.status === 200 && (g1.json as { results: { status: string; mapped?: boolean }[] }).results[0].status === "stored" && (g1.json as { results: { mapped?: boolean }[] }).results[0].mapped === false);
+    const badEvt = { eventId: `${eventId}-bad`, type: "bogus.type", agent: { email: AGENT.email }, date: D2 };
+    const b1 = await postEvent(KEY, SECRET, badEvt);
+    check("invalid event rejected at item level (pipe stays 200)", b1.status === 200 && (b1.json as { results: { status: string; error?: string }[] }).results[0].status === "rejected", JSON.stringify((b1.json as { results: { error?: string }[] }).results[0]?.error));
+    const adminNotifs = await db.notification.findMany({ where: { userId: adminId, type: { in: ["SBTS_UNMAPPED_AGENT", "SBTS_EVENT_REJECTED"] } } });
+    check("admin notified of unmapped agent", adminNotifs.some((n) => n.type === "SBTS_UNMAPPED_AGENT" && n.message.includes("kpi-ghost@nowhere.test")));
+    check("admin notified of rejected event", adminNotifs.some((n) => n.type === "SBTS_EVENT_REJECTED" && n.message.includes(`${eventId}-bad`)));
+    await postEvent(KEY, SECRET, ghostEvt); // identical replays must NOT stack pings
+    await postEvent(KEY, SECRET, badEvt);
+    const adminNotifs2 = await db.notification.findMany({ where: { userId: adminId, type: { in: ["SBTS_UNMAPPED_AGENT", "SBTS_EVENT_REJECTED"] } } });
+    check("notification dedupeKey stops replay spam", adminNotifs2.length === adminNotifs.length, `before=${adminNotifs.length} after=${adminNotifs2.length}`);
   }
 
   console.log("── 4. EXTERNAL SITE REPORT + TEMPLATE ──");
@@ -339,10 +361,12 @@ async function main() {
 
   console.log("── 8. ALL-TEAM PIPELINE (master §6/§12: call centre + technical) ──");
   {
-    // AGENT_BPO submit-validation fills every mandatory catalogue key the
-    // production DB requires (the CC agent has no centre → global scope),
-    // then adds one custom metric for exact achievement math.
-    const mandatory = await db.kpiConfig.findMany({ where: { department: { in: ["BPO", "INBOUND"] }, mandatory: true, active: true } });
+    // AGENT_BPO submit-validation fills every mandatory GLOBAL catalogue key
+    // the production DB requires (the CC agent has no centre → global scope;
+    // centre overrides are NOT included — resolveKpiCatalogue merges those
+    // only for centre-bound owners, and feeding them twice for one key would
+    // legitimately bump revisions). One custom metric for exact math.
+    const mandatory = await db.kpiConfig.findMany({ where: { department: "INBOUND", centreCountry: "ALL", centreState: "ALL", mandatory: true, active: true } });
     const ccMetrics = [
       ...mandatory.map((c) => ({ key: c.key, label: c.label, target: c.defaultTarget ?? 1, targetLabel: String(c.defaultTarget ?? 1), actual: c.defaultTarget ?? 1, variance: 0, unit: (c.unit as "count" | "percent" | "minutes") ?? "count", category: "CORE", auto: false, notes: "" })),
       { key: "callsHandled", label: "Calls Handled", target: 50, targetLabel: "50", actual: 60, variance: 10, unit: "count" as const, category: "CORE", auto: false, notes: "" },
@@ -382,6 +406,34 @@ async function main() {
     await call(ccCookie, "/api/reports", { method: "POST", body: JSON.stringify({ id: ccReportId, type: "AGENT_BPO", reportDate: D2, kpiMetrics: ccMetrics, attendanceStatus: "Present" }) });
     const ccRecs2 = await call(ccCookie, "/api/kpi/results?period=day") as unknown as { json: { count: number } };
     check("call-centre correction does not duplicate", ccRecs2.json.count === ccRecs.json.count, `before=${ccRecs.json.count} after=${ccRecs2.json.count}`);
+
+    // OUTBOUND call centre — same AGENT_BPO path, different team. Its
+    // mandatory catalogue (cfgDept "BPO" for non-INBOUND teams) must be
+    // satisfied the same way before submit is accepted.
+    const outMandatory = await db.kpiConfig.findMany({ where: { department: "BPO", centreCountry: "ALL", centreState: "ALL", mandatory: true, active: true } });
+    const outSub = await call(outCookie, "/api/reports", { method: "POST", body: JSON.stringify({
+      type: "AGENT_BPO", reportDate: D2, attendanceStatus: "Present", submit: true,
+      kpiMetrics: [
+        ...outMandatory.map((c) => ({ key: c.key, label: c.label, target: c.defaultTarget ?? 1, targetLabel: String(c.defaultTarget ?? 1), actual: c.defaultTarget ?? 1, variance: 0, unit: (c.unit as "count" | "percent" | "minutes") ?? "count", category: "CORE", auto: false, notes: "" })),
+        { key: "outboundCallsMade", label: "Outbound Calls Made", target: 80, targetLabel: "80", actual: 96, variance: 16, unit: "count", category: "CORE", auto: false, notes: "" },
+      ],
+    }) });
+    check("outbound report submitted", outSub.status === 200 || outSub.status === 201, JSON.stringify(outSub.json).slice(0, 200));
+    const outRecs = await call(outCookie, "/api/kpi/results?period=day") as unknown as { json: { count: number; records: { kpiKey: string; achievement: number | null; statusLabel: string | null; revision: number; previousActual: number | null }[] } };
+    const outMade = outRecs.json.records.find((r) => r.kpiKey === "outboundCallsMade");
+    check("outbound KPI records materialize (96/80 = 120% MET)", outMade?.achievement === 120 && outMade?.statusLabel === "MET", JSON.stringify(outRecs.json));
+    check("first submission lands at revision 1 (no double materialization)", outRecs.json.records.every((r) => r.revision === 1 && r.previousActual === null), JSON.stringify(outRecs.json.records.map((r) => [r.kpiKey, r.revision, r.previousActual])));
+    void outId;
+
+    // SUPERVISOR reports carry consolidated TEAM metrics — per the §7C
+    // separation principle those numbers must never become the supervisor's
+    // PERSONAL KPI records (same rule as team leads).
+    const supSub = await call(supCookie, "/api/reports", { method: "POST", body: JSON.stringify({ type: "SUPERVISOR", reportDate: D2, kpiMetrics: [{ key: "totalCallsMade", label: "Total Calls Made (Team)", target: 500, targetLabel: "500", actual: 610, variance: 110, unit: "count", category: "CORE", auto: false, notes: "" }], attendanceStatus: "Present", submit: true }) });
+    check("supervisor report submitted", supSub.status === 200 || supSub.status === 201, JSON.stringify(supSub.json).slice(0, 200));
+    const supRecs = await call(supCookie, "/api/kpi/results?period=day") as unknown as { json: { count: number } };
+    check("team numbers never become the supervisor's personal records", supRecs.json.count === 0, `count=${supRecs.json.count}`);
+    const supArchived = await db.report.findFirst({ where: { userId: supId, type: "SUPERVISOR", reportDate: new Date(D2 + "T00:00:00.000Z") }, select: { ref: true, status: true, sourceType: true } });
+    check("supervisor report still archived with team data", !!supArchived && supArchived.status === "SUBMITTED", JSON.stringify(supArchived));
   }
 
   console.log("── CLEANUP ──");

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { createHash } from "crypto";
 import { db } from "@/lib/db";
 import { handle, ok, fail } from "@/lib/api-utils";
 import {
@@ -12,6 +13,7 @@ import {
   type ValidSbtsEvent,
 } from "@/lib/integrations/sbts";
 import { materializeSbtsKpiResults } from "@/lib/kpi-results";
+import { notify } from "@/lib/notify";
 
 /**
  * SBTS Media Command Centre ingest — protocol v1.
@@ -78,6 +80,8 @@ export async function POST(req: NextRequest) {
     let stored = 0;
     let duplicates = 0;
     let rejected = 0;
+    const batchUnmappedEmails: string[] = [];
+    const rejectedItems: { eventId: string | null; error: string }[] = [];
 
     /**
      * Post-storage side effects for a FIRST-TIME stored, matched event:
@@ -129,7 +133,9 @@ export async function POST(req: NextRequest) {
       const v = validateSbtsEvent(item);
       if (!v.ok) {
         rejected += 1;
-        results.push({ eventId: extractEventId(item), status: "rejected", error: v.error });
+        const eid = extractEventId(item);
+        results.push({ eventId: eid, status: "rejected", error: v.error });
+        rejectedItems.push({ eventId: eid, error: v.error });
         continue;
       }
       const ev = v.event;
@@ -154,6 +160,7 @@ export async function POST(req: NextRequest) {
         });
         stored += 1;
         results.push({ eventId: ev.eventId, status: "stored", mapped: userId !== null });
+        if (!userId) batchUnmappedEmails.push(ev.agentEmail);
         if (userId) await runSideEffects(ev, userId);
       } catch (err) {
         if (isUniqueViolation(err)) {
@@ -163,6 +170,48 @@ export async function POST(req: NextRequest) {
           throw err;
         }
       }
+    }
+
+    // §5 integration reliability — error notifications. Consolidated per
+    // batch (never per event), admins only, and idempotent: the dedupeKeys
+    // hash the exact batch contents, so an identical replay or a sender's
+    // identical retry can never stack duplicate pings. A notification failure
+    // must never break the pipe.
+    try {
+      if (batchUnmappedEmails.length || rejectedItems.length) {
+        const admins = await db.user.findMany({ where: { role: "ADMIN", status: "APPROVED" }, select: { id: true } });
+        if (batchUnmappedEmails.length) {
+          const uniq = [...new Set(batchUnmappedEmails)].sort();
+          const digest = createHash("sha256").update(uniq.join(",")).digest("hex").slice(0, 16);
+          for (const a of admins) {
+            await notify({
+              userId: a.id,
+              type: "SBTS_UNMAPPED_AGENT",
+              severity: "WARNING",
+              title: `SBTS: event(s) for ${uniq.length} unmapped agent email(s)`,
+              message: `Events arrived from the Media Command Centre for email(s) with no Kallmania account: ${uniq.slice(0, 10).join(", ")}${uniq.length > 10 ? ` … (+${uniq.length - 10} more)` : ""}. Nothing is lost — the events are stored and visible as unmapped under SBTS Scores; reconcile the roster to link them.`,
+              linkData: { emails: uniq.slice(0, 25), source: "sbts-ingest" },
+              dedupeKey: `sbts-unmapped:${digest}`,
+            });
+          }
+        }
+        if (rejectedItems.length) {
+          const digest = createHash("sha256").update(rejectedItems.map((r) => `${r.eventId ?? "-"}:${r.error}`).sort().join("|")).digest("hex").slice(0, 16);
+          for (const a of admins) {
+            await notify({
+              userId: a.id,
+              type: "SBTS_EVENT_REJECTED",
+              severity: "WARNING",
+              title: `SBTS: ${rejectedItems.length} event(s) rejected by validation`,
+              message: rejectedItems.slice(0, 5).map((r) => `• ${r.eventId ?? "(no id)"}: ${r.error}`).join("\n") + (rejectedItems.length > 5 ? `\n… (+${rejectedItems.length - 5} more)` : ""),
+              linkData: { count: rejectedItems.length, source: "sbts-ingest" },
+              dedupeKey: `sbts-rejected:${digest}`,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("SBTS admin notification failed:", err);
     }
 
     return ok({

@@ -73,6 +73,11 @@ async function purgeUsers() {
   const rows = await db.user.findMany({ where: { email: { in: EMAILS } }, select: { id: true } });
   const ids = rows.map((u) => u.id);
   if (!ids.length) return;
+  await db.kpiResult.deleteMany({ where: { userId: { in: ids } } });
+  // SBTS_IMPORT: a matched daily.report ingest creates an archived Report row
+  // owned by the matched user — it must go before the users or the FK swallows
+  // the delete and the next run's seed dies on P2002.
+  await db.report.deleteMany({ where: { userId: { in: ids } } });
   await db.notification.deleteMany({ where: { userId: { in: ids } } });
   await db.pushEvent.deleteMany({ where: { userId: { in: ids } } });
   await db.pushSubscription.deleteMany({ where: { userId: { in: ids } } });
