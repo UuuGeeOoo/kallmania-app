@@ -39,10 +39,24 @@ Revoked credentials keep verifying until `graceUntil` (rotation grace window, de
 ```
 
 - `performance.score`: `score` (0–100, required), `delta` (optional), `components` (object, ≤ 25 finite-number keys, optional).
-- `daily.report`: `report` (required, non-empty, ≤ 20 000 chars).
+- `daily.report`: `report` (required, non-empty, ≤ 20 000 chars), optional `template` (the report-template text accompanying this report — stored with the event and the SBTS_IMPORT archive copy).
 - Limits: body ≤ 1 MB, batch ≤ 100 events (`{"events":[...]}`), `eventId` ≤ 128 chars.
-- Unmapped emails are stored flagged (`matched=false`) and surfaced to admins — the pipe never breaks on a roster miss.
+- Unmapped emails are stored flagged (`matched=false`), surfaced to admins under SBTS Scores → unmapped, AND raise a consolidated `SBTS_UNMAPPED_AGENT` in-app notification to administrators — the pipe never breaks on a roster miss.
+- Item-level validation failures raise a consolidated `SBTS_EVENT_REJECTED` notification to administrators (first 5 `eventId: error` pairs). Both notifications dedupe on a hash of the exact batch contents: identical replays or sender retries never stack duplicate pings.
 - Response: always 200 once authenticated, with per-item `stored | duplicate | rejected` results.
+
+## Report → KPI records (unified pipeline)
+
+Every accepted source writes normalized `KpiResult` rows (kpiKey, target, actual, achievement %, status, source, reportId/sbtsEventId, periodMonth, verification, revision history):
+
+| Source | Trigger | Source value | Dedupe |
+|---|---|---|---|
+| Agent report (AGENT_BPO / TECH / SOCIAL) | submit/approve — never drafts | `REPORT` | `report:{id}:{kpiKey}` |
+| Team-lead report | submit — personal records only, never mixed with team score | `TL_REPORT` | `tl:{id}:{kpiKey}` |
+| Media scoreboard `performance.score` | first-time stored, matched event | `SBTS` | `sbts:{eventId}:{kpiKey}` — replays can never inflate |
+| External site `daily.report` | first-time stored, matched event → SBTS_IMPORT archive copy with the supplied template, flagged `EXTRACTED_UNCONFIRMED` for review | — | `ref = SBTS-{eventId}` |
+
+Supervisor reports intentionally materialize NO personal KPI records: they carry consolidated **team** metrics, and team numbers never become a person's performance record (same separation rule as team leads). Archive rows expose `pipelineStatus`, KPI-record counts, template association and source filters; deleting a report cascades its records (SBTS-sourced rows survive, keyed to their event).
 
 ## Display rules
 
@@ -53,7 +67,9 @@ Revoked credentials keep verifying until `graceUntil` (rotation grace window, de
 
 ## Verification
 
+- `scripts/e2e-kpi-integration.ts` — unified-pipeline suite: report→records, review lifecycle, scoreboard replay dedupe, external report + template, lead personal panel, archive cascade, security 403s, all-team coverage (INBOUND / OUTBOUND call centre, TECH, SUPERVISOR separation), ingest error notifications with replay dedupe.
 - `scripts/e2e-sbts.ts` — 45-check API suite (auth gates, idempotency, validation, scoping, rotation).
 - `scripts/e2e-sbts-browser.mjs` — 14-check real-browser suite (hero card, isolation, admin grid, rotation button).
+- `scripts/e2e-sbts-handover-signed-links.mjs` — logged-out real-browser download of the signed handover links (magic bytes, sizes, tamper notice).
 - `scripts/sbts-live-smoke.ts` — signed round-trip with the production credential (env-provided), cleans up after itself.
 - `scripts/sbts-credentials.ts` — `create | rotate [graceHours] | status` CLI.
