@@ -79,19 +79,35 @@ async function getSession(cookie: string, path: string) {
   return { status: res.status, json };
 }
 
-async function main() {
-  // ── CLEANUP (previous runs) ────────────────────────────────────────────────
-  const oldUsers = await db.user.findMany({ where: { email: { in: E2E_EMAILS } }, select: { id: true } });
-  const oldIds = oldUsers.map((u) => u.id);
-  if (oldIds.length) {
-    await db.kpiResult.deleteMany({ where: { userId: { in: oldIds } } });
-    await db.report.deleteMany({ where: { userId: { in: oldIds } } }); // SBTS_IMPORT archive copies + own reports
-    await db.activityEvent.deleteMany({ where: { userId: { in: oldIds } } });
-    await db.sbtsEvent.deleteMany({ where: { OR: [{ userId: { in: oldIds } }, { agentEmail: { in: E2E_EMAILS } }] } });
+// FK-safe purge: the overdue-report scheduler can address the temporary e2e
+// admin after 18:00 local and land a Notification mid-run, so every FK child
+// (notifications, push, audits) must go BEFORE the users — same defence
+// e2e-sbts-browser.mjs already carries.
+async function purgeUsers() {
+  const rows = await db.user.findMany({ where: { email: { in: E2E_EMAILS } }, select: { id: true } });
+  const ids = rows.map((u) => u.id);
+  if (ids.length) {
+    await db.kpiResult.deleteMany({ where: { userId: { in: ids } } });
+    await db.report.deleteMany({ where: { userId: { in: ids } } }); // SBTS_IMPORT archive copies + own reports
+    await db.notification.deleteMany({ where: { userId: { in: ids } } });
+    await db.pushEvent.deleteMany({ where: { userId: { in: ids } } });
+    await db.pushSubscription.deleteMany({ where: { userId: { in: ids } } });
+    await db.pushPreference.deleteMany({ where: { userId: { in: ids } } }).catch(() => {});
+    await db.auditLog.deleteMany({ where: { userId: { in: ids } } });
+    await db.activityEvent.deleteMany({ where: { userId: { in: ids } } });
+    await db.sbtsEvent.deleteMany({ where: { OR: [{ userId: { in: ids } }, { agentEmail: { in: E2E_EMAILS } }] } });
   }
   await db.sbtsEvent.deleteMany({ where: { agentEmail: { in: [...E2E_EMAILS, "sbts-ghost@nowhere.test"] } } });
   await db.sbtsCredential.deleteMany({ where: { label: { startsWith: "E2E-SBTS" } } });
-  await db.user.deleteMany({ where: { email: { in: E2E_EMAILS } } });
+  // an in-flight overdue check can still land a notification between the
+  // deletes above and here — tolerate it, the caller's next pass catches it
+  await db.user.deleteMany({ where: { email: { in: E2E_EMAILS } } }).catch(() => {});
+}
+
+async function main() {
+  // ── CLEANUP (previous runs) — FK-safe order, retried for stragglers ─────────
+  await purgeUsers();
+  await purgeUsers();
 
   // ── SEED ───────────────────────────────────────────────────────────────────
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
@@ -214,7 +230,10 @@ async function main() {
     check("agent sees ONLY their own reports (email match)", rep1.status === 200 && rj1.reports.length >= 1 && rj1.reports.every((r) => r.agentEmail === A1.email) && rj1.reports.some((r) => r.report.includes("5 creatives")), JSON.stringify(rj1.reports?.map((r) => r.agentEmail)));
     const repLead = await getSession(await login(TL), "/api/sbts/reports");
     const rjL = repLead.json as { reports: { agentEmail: string }[] };
-    check("lead sees team reports (both agents, never outsiders)", repLead.status === 200 && rjL.reports.length >= 2 && rjL.reports.every((r) => [A1.email, A2.email].includes(r.agentEmail)));
+    // The lead's team roster includes REAL production Social-Media agents
+    // (opeace@kallmania.com etc.) — visibility is role+team based, so both e2e
+    // agents must be present and no cross-team identity (BPO/admin) may leak.
+    check("lead sees team reports (both e2e agents present; no cross-team leak)", repLead.status === 200 && [A1.email, A2.email].every((e) => rjL.reports.some((r) => r.agentEmail === e)) && rjL.reports.every((r) => ![BPO.email, ADM.email, TL.email].includes(r.agentEmail)), JSON.stringify(rjL.reports?.map((r) => r.agentEmail)));
     const repAdmin = await getSession(await login(ADM), "/api/sbts/reports?email=" + encodeURIComponent(A2.email));
     const rjA = repAdmin.json as { reports: { agentEmail: string }[] };
     check("admin filtered by email works", repAdmin.status === 200 && rjA.reports.length >= 1 && rjA.reports.every((r) => r.agentEmail === A2.email));
@@ -283,15 +302,7 @@ async function main() {
   }
 
   // ── CLEANUP (this run) ─────────────────────────────────────────────────────
-  const users = await db.user.findMany({ where: { email: { in: E2E_EMAILS } }, select: { id: true } });
-  const ids = users.map((u) => u.id);
-  if (ids.length) {
-    await db.activityEvent.deleteMany({ where: { userId: { in: ids } } });
-    await db.sbtsEvent.deleteMany({ where: { userId: { in: ids } } });
-  }
-  await db.sbtsEvent.deleteMany({ where: { agentEmail: { in: [...E2E_EMAILS, "sbts-ghost@nowhere.test"] } } });
-  await db.sbtsCredential.deleteMany({ where: { label: { startsWith: "E2E-SBTS" } } });
-  await db.user.deleteMany({ where: { email: { in: E2E_EMAILS } } });
+  await purgeUsers();
 
   console.log("─".repeat(50));
   if (failures) {
