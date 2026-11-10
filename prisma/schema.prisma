@@ -73,7 +73,7 @@ model User {
 model ActivityEvent {
   id          String   @id @default(cuid())
   userId      String
-  user        User     @relation(fields: [userId], references: [id])
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   // LOGIN | REPORT_CREATED | REPORT_DRAFT_SAVED | REPORT_DRAFT_RESUMED |
   // REPORT_SUBMITTED | REPORT_UPDATED | REPORT_REVIEWED | TASK_STATUS_CHANGED |
   // TASK_COMPLETED | ESCALATION_RAISED | ESCALATION_REPLIED | ESCALATION_RESOLVED |
@@ -198,7 +198,7 @@ model PasswordResetRequest {
 model MemberKpiConfig {
   id         String  @id @default(cuid())
   userId     String
-  user       User    @relation(fields: [userId], references: [id])
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   department String // BPO | INBOUND | WEB_DEV | SOCIAL_MEDIA
   key        String // metric key from the KPI catalogue
   label      String
@@ -226,7 +226,7 @@ model Report {
   type       String
   reportDate DateTime
   userId     String
-  user       User     @relation("ReportOwner", fields: [userId], references: [id])
+  user       User     @relation("ReportOwner", fields: [userId], references: [id], onDelete: Cascade)
   department String
 
   // ── Shared attendance block (agent & supervisor templates) ──
@@ -435,7 +435,7 @@ model TaskAssignee {
   taskId    String
   task      Task     @relation(fields: [taskId], references: [id])
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   // PENDING | IN_PROGRESS | COMPLETED
   status    String   @default("PENDING")
   createdAt DateTime @default(now())
@@ -485,7 +485,7 @@ model UploadedFile {
   department    String?
   reportId      String?
   userId        String
-  user          User      @relation(fields: [userId], references: [id])
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   confirmedAt   DateTime?
   createdAt     DateTime  @default(now())
   // Text-only mode: the original file was deleted from storage after
@@ -508,7 +508,7 @@ model Notification {
   read      Boolean  @default(false)
   dedupeKey String?  @unique
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, read])
 }
@@ -651,7 +651,7 @@ model PushSubscription {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  user        User           @relation(fields: [userId], references: [id])
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   deliveries  PushDelivery[]
 
   @@index([userId])
@@ -683,7 +683,7 @@ model PushEvent {
   processedAt DateTime?
   dedupeKey   String?   @unique
 
-  user       User           @relation(fields: [userId], references: [id])
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   deliveries PushDelivery[]
 
   @@index([status, nextAttemptAt])
@@ -704,8 +704,8 @@ model PushDelivery {
   nextRetryAt    DateTime?
   createdAt      DateTime  @default(now())
 
-  event        PushEvent        @relation(fields: [eventId], references: [id])
-  subscription PushSubscription @relation(fields: [subscriptionId], references: [id])
+  event        PushEvent        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  subscription PushSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
 
   @@index([eventId])
   @@index([subscriptionId])
@@ -720,7 +720,7 @@ model PushPreference {
   categories  String?
   updatedAt   DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model AuditLog {

@@ -164,6 +164,10 @@ export async function PATCH(req: NextRequest) {
           db.escalation.updateMany({ where: { targetUserId: userId }, data: { targetUserId: null, targetName: user.fullName } }),
           // Individual KPI configurations belong solely to the member
           db.memberKpiConfig.deleteMany({ where: { userId } }),
+          // Password-reset requests registered for the account (by id, or by
+          // email before the account existed) — stale PENDING rows would
+          // otherwise block the same email from ever requesting a reset again
+          db.passwordResetRequest.deleteMany({ where: { OR: [{ userId }, { email: user.email }] } }),
           // Uploaded-file records registered by the user
           db.uploadedFile.deleteMany({ where: { userId } }),
           // Audit trail stays readable (actorName preserved), link to deleted account severed
@@ -177,13 +181,18 @@ export async function PATCH(req: NextRequest) {
           // Tasks the user created — hand ownership to the deleting admin so nothing is lost
           db.task.updateMany({ where: { createdById: userId }, data: { createdById: admin.id } }),
           // Push notification rows (subscriptions, delivery events, preferences) and the
-          // activity feed carry REQUIRED User FKs with RESTRICT semantics — every login,
-          // report action and notification fan-out creates them, so they must be cleared
-          // like every other FK child. Leaving them out made db.user.delete throw P2003,
-          // rolled the whole transaction back and the account silently survived.
-          // PushDelivery is a GRANDCHILD with required RESTRICT FKs to BOTH PushEvent
-          // and PushSubscription (the push worker writes one attempt row per delivery),
-          // so it must be cleared before events and subscriptions.
+          // activity feed carry REQUIRED User FKs — every login, report action and
+          // notification fan-out creates them, so they must be cleared like every other
+          // FK child. Leaving them out made db.user.delete throw P2003, rolled the whole
+          // transaction back and the account silently survived. PushDelivery is a
+          // GRANDCHILD with required FKs to BOTH PushEvent and PushSubscription (the push
+          // worker writes one attempt row per delivery), so it must be cleared before
+          // events and subscriptions.
+          // DB-LEVEL BACKSTOP: every one of these sole-ownership FKs is now also
+          // ON DELETE CASCADE in the database itself (prisma db push, schema.prisma),
+          // so even a straggler row inserted by the lazy push-queue drain between the
+          // purge and the delete can no longer abort the transaction with P2003 —
+          // Postgres removes it together with the user.
           db.pushDelivery.deleteMany({
             where: { OR: [{ event: { userId } }, { subscription: { userId } }] },
           }),

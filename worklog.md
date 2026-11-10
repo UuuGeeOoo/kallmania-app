@@ -1234,3 +1234,43 @@ deletion — purgeUsers() helper (notifications → push → audits → activity
 now runs on setup + twice on cleanup with a straggler retry; suite back to ALL PASS. Regression:
 e2e-sbts-handover-download.mjs ALL PASS, e2e-sbts.ts ALL PASS, tsc 0 src errors, production
 standalone rebuilt and healthy on :3000 (BUILD_ID prod11031847).
+
+## Task 60 — Admin permanent user deletion finally fixed at the DB level (2026-11-11)
+
+User reported AGAIN that admin cannot delete users (screenshot: "Action failed — Invalid
+prisma.user.delete() invocation: Foreign key constraint violated on the constraint:
+PushEvent_userId_fkey"). Root cause this time was NOT the code: the FK-safe purge fix
+(8f19aa2) was sitting locally "ahead 1" — it had NEVER been pushed, so the production host
+(auto-deploys from GitHub) still ran the pre-fix build. Verified via git ls-remote
+(remote main = 35ac16a, local = 8f19aa2).
+
+Hardening shipped on top (defense in depth):
+1. DB-LEVEL CASCADE BACKSTOP — prisma/schema.prisma now declares onDelete: Cascade on every
+   sole-ownership User FK (ActivityEvent, Report "ReportOwner", MemberKpiConfig, TaskAssignee,
+   Notification, PushSubscription, PushEvent, PushDelivery.event + .subscription (grandchild),
+   PushPreference, UploadedFile) and scripts/… applied with TWO prisma db push runs against the
+   live Supabase (first run missed UploadedFile — the live-FK inspector caught it). Verified in
+   the LIVE database with scripts/inspect-user-fks.ts (information_schema dump + pg_stat counts):
+   10 RESTRICT FKs flipped to CASCADE; only Task.createdById (repointed to the deleting admin)
+   and Escalation.fromId (escalations the user sent are purged) remain RESTRICT by design.
+   The exact reported failure mode — bare user.delete with live PushEvent rows — is now
+   impossible at the Postgres level, so the push-worker straggler race is dead too.
+2. PasswordResetRequest hygiene — the delete transaction now also removes password-reset
+   requests by userId OR email (bare column, no FK; stale PENDING rows would otherwise block a
+   same-email re-registration from ever requesting a reset). Comment block updated to document
+   the DB backstop.
+3. scripts/e2e-user-delete.mjs (28/28 ALL PASS) — seeds a victim user with EVERY child type
+   (report + KpiResult, escalation + message/event/read thread, push subscription/event/
+   delivery/preference, activity, memberKpiConfig, uploadedFile, taskAssignee, password-reset
+   rows by id AND email, audit, SBTS event, notifications incl. a colleague's linkData copy)
+   plus shared rows (victim reviewed a colleague's report, authored a notice, created a task,
+   was escalation target). Proves via the real API: non-admin 403, admin-delete 400, delete
+   200, every sole-ownership row gone, every shared row kept with the link severed
+   (reviewedById/authorId/targetUserId/audit.userId/sbts.userId → null, task creator → admin),
+   DELETE_USER audited; PLUS a bare prisma user.delete on a PushEvent-only user (the exact
+   P2003 from the bug report) now succeeds via DB cascade. Regression: e2e-kpi-integration.ts
+   ALL PASS (call-centre 60/50=120% MET, technical 75% BELOW_TARGET + 100.81% uptime, outbound
+   96/80=120% MET, revision-1 guard, supervisor team-number separation).
+Deployment note: production host kallmaniareportingcentre.space-z.ai picks this up on its
+next auto-deploy cycle from GitHub (it was serving the stale build because 8f19aa2 never
+reached the remote). Sandbox .env re-healed to the Supabase pooler URL after the recycle.
