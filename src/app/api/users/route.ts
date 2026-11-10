@@ -127,26 +127,37 @@ export async function PATCH(req: NextRequest) {
       }
       case "delete": {
         if (user.role === "ADMIN") return fail("Cannot delete an administrator account");
-        const reportCount = await db.report.count({ where: { userId } });
-        const userFiles = await db.uploadedFile.findMany({ where: { userId }, select: { storedName: true } });
-        const sentEscalations = await db.escalation.findMany({ where: { fromId: userId }, select: { id: true } });
+        // Pre-queries are independent — run them in parallel to keep the
+        // round-trip count down against the remote Postgres.
+        const [reportCount, userFiles, sentEscalations] = await Promise.all([
+          db.report.count({ where: { userId } }),
+          db.uploadedFile.findMany({ where: { userId }, select: { storedName: true } }),
+          db.escalation.findMany({ where: { fromId: userId }, select: { id: true } }),
+        ]);
         // Permanently remove the account and every record tied to it — atomically.
         // Foreign-key children are cleared/re-pointed first so the delete can never fail
         // with a constraint violation (the old silent-failure bug).
-        await db.$transaction([
+        const deleteTransaction = () => db.$transaction([
           // Reports owned by the user
           db.report.deleteMany({ where: { userId } }),
           // Reports the user reviewed/approved — keep the reports, drop the reviewer link
           db.report.updateMany({ where: { reviewedById: userId }, data: { reviewedById: null } }),
           // Report templates the user last updated — keep templates, drop the link
           db.reportTemplate.updateMany({ where: { updatedById: userId }, data: { updatedById: null } }),
-          // Notifications belong solely to the user
-          db.notification.deleteMany({ where: { userId } }),
-          // Inbox copies held by OTHERS that point at this user's escalations
-          db.notification.deleteMany({ where: { OR: sentEscalations.map((e) => ({ linkData: { contains: e.id } })) } }),
-          // Alerts held by OTHERS that are ABOUT this user (e.g. overdue-report alerts reference
-          // them in linkData/dedupeKey) — meaningless once the account is gone
-          db.notification.deleteMany({ where: { OR: [{ linkData: { contains: `"userId":"${userId}"` } }, { dedupeKey: { contains: `:${userId}:` } }] } }),
+          // Notifications: the user's own inbox, inbox copies held by OTHERS that point at
+          // this user's escalations, and alerts held by OTHERS that are ABOUT this user
+          // (overdue-report alerts reference them in linkData/dedupeKey) — all meaningless
+          // once the account is gone. One merged pass instead of three.
+          db.notification.deleteMany({
+            where: {
+              OR: [
+                { userId },
+                ...sentEscalations.map((e) => ({ linkData: { contains: e.id } })),
+                { linkData: { contains: `"userId":"${userId}"` } },
+                { dedupeKey: { contains: `:${userId}:` } },
+              ],
+            },
+          }),
           // Escalations the user sent belong solely to them
           db.escalation.deleteMany({ where: { fromId: userId } }),
           // Escalations targeted directly at the user — keep them, drop the link
@@ -165,8 +176,37 @@ export async function PATCH(req: NextRequest) {
           db.notice.updateMany({ where: { authorId: userId }, data: { authorId: null, authorName: user.fullName } }),
           // Tasks the user created — hand ownership to the deleting admin so nothing is lost
           db.task.updateMany({ where: { createdById: userId }, data: { createdById: admin.id } }),
+          // Push notification rows (subscriptions, delivery events, preferences) and the
+          // activity feed carry REQUIRED User FKs with RESTRICT semantics — every login,
+          // report action and notification fan-out creates them, so they must be cleared
+          // like every other FK child. Leaving them out made db.user.delete throw P2003,
+          // rolled the whole transaction back and the account silently survived.
+          // PushDelivery is a GRANDCHILD with required RESTRICT FKs to BOTH PushEvent
+          // and PushSubscription (the push worker writes one attempt row per delivery),
+          // so it must be cleared before events and subscriptions.
+          db.pushDelivery.deleteMany({
+            where: { OR: [{ event: { userId } }, { subscription: { userId } }] },
+          }),
+          db.pushSubscription.deleteMany({ where: { userId } }),
+          db.pushEvent.deleteMany({ where: { userId } }),
+          db.pushPreference.deleteMany({ where: { userId } }),
+          db.activityEvent.deleteMany({ where: { userId } }),
           db.user.delete({ where: { id: userId } }),
         ]);
+        // The push queue drains lazily in the background (dashboard loads) and can
+        // insert a PushDelivery row between the delivery purge and the event/
+        // subscription purge — a P2003 there is a race with the worker, not a
+        // refusal. Retries the whole transaction (atomic either way) until the
+        // straggler batch is out of the way.
+        for (let attempt = 1; ; attempt++) {
+          try {
+            await deleteTransaction();
+            break;
+          } catch (e) {
+            const code = (e as { code?: string })?.code;
+            if (code !== "P2003" || attempt >= 3) throw e;
+          }
+        }
         // Best-effort cleanup of the user's physical upload files (DB rows are already gone)
         await Promise.all(userFiles.map((f) => unlink(path.join(STORAGE_DIR, f.storedName)).catch(() => {})));
         await audit({ userId: admin.id, actorName: admin.fullName, action: "DELETE_USER", entity: "User", entityId: userId, details: `Permanently deleted ${user.email} — ${reportCount} report(s) removed, ${userFiles.length} upload(s) purged` });
