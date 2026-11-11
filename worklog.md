@@ -1295,3 +1295,29 @@ next-service-dist (exactly what FC runs): 8/8 PASS — page render, /api/auth, w
 login (DB+bcrypt roundtrip), temp-admin login, admin user list (28 real users), permanent
 user delete via the Task-60 cascade path, DB row gone. Pushed so the platform deploy retries
 with the slim package.
+
+## Task 62 — deploy still red after the payload slim: pipeline hardened to never package a broken .env (2026-11-11)
+
+Follow-up to Task 61: production kallmaniareportingcentre.space-z.ai still returned 500 on
+every route, so the FC deploy had not yet succeeded with the slim package. Workspace audit
+after the sandbox recycle found the second failure mode: the recycle had reset .env to the
+scaffold SQLite fallback (DATABASE_URL=file:/home/z/my-project/db/custom.db) — the file
+EXISTS, so build.sh's missing-file self-heal never fired, and the deploy pipeline packages
+whatever .env is in the workspace. A packaged file: URL is corrected at runtime by the
+db.ts guard (verified: the packaged dist boots and serves via Supabase regardless), but a
+deploy package must be self-consistent — bad env in the artifact is one refactor away from
+an outage. Also confirmed the shell itself exports DATABASE_URL=file:... (which overrides
+.env for direct Prisma tooling; the @next/env-loaded server is protected by the db.ts guard).
+
+Fix (committed .zscripts/build.sh): self-heal 2 restores .env from .env.local whenever it
+contains a file: URL; self-heal 3 aborts the build outright if the env is STILL a file:
+URL with no .env.local backup — fail the package, never ship a broken one. Workspace .env
+and .env.local restored to the Supabase pooler URL.
+
+Verification: full .zscripts/build.sh pipeline run green (exit 0, package 36MB vs 59MB
+last-known-good); packaged next-service-dist/.env is the pooler URL; the exact deployed
+artifact (extracted tarball, node server.js) passed the payload smoke 8/8 — home 200 +
+Kallmania HTML, /api/auth up, wrong-password login → 401 (DB+bcrypt roundtrip), temp-admin
+login, admin list (28 real users), permanent user delete via the Task-60 cascade path, row
+gone from DB. Pushed so the platform's next auto-deploy cycle picks up the hardened
+pipeline; production polled until green.

@@ -32,6 +32,27 @@ if [ ! -f ".env" ] && [ -f ".env.local" ]; then
     cp .env.local .env
 fi
 
+# 自愈 2（2026-11-11 部署失败复盘）：沙箱回收会把 .env 重置为脚手架的 SQLite 回退
+# （DATABASE_URL=file:/home/z/my-project/db/custom.db）。文件"存在"，上面的缺失自愈
+# 不触发，于是一个指向构建机本机路径的 file: URL 被打进部署包。虽然 src/lib/db.ts
+# 的运行时守卫会把非法 URL 纠正回云端库（线上不会因此挂库），但产物自洽必须以正确
+# 的 .env 为准：只要检测到 file: 回退且存在 .env.local 备份，就恢复，不让坏配置出包。
+if grep -qE '^DATABASE_URL=file:' .env 2>/dev/null && [ -f ".env.local" ]; then
+    echo "🛟  .env 被重置为 SQLite 回退（疑似沙箱回收），已从 .env.local 自动恢复"
+    cp .env.local .env
+fi
+
+# 自愈 3（终极兜底）：.env 缺失/损坏且没有 .env.local 备份时，绝不让坏配置出包——
+# 直接中止构建并给出明确报错。src/lib/db.ts 的运行时守卫虽能兜底纠正 URL，但
+# 部署产物里带着一个确定指向本机 SQLite 的 DATABASE_URL 是隐患（例如有人日后
+# 移除守卫、或调试时误信包内 .env）。宁可让部署在打包阶段失败并暴露原因，
+# 也不要打出一个"能部署但连错库"的包。
+if [ -f ".env" ] && grep -qE '^DATABASE_URL=file:' .env; then
+    echo "❌ 构建中止：.env 仍是 SQLite 回退（file: URL）且无 .env.local 可恢复。"
+    echo "   请在项目根目录写入正确的 DATABASE_URL（Supabase pooler）后重新部署。"
+    exit 1
+fi
+
 # 设置环境变量
 export NEXT_TELEMETRY_DISABLED=1
 
