@@ -1274,3 +1274,24 @@ Hardening shipped on top (defense in depth):
 Deployment note: production host kallmaniareportingcentre.space-z.ai picks this up on its
 next auto-deploy cycle from GitHub (it was serving the stale build because 8f19aa2 never
 reached the remote). Sandbox .env re-healed to the Supabase pooler URL after the recycle.
+
+## Task 61 — "Failed deploying code": FC payload blown past its limit by runtime-irrelevant binaries (2026-11-11)
+
+User reported the production deploy failing ("failed deploying code"); the registered host
+kallmaniareportingcentre.space-z.ai went from serving 200 to the platform "Failed" page
+(500 on every route). Diagnosis: the .zscripts/build.sh pipeline PASSES locally (exit 0,
+full artifact set) — the failure is the PACKAGE: the tar.gz had grown 59MB (last known-good,
+Oct) → 64MB, right at the FC package/cold-start budget. The bloat was output tracing sweeping
+in runtime-irrelevant binaries: sharp's musl libvips copy (17MB — debian always loads the
+glibc linux-x64 variant), the full TypeScript compiler (20MB, nothing requires it at runtime),
+and Prisma wasm engines for cockroachdb/mysql/sqlserver/sqlite (~40MB uncompressed; no
+@prisma/adapter-* driver adapters exist — the node runtime loads
+libquery_engine-debian-openssl-3.0.x.so.node from .prisma/client).
+
+Fix: next.config.ts outputFileTracingExcludes second wave — musl/arm64 sharp variants,
+node_modules/typescript/**, and the non-postgresql Prisma wasm engine+compiler files.
+Payload: 64MB → 36MB tar.gz. Verified scripts/smoke-payload.mjs against the TRIMMED
+next-service-dist (exactly what FC runs): 8/8 PASS — page render, /api/auth, wrong-password
+login (DB+bcrypt roundtrip), temp-admin login, admin user list (28 real users), permanent
+user delete via the Task-60 cascade path, DB row gone. Pushed so the platform deploy retries
+with the slim package.
